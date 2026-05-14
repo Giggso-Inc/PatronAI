@@ -28,6 +28,7 @@ from .helpers          import sev_badge
 from .filtered_table   import search_box, apply_search_dicts
 from .clickable_metric import clickable_metric, static_metric
 from .drill_panel      import render_drill_panel
+from .ai_posture_card  import render_ai_posture
 
 _PANEL = "mgr_inventory"
 
@@ -46,13 +47,20 @@ def _owner_of(e: dict) -> str:
 
 
 def render_inventory(events: list) -> None:
-    """Asset summary KPIs, endpoint-protection banner, and asset table."""
+    """AI Posture card (headline) → KPI cards → asset table."""
     q = search_box("inventory", placeholder="search owner / IP / MAC …")
     if q:
         events = apply_search_dicts(events, q)
 
     keys = [_asset_key(e) for e in events]
     unique_keys = list(dict.fromkeys(keys))
+
+    # Headline — aggregated AI Posture card. Single risk score +
+    # per-category breakdown replaces the count-of-everything KPI noise.
+    # When compacted findings_current rows are available they're used;
+    # otherwise we degrade gracefully to raw events.
+    device_label = unique_keys[0] if len(unique_keys) == 1 else f"{len(unique_keys)} devices"
+    render_ai_posture(events, device_label=device_label)
 
     # KPIs count DISTINCT DEVICES, not event rows. A laptop emitting a
     # scan every 30 min must show as 1 device + N scan events, never
