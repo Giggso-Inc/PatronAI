@@ -60,6 +60,7 @@ COPY agent/     ./agent/
 COPY assets/    ./assets/
 COPY docs/      ./docs/
 COPY main.py    .
+COPY api.py     .
 
 # Streamlit config — dark theme + server settings (from .streamlit/config.toml)
 RUN mkdir -p /root/.streamlit
@@ -70,7 +71,10 @@ RUN useradd -m -u 1000 scanner \
     && chown -R scanner:scanner /app /root/.streamlit
 USER scanner
 
-EXPOSE 8501
+# 8501 — Streamlit settings UI
+# 8002 — Integration REST API (bearer-auth required; MUST be placed behind a
+#         reverse proxy / firewall — do NOT expose directly to the internet)
+EXPOSE 8501 8002
 
 # ── Marauder Scan — llama.cpp binaries ───────────────────────
 # Build llama-cli and llama-server from source.
