@@ -9,8 +9,8 @@
     "contact_email": ""
   },
   "cloud": {
-    "provider": "aws",
-    "region": "us-east-1",
+    "provider": "oci",
+    "region": "us-chicago-1",
     "_note_provider": "Options: aws | gcp | azure \u2014 drives which providers/ adapter loads"
   },
   "storage": {

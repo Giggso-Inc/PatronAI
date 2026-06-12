@@ -1,0 +1,5 @@
+# Place your SSL cert files here:
+# nginx.crt — full chain certificate
+# nginx.key — private key
+# These are generated/obtained outside the repo and placed here before deployment.
+# NEVER commit actual cert files to git.

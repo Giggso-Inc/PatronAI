@@ -93,7 +93,7 @@ fi
 # (which we set to /models = the named volume) and runs a single
 # token prediction to confirm load succeeded. Then exits.
 info "Downloading $HF_REPO into volume $VOLUME (one-time, ~750 MB)..."
-info "This usually takes 3-5 min on a typical EC2 connection."
+info "This usually takes 3-5 min on a typical connection."
 docker run --rm \
     -v "$VOLUME":/models \
     -e LLAMA_CACHE=/models \

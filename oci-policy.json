@@ -1,0 +1,25 @@
+{
+  "_comment": "OCI IAM Policy for PatronAI — apply in OCI Console → Identity → Policies",
+  "_version": "1.0.0",
+  "_updated": "2026-06-11",
+  "_owner": "Giggso Inc",
+  "_usage": "Create this policy in your OCI compartment to grant PatronAI the minimum required permissions",
+
+  "policy_statements": [
+    "Allow group patronai-scanners to manage objects in compartment <your-compartment> where target.bucket.name='patronai-scan-*'",
+    "Allow group patronai-scanners to manage buckets in compartment <your-compartment> where target.bucket.name='patronai-scan-*'",
+    "Allow group patronai-scanners to use ons-topics in compartment <your-compartment>",
+    "Allow group patronai-scanners to manage ons-subscriptions in compartment <your-compartment>",
+    "Allow group patronai-scanners to read instances in compartment <your-compartment>",
+    "Allow group patronai-scanners to read vnics in compartment <your-compartment>",
+    "Allow group patronai-scanners to read vnic-attachments in compartment <your-compartment>"
+  ],
+
+  "_notes": [
+    "Replace <your-compartment> with your actual compartment name",
+    "Create group 'patronai-scanners' in OCI Console → Identity → Groups",
+    "Add your OCI user to this group",
+    "Customer Secret Keys (S3-compat) are used for Object Storage — no extra policy needed",
+    "VCN Flow Logs require Logging service permissions — add separately if needed"
+  ]
+}
