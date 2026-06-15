@@ -1,0 +1,7 @@
+{
+  "bucket":           "patronai-scan-bucket",
+  "region":           "us-chicago-1",
+  "company":          "your-company-slug",
+  "s3_endpoint_url":  "https://<namespace>.compat.objectstorage.us-chicago-1.oraclecloud.com",
+  "_note":            "OCI Object Storage S3-compatible endpoint. Get namespace from OCI Console."
+}

@@ -14,7 +14,7 @@
 set -euo pipefail
 
 BUCKET="${1:-marauder-scan-company}"
-REGION="${2:-us-chicago-1}"
+REGION="${2:-us-east-1}"
 COMPANY="${3:-company}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

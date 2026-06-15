@@ -2,8 +2,8 @@
 # =============================================================
 # FILE: scripts/run_regression.sh
 # PROJECT: PatronAI
-# VERSION: 1.1.0
-# UPDATED: 2026-04-18
+# VERSION: 2.0.0
+# UPDATED: 2026-06-11
 # OWNER: Giggso Inc
 # PURPOSE: Full regression test suite against LocalStack.
 #          Starts LocalStack if not running, runs all unit and
@@ -86,8 +86,8 @@ else
         --name "$LOCALSTACK_CONTAINER" \
         --rm \
         -p "${LOCALSTACK_PORT}:4566" \
-        -e SERVICES=s3,sns,ec2,cloudtrail \
-        -e DEFAULT_REGION=us-east-1 \
+        -e SERVICES=s3 \
+        -e DEFAULT_REGION=us-chicago-1 \
         -e DEBUG=0 \
         localstack/localstack:3.4 >/dev/null 2>&1
     LOCALSTACK_STARTED_BY_US=true
@@ -107,8 +107,9 @@ fi
 # ── Environment ───────────────────────────────────────────────
 export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
-export AWS_DEFAULT_REGION=us-east-1
+export AWS_DEFAULT_REGION=us-chicago-1
 export AWS_ENDPOINT_URL="http://localhost:${LOCALSTACK_PORT}"
+export S3_ENDPOINT_URL="http://localhost:${LOCALSTACK_PORT}"
 export MARAUDER_SCAN_BUCKET=marauder-scan-test
 export PYTHONPATH="$REPO_DIR/src:$REPO_DIR"
 
@@ -281,7 +282,7 @@ footer{{text-align:center;padding:28px 0;font-family:'JetBrains Mono',monospace;
 
 <div class="section">
   <div class="sec-hdr">
-    <div class="sec-title">Integration Tests &nbsp;·&nbsp; LocalStack · S3 · SNS · full pipeline cycle</div>
+    <div class="sec-title">Integration Tests &nbsp;·&nbsp; LocalStack · OCI Object Storage simulation · full pipeline cycle</div>
     <div class="badge {ib}">{intg_pass} passed &nbsp; {intg_fail} failed</div>
   </div>
   <pre>{colour_lines(intg_log)}</pre>

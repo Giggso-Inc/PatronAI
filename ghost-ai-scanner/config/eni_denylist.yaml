@@ -1,59 +1,60 @@
 # =============================================================
 # FILE: config/eni_denylist.yaml
-# VERSION: 1.0.0
-# UPDATED: 2026-04-19
+# VERSION: 2.0.0
+# UPDATED: 2026-06-11
 # OWNER: Giggso Inc
-# PURPOSE: Defines the 5 classes of AWS-managed ENIs that must be
-#          filtered before VPC Flow Log normalisation. Each class
-#          will never produce AI signals. Filtering here saves S3
-#          cost and scanner CPU on every scan cycle.
+# PURPOSE: Defines the 5 classes of OCI-managed VNICs that must be
+#          filtered before VCN Flow Log normalisation. Each class
+#          will never produce AI signals. Filtering here saves
+#          OCI Object Storage cost and scanner CPU on every scan cycle.
+#          OCI migration: replaced AWS ENI types with OCI VNIC equivalents.
 # LOADED BY: src/normalizer/eni_filter.py — load_eni_patterns()
 # AUDIT LOG:
-#   v1.0.0  2026-04-19  Initial — 5 ENI denylist rules
+#   v1.0.0  2026-04-19  Initial (AWS ENI denylist — 5 rule types)
+#   v2.0.0  2026-06-11  OCI migration — AWS ENI types → OCI VNIC equivalents:
+#                         EFS mount target     → OCI File Storage mount target
+#                         NAT Gateway          → OCI NAT Gateway
+#                         VPC Endpoint         → OCI Service Gateway
+#                         ELB                  → OCI Load Balancer
+#                         Lambda VPC ENI       → OCI Functions VNIC
 # =============================================================
 
 rules:
 
   efs:
-    # EFS mount targets are AWS-managed storage endpoints.
-    # All flow log rows are NODATA (no real traffic crosses them at
-    # the network layer visible to flow logs). Confirmed on
-    # eni-01e3b69272285a061 (EFS mount target for
-    # fs-0aa9f0a411ce090be, RequesterManaged=True).
-    # Match on description prefix OR AWS EFS service requester ID.
-    description_prefix: "EFS mount target"
-    requester_id: "641247547298"
-    reason: "efs"
+    # OCI File Storage mount target VNICs.
+    # Equivalent of AWS EFS mount targets.
+    # All flow log rows are NODATA (no real AI traffic).
+    # Match on description prefix.
+    description_prefix: "File Storage"
+    requester_id: ""
+    reason: "oci_file_storage"
 
   nat:
-    # NAT Gateway ENIs aggregate ALL outbound traffic from private
-    # subnets. They appear as the source in flow logs, masking the
-    # real originating EC2. PatronAI matches on destination domain —
-    # NAT ENIs produce no useful signal and add noise.
+    # OCI NAT Gateway VNICs aggregate ALL outbound traffic from
+    # private subnets. They mask the real originating OCI VM.
+    # PatronAI matches on destination domain — NAT VNICs add noise.
     interface_type: "nat_gateway"
-    reason: "nat"
+    reason: "oci_nat_gateway"
 
   vpce:
-    # VPC Endpoint ENIs carry AWS PrivateLink traffic that stays
-    # within the AWS backbone (S3, ECR, SSM etc). These destinations
-    # are never AI providers. Filtering here removes ~15-25% of
-    # typical enterprise VPC flow volume.
+    # OCI Service Gateway VNICs carry OCI service traffic that stays
+    # within the OCI backbone (Object Storage, etc).
+    # Equivalent of AWS VPC Endpoints (PrivateLink).
+    # These destinations are never AI providers.
     interface_type: "vpc_endpoint"
-    reason: "vpce"
+    reason: "oci_service_gateway"
 
   elb:
-    # Load Balancer ENIs handle inbound traffic distribution.
-    # The actual client is the originating device — the ELB ENI
-    # is the forwarder. PatronAI needs the originating src_ip,
+    # OCI Load Balancer VNICs handle inbound traffic distribution.
+    # Equivalent of AWS ELB. PatronAI needs the originating src_ip,
     # not the load balancer hop.
-    description_prefix: "ELB "
-    reason: "elb"
+    description_prefix: "LB "
+    reason: "oci_load_balancer"
 
   lambda:
-    # Lambda VPC ENIs are created by AWS when a Lambda function is
-    # attached to a VPC. When the function is idle they emit
-    # continuous NODATA flows. Active invocations are short-lived
-    # and their traffic is not AI provider traffic (Lambda functions
-    # are server-side code, not client AI calls).
-    description_prefix: "AWS Lambda VPC ENI"
-    reason: "lambda"
+    # OCI Functions VNICs — created when a Function is attached to a VCN.
+    # Equivalent of AWS Lambda VPC ENIs.
+    # Idle functions emit continuous NODATA flows.
+    description_prefix: "OCI Functions"
+    reason: "oci_functions"

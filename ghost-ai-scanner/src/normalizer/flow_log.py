@@ -1,13 +1,13 @@
 # =============================================================
 # FILE: src/normalizer/flow_log.py
-# VERSION: 1.1.0
-# UPDATED: 2026-04-19
+# VERSION: 2.0.0
+# UPDATED: 2026-06-11
 # OWNER: Giggso Inc
-# PURPOSE: Parse VPC Flow Log lines and Zeek conn.log JSON records
+# PURPOSE: Parse OCI VCN Flow Log lines and Zeek conn.log JSON records
 #          into flat universal schema. Network layer only —
 #          no process information available at this level.
-#          v1.1.0: ENI denylist filter applied before normalisation.
-#          Filters 5 AWS-managed ENI types (EFS/NAT/VPCE/ELB/Lambda).
+#          v2.0.0: OCI migration — VCN Flow Logs replace VPC Flow Logs.
+#          VNIC denylist filter applied before normalisation.
 # DEPENDS: normalizer.schema, normalizer.eni_filter
 # AUDIT LOG:
 #   v1.0.0  2026-04-18  Initial
@@ -28,7 +28,7 @@ log = logging.getLogger("marauder-scan.normalizer.flow_log")
 
 # ── Module-level init — runs once per container lifecycle ─────
 _BUCKET   = os.environ.get("MARAUDER_SCAN_BUCKET", "")
-_REGION   = os.environ.get("AWS_REGION", "us-east-1")
+_REGION   = os.environ.get("AWS_REGION", "us-chicago-1")  # boto3 var holds OCI region
 _ACCT_ID  = os.environ.get("AWS_ACCOUNT_ID", "")
 
 _DENYLIST_PATH = os.path.join(
@@ -103,7 +103,7 @@ def parse_vpc(raw: str, company: str = "") -> Optional[dict]:
     event["protocol"]       = proto
     event["bytes_out"]      = bytes_tx
     event["asset_type"]     = infer_asset_type(src_ip)
-    event["cloud_provider"] = "aws"
+    event["cloud_provider"] = "oci"
 
     # Convert epoch timestamp to ISO
     try:

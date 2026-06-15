@@ -90,7 +90,7 @@ def protocol_number(proto: str) -> str:
 
 
 def infer_asset_type(ip: str) -> str:
-    """Rough heuristic — RFC1918 = laptop/on-prem, else EC2."""
+    """Rough heuristic — RFC1918 = laptop/on-prem, else OCI VM."""
     if any(ip.startswith(p) for p in ("10.", "172.16.", "192.168.")):
         return "laptop"
     return "ec2"

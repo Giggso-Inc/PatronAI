@@ -69,7 +69,7 @@ _HELP: dict[str, str] = {
         "query your security data using the same 8 analytics tools "
         "available in this chat.\n\n"
         "**Transport:** SSH stdio (V1) — no HTTP port, auth via RSA key.\n"
-        "**Setup:** run `bash scripts/deploy_to_ec2.sh` → Step 6 prints "
+        "**Setup:** run `bash deploy_to_oci.sh` → Step 6 prints "
         "the config block to paste into "
         "`~/.config/claude/claude_desktop_config.json`."
     ),

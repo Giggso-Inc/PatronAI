@@ -28,7 +28,7 @@ from botocore.exceptions import ClientError
 log = logging.getLogger("patronai.chat.history")
 
 _BUCKET  = os.environ.get("MARAUDER_SCAN_BUCKET", "")
-_REGION  = os.environ.get("AWS_REGION", "us-east-1")
+_REGION  = os.environ.get("AWS_REGION", "us-chicago-1")
 _WINDOW  = 20  # max messages loaded on widget open
 
 

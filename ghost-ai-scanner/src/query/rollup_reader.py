@@ -30,7 +30,7 @@ import boto3
 log = logging.getLogger("marauder-scan.query.rollup_reader")
 
 _BUCKET = os.environ.get("MARAUDER_SCAN_BUCKET", "")
-_REGION = os.environ.get("AWS_REGION", "us-east-1")
+_REGION = os.environ.get("AWS_REGION", "us-chicago-1")
 
 _VALID_DIMS = {"provider", "user", "severity", "device", "category"}
 _VALID_SCOPES = {"user", "tenant"}

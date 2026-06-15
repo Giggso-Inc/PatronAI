@@ -45,7 +45,7 @@ class Ingestor:
         self._prefix   = s3_cfg.get("ocsf_prefix", "ocsf/")
         self._max_files = settings.get("scanner", {}).get("max_files_per_cycle", 100)
         self._company  = settings.get("company", {}).get("slug", "")
-        self._region   = settings.get("cloud", {}).get("region", "us-east-1")
+        self._region   = settings.get("cloud", {}).get("region", "us-chicago-1")
 
         self._walker   = S3Walker(self._bucket, self._region)
 

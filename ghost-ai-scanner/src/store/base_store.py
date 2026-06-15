@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: src/store/base_store.py
-# VERSION: 1.1.0
-# UPDATED: 2026-05-01
+# VERSION: 2.0.0
+# UPDATED: 2026-06-11
 # PURPOSE: Shared base class for all store modules.
 #          Initialises boto3 S3 client and bucket reference once.
 #          Every store inherits this — no repeated setup code.
@@ -9,7 +9,10 @@
 # DEPENDS: boto3
 # AUDIT LOG:
 #   v1.0.0  2026-04-18  Initial.
-#   v1.1.0  2026-05-01  Force SigV4 (signature_version='s3v4') on every
+#   v1.1.0  2026-05-01  Force SigV4
+#   v2.0.0  2026-06-11  OCI migration — added S3_ENDPOINT_URL support
+#                       for OCI Object Storage S3-compatible endpoint.
+#                       Region default updated us-east-1 → us-chicago-1. (signature_version='s3v4') on every
 #                       store's S3 client. boto3 may default to deprecated
 #                       SigV2 in some configs; SigV2 only works for
 #                       us-east-1 buckets, fails under SSE-KMS, and is
@@ -41,13 +44,19 @@ class BaseStore:
     Inherit this — get S3 for free.
     """
 
-    def __init__(self, bucket: str, region: str = "us-east-1"):
+    def __init__(self, bucket: str, region: str = "us-chicago-1"):
         # Single S3 client shared across all methods in the subclass.
         # SigV4 forced via _S3_CLIENT_CONFIG (see module docstring).
+        # S3_ENDPOINT_URL env var directs boto3 to OCI Object Storage
+        # S3-compatible endpoint instead of AWS S3.
+        import os
         self.bucket = bucket
-        self.s3 = boto3.client("s3", region_name=region,
-                                config=_S3_CLIENT_CONFIG)
         self.region = region
+        endpoint = os.environ.get("S3_ENDPOINT_URL", "")
+        client_kwargs = {"region_name": region, "config": _S3_CLIENT_CONFIG}
+        if endpoint:
+            client_kwargs["endpoint_url"] = endpoint
+        self.s3 = boto3.client("s3", **client_kwargs)
 
     def _get(self, key: str) -> bytes:
         """Fetch raw bytes from S3. Returns empty bytes if key not found."""

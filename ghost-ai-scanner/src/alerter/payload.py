@@ -4,7 +4,7 @@
 # UPDATED: 2026-04-19
 # OWNER: Ravi Venugopal, Giggso Inc
 # PURPOSE: Build standardised alert payload from a flat finding event.
-#          Same payload structure sent to SNS, Trinity and LogAnalyzer.
+#          Same payload structure sent to ONS, Trinity and LogAnalyzer.
 #          Flat JSON — no nested paths — any tool reads this directly.
 #          hash_emails flag: SHA-256 PII fields before dispatch.
 # DEPENDS: nothing — pure stdlib
@@ -28,7 +28,7 @@ def build(event: dict, identity: dict, company: str = "",
           hash_emails: bool = False) -> dict:
     """
     Build a flat alert payload from a finding event and resolved identity.
-    Sent to SNS subject + body, Trinity webhook POST and LogAnalyzer referral.
+    Sent to ONS subject + body, Trinity webhook POST and LogAnalyzer referral.
     Every field always present — empty string if not available.
     When hash_emails=True, owner and email are SHA-256 hashed before dispatch.
     """
@@ -83,7 +83,7 @@ def build(event: dict, identity: dict, company: str = "",
 
 
 def subject(payload: dict) -> str:
-    """One-line SNS subject. Under 100 chars for email delivery."""
+    """One-line ONS subject. Under 100 chars for email delivery."""
     return (
         f"[MARAUDER SCAN {payload['severity']}] "
         f"{payload['provider']} — "

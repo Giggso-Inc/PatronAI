@@ -5,7 +5,7 @@
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: LLM client factory. Reads config from env vars first,
 #          then AWS Parameter Store (SSM) as fallback — so local
-#          dev uses .env and EC2 production uses Parameter Store
+#          dev uses .env and OCI production uses .env on OCI VM
 #          with zero code changes.
 #
 #          Default: openai_compat → http://localhost:8080 (llama.cpp)

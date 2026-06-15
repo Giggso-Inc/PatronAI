@@ -1,19 +1,23 @@
 # =============================================================
 # FILE: src/normalizer/eni_filter.py
-# VERSION: 1.0.1
-# UPDATED: 2026-04-19
+# VERSION: 2.0.0
+# UPDATED: 2026-06-11
 # OWNER: Giggso Inc
-# PURPOSE: ENI denylist filter for VPC Flow Log normalisation.
-#          Loads 5 ENI type patterns from config/eni_denylist.yaml.
-#          Checks each ENI against the denylist using cached metadata.
+# PURPOSE: OCI VNIC denylist filter for VCN Flow Log normalisation.
+#          OCI migration: replaced AWS ENI metadata (EC2 API) with
+#          OCI VNIC metadata (OCI Core API).
+#          Loads VNIC type patterns from config/eni_denylist.yaml.
 #          Cache miss = fail open (never drop unclassified flows).
-#          Filter counts logged as eni_filtered_total{reason=...}
-#          (Prometheus-compatible naming — swap Counter for
-#          prometheus_client.Counter when that dep is added).
-# DEPENDS: pyyaml, boto3
+#          Filter counts logged as vnic_filtered_total{reason=...}
+# DEPENDS: pyyaml, boto3 (for S3 cache read), oci SDK (optional)
 # AUDIT LOG:
-#   v1.0.0  2026-04-19  Initial — 5 rule types, S3 cache, 6h refresh
-#   v1.0.1  2026-04-19  Fix: load_eni_cache stored full JSON obj; extract enis key
+#   v1.0.0  2026-04-19  Initial (AWS ENI filter)
+#   v1.0.1  2026-04-19  Fix: load_eni_cache stored full JSON obj
+#   v2.0.0  2026-06-11  OCI migration — replaced EC2 ENI metadata
+#                       with OCI VNIC metadata. Cache still stored
+#                       in OCI Object Storage (S3-compat). Filter
+#                       logic unchanged — same 5 rule types mapped
+#                       to OCI VNIC equivalents.
 # =============================================================
 
 import json
@@ -26,52 +30,55 @@ from typing import Optional
 import boto3
 import yaml
 
-log = logging.getLogger("marauder-scan.normalizer.eni_filter")
+log = logging.getLogger("marauder-scan.normalizer.vnic_filter")
 
-# Module-level cache — populated by load_eni_cache(), refreshed every 6h
-_eni_cache:        dict              = {}
+_vnic_cache:       dict               = {}
 _cache_loaded_at:  Optional[datetime] = None
 _CACHE_TTL_HOURS   = 6
-_CACHE_S3_KEY      = "cache/eni_metadata.json"
+_CACHE_S3_KEY      = "cache/vnic_metadata.json"  # OCI Object Storage key
 
-# Prometheus-compatible filter counter: {reason: count}
-eni_filtered_total: Counter = Counter()
+# Prometheus-compatible filter counter
+eni_filtered_total: Counter = Counter()  # name kept for backwards compat
 
 
 def load_eni_patterns(path: str) -> dict:
     """
-    Load ENI denylist rules from YAML file.
-    Returns dict keyed by rule name (efs, nat, vpce, elb, lambda).
-    Returns empty dict and logs error on any failure — caller must
-    treat empty patterns as pass-through (fail open).
+    Load VNIC denylist rules from YAML file.
+    Returns dict keyed by rule name.
+    Returns empty dict on failure — caller treats as pass-through (fail open).
     """
     try:
         with open(path, "r") as fh:
             data = yaml.safe_load(fh)
         rules = data.get("rules", {})
-        log.info(f"ENI denylist loaded: {len(rules)} rules from {path}")
+        log.info(f"VNIC denylist loaded: {len(rules)} rules from {path}")
         return rules
     except Exception as e:
-        log.error(f"Failed to load ENI denylist [{path}]: {e}")
+        log.error(f"Failed to load VNIC denylist [{path}]: {e}")
         return {}
 
 
-def load_eni_cache(bucket: str, region: str = "us-east-1") -> None:
+def load_eni_cache(bucket: str, region: str = "us-chicago-1") -> None:
     """
-    Pull cache/eni_metadata.json from S3 into module-level _eni_cache.
+    Pull cache/vnic_metadata.json from OCI Object Storage into module-level cache.
+    Uses boto3 S3-compat with S3_ENDPOINT_URL for OCI Object Storage.
     Called at startup and every _CACHE_TTL_HOURS hours.
     Fails silently — stale or missing cache means fail-open filtering.
     """
-    global _eni_cache, _cache_loaded_at
+    global _vnic_cache, _cache_loaded_at
     try:
-        s3   = boto3.client("s3", region_name=region)
+        endpoint = os.environ.get("S3_ENDPOINT_URL", "")
+        s3_kwargs = {"region_name": region}
+        if endpoint:
+            s3_kwargs["endpoint_url"] = endpoint
+        s3   = boto3.client("s3", **s3_kwargs)
         resp = s3.get_object(Bucket=bucket, Key=_CACHE_S3_KEY)
         data = json.loads(resp["Body"].read().decode("utf-8"))
-        _eni_cache       = data.get("enis", {})
+        _vnic_cache      = data.get("vnics", data.get("enis", {}))  # support both key names
         _cache_loaded_at = datetime.now(timezone.utc)
-        log.info(f"ENI metadata cache loaded: {len(_eni_cache)} ENIs from s3://{bucket}/{_CACHE_S3_KEY}")
+        log.info(f"VNIC metadata cache loaded: {len(_vnic_cache)} VNICs from oci://{bucket}/{_CACHE_S3_KEY}")
     except Exception as e:
-        log.warning(f"ENI cache load failed — fail-open mode active: {e}")
+        log.warning(f"VNIC cache load failed — fail-open mode active: {e}")
 
 
 def cache_is_stale() -> bool:
@@ -81,60 +88,65 @@ def cache_is_stale() -> bool:
     return datetime.now(timezone.utc) - _cache_loaded_at > timedelta(hours=_CACHE_TTL_HOURS)
 
 
-def enrich_with_metadata(eni_id: str) -> dict:
+def enrich_with_metadata(vnic_id: str) -> dict:
     """
-    Look up ENI ID in module-level cache.
-    Returns metadata dict on hit, empty dict on miss.
-    Empty dict → caller must fail open (never drop unclassified flows).
+    Look up VNIC ID in module-level cache.
+    Returns metadata dict on hit, empty dict on miss (fail open).
     """
-    return _eni_cache.get(eni_id, {})
+    return _vnic_cache.get(vnic_id, {})
 
 
 def is_denied_eni(eni_meta: dict, patterns: dict, account_id: str = "") -> tuple:
     """
-    Check ENI metadata against the 5 denylist rule types.
+    Check VNIC metadata against denylist rule types.
     Returns (True, reason_str) if denied, (False, "") if allowed.
     Empty eni_meta (cache miss) → always returns (False, "") — fail open.
     Increments eni_filtered_total[reason] counter on every denial.
+
+    OCI VNIC equivalents to AWS ENI types:
+      efs     → OCI File Storage mount target VNIC
+      nat     → OCI NAT Gateway VNIC
+      vpce    → OCI Service Gateway VNIC
+      elb     → OCI Load Balancer VNIC
+      lambda  → OCI Functions VNIC
     """
-    # Cache miss — fail open, never drop unclassified flows
     if not eni_meta:
         return False, ""
 
-    desc       = eni_meta.get("Description", "")
-    iface_type = eni_meta.get("InterfaceType", "")
-    req_id     = eni_meta.get("RequesterId", "")
-    owner_id   = eni_meta.get("OwnerId", "")
-    req_managed = eni_meta.get("RequesterManaged", False)
+    desc       = eni_meta.get("Description", "") or eni_meta.get("display_name", "")
+    iface_type = eni_meta.get("InterfaceType", "") or eni_meta.get("vnic_type", "")
+    req_id     = eni_meta.get("RequesterId", "") or eni_meta.get("requester_id", "")
+    owner_id   = eni_meta.get("OwnerId", "") or eni_meta.get("owner_id", "")
+    req_managed = eni_meta.get("RequesterManaged", False) or eni_meta.get("is_managed", False)
 
-    # Rule 1: EFS — description prefix OR known AWS EFS requester account
+    # Rule 1: File Storage (OCI equivalent of EFS)
     efs = patterns.get("efs", {})
     if desc.startswith(efs.get("description_prefix", "\x00")) or \
             req_id == efs.get("requester_id", ""):
         eni_filtered_total["efs"] += 1
         return True, "efs"
 
-    # Rule 2: NAT Gateway — InterfaceType field
+    # Rule 2: NAT Gateway VNIC
     if iface_type == patterns.get("nat", {}).get("interface_type", "\x00"):
         eni_filtered_total["nat"] += 1
         return True, "nat"
 
-    # Rule 3: VPC Endpoint — InterfaceType field
+    # Rule 3: Service Gateway (OCI equivalent of VPC Endpoint)
     if iface_type == patterns.get("vpce", {}).get("interface_type", "\x00"):
         eni_filtered_total["vpce"] += 1
         return True, "vpce"
 
-    # Rule 4: ELB — description prefix
+    # Rule 4: Load Balancer VNIC
     if desc.startswith(patterns.get("elb", {}).get("description_prefix", "\x00")):
         eni_filtered_total["elb"] += 1
         return True, "elb"
 
-    # Rule 5: Lambda idle ENI — description prefix
+    # Rule 5: OCI Functions VNIC (equivalent of Lambda)
     if desc.startswith(patterns.get("lambda", {}).get("description_prefix", "\x00")):
         eni_filtered_total["lambda"] += 1
         return True, "lambda"
 
-    # Overarching rule: drop any other AWS-managed ENI not owned by this account
+    # Drop any OCI-managed VNIC not owned by this tenancy
     if req_managed and account_id and owner_id != account_id:
         eni_filtered_total["managed_foreign"] += 1
         return True, "managed_foreign"

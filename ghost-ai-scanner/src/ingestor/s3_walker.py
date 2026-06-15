@@ -1,3 +1,4 @@
+import os
 # =============================================================
 # FILE: src/ingestor/s3_walker.py
 # VERSION: 2.0.0
@@ -36,7 +37,7 @@ _VALID_SUFFIXES = (".json", ".json.gz", ".jsonl", ".jsonl.gz", ".log.gz", ".log"
 class S3Walker:
     """Walk S3 ocsf/ prefix; return objects modified after a cursor timestamp."""
 
-    def __init__(self, bucket: str, region: str = "us-east-1"):
+    def __init__(self, bucket: str, region: str = "us-chicago-1"):
         self.bucket = bucket
         self.s3     = boto3.client("s3", region_name=region)
 

@@ -2,14 +2,14 @@
 # =============================================================
 # FILE: agent/install/git_hook_pre_commit.sh
 # PROJECT: PatronAI — Marauder Scan code layer
-# VERSION: 1.0.0
-# UPDATED: 2026-04-18
+# VERSION: 2.0.0
+# UPDATED: 2026-06-11
 # OWNER: Giggso Inc
 # PURPOSE: Installs a pre-commit git hook on the device.
 #          Hook extracts diffs on every commit, checks for AI
 #          signal patterns, ships matching diffs to S3.
 #          Zero inference. Zero LLM. Runs in milliseconds.
-#          EC2 scanner does the analysis.
+#          PatronAI OCI scanner does the analysis.
 # USAGE: bash agent/install/git_hook_pre_commit.sh
 # =============================================================
 
@@ -28,6 +28,7 @@ fi
 
 BUCKET=$(python3 -c "import json; print(json.load(open('$CONFIG'))['bucket'])")
 REGION=$(python3 -c "import json; print(json.load(open('$CONFIG'))['region'])")
+S3_ENDPOINT=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('s3_endpoint_url',''))" 2>/dev/null || echo "")
 COMPANY=$(python3 -c "import json; print(json.load(open('$CONFIG'))['company'])")
 
 echo "Installing Marauder Scan pre-commit hook..."
@@ -103,13 +104,25 @@ payload = {
 print(json.dumps(payload))
 " "$DIFF_SNIPPET" 2>/dev/null)
 
-# Ship to S3 — fire and forget, never block the commit
+# Ship to OCI Object Storage — fire and forget, never block the commit
 S3_KEY="ocsf/agent/git-diffs/${DEVICE_ID}-${TIMESTAMP}.json"
-aws s3 cp - "s3://${BUCKET}/${S3_KEY}" \
-  --region "$REGION" \
-  --content-type "application/json" \
-  --quiet \
-  <<< "$PAYLOAD" 2>/dev/null &
+S3_ENDPOINT=$(python3 -c "import json; print(json.load(open('$CONFIG')).get('s3_endpoint_url',''))" 2>/dev/null)
+python3 -c "
+import boto3, sys, os
+payload = sys.argv[1].encode()
+bucket  = '${BUCKET}'
+key     = '${S3_KEY}'
+region  = '${REGION}'
+endpoint = '${S3_ENDPOINT}'
+try:
+    kw = {'region_name': region}
+    if endpoint:
+        kw['endpoint_url'] = endpoint
+    s3 = boto3.client('s3', **kw)
+    s3.put_object(Bucket=bucket, Key=key, Body=payload, ContentType='application/json')
+except Exception:
+    pass  # Never block commits
+" "$PAYLOAD" 2>/dev/null &
 
 # Always exit 0 — never block commits
 exit 0

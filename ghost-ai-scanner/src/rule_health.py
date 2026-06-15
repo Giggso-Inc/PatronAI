@@ -30,7 +30,7 @@ from matcher import (
 log = logging.getLogger("marauder-scan.rule_health")
 
 BUCKET           = os.environ.get("MARAUDER_SCAN_BUCKET", "")
-REGION           = os.environ.get("AWS_REGION",          "us-east-1")
+REGION           = os.environ.get("AWS_REGION",          "us-chicago-1")
 STRICT_MIN_RULES = int(os.environ.get("STRICT_MIN_RULES", "50"))
 
 LOAD_STATUS_KEY = "config/load_status.json"

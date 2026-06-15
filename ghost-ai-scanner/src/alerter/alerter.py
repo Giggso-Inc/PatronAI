@@ -36,7 +36,7 @@ class Alerter:
         self._sns_arn    = alert_cfg.get("sns_topic_arn", "")
         self._webhook    = alert_cfg.get("trinity_webhook_url", "")
         self._dedup_min  = int(alert_cfg.get("dedup_window_minutes", 60))
-        self._region     = settings.get("cloud", {}).get("region", "us-east-1")
+        self._region     = settings.get("cloud", {}).get("region", "us-chicago-1")
         self._company    = settings.get("company", {}).get("slug", "")
         self._hash_email = bool(settings.get("privacy", {}).get("hash_emails", False))
 
@@ -104,7 +104,7 @@ class Alerter:
         return {"fired": fired, "suppressed": suppressed}
 
     def _fire_code_alert(self, payload: dict, identity: dict):
-        """Fire SNS and Trinity for a code signal finding."""
+        """Fire ONS and Trinity for a code signal finding."""
         from alerter.payload import build as build_payload, subject as build_subject
         from alerter.dispatcher import dispatch
 

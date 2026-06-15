@@ -47,7 +47,7 @@ class IdentityResolver:
         self._ec2_cfg  = identity_cfg.get("ec2_tags", {})
         self._idc_cfg  = identity_cfg.get("identity_center", {})
         self._ad_cfg   = identity_cfg.get("active_directory", {})
-        self._region   = settings.get("cloud", {}).get("region", "us-east-1")
+        self._region   = settings.get("cloud", {}).get("region", "us-chicago-1")
 
         # NAC DataFrame loaded once from S3 — passed in from main.py
         self._nac_df   = nac_df

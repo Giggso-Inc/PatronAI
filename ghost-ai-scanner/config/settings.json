@@ -1,7 +1,7 @@
 {
   "_comment": "PatronAI \u2014 Default Settings",
   "_version": "1.0.0",
-  "_updated": "2026-04-18",
+  "_updated": "2026-06-11",
   "_note": "This file lives in S3 at config/settings.json. Streamlit reads and writes it. Scanner pulls it on every cycle. Changes active within SCAN_INTERVAL_SECS. Do not edit manually in production \u2014 use the Streamlit settings UI at :8501.",
   "company": {
     "name": "company",
@@ -11,7 +11,7 @@
   "cloud": {
     "provider": "oci",
     "region": "us-chicago-1",
-    "_note_provider": "Options: aws | gcp | azure \u2014 drives which providers/ adapter loads"
+    "_note_provider": "Options: oci | aws | gcp | azure \u2014 drives which providers/ adapter loads"
   },
   "storage": {
     "ocsf_bucket": "",
@@ -47,21 +47,22 @@
   },
   "identity": {
     "priority": [
-      "ec2_tags",
+      "oci_vnic",
       "identity_center",
       "active_directory",
       "nac_csv"
     ],
     "cache_ttl_minutes": 15,
     "ec2_tags": {
-      "enabled": true,
+      "enabled": false,
       "owner_tag_key": "Owner",
-      "department_tag_key": "Department"
+      "department_tag_key": "Department",
+      "_note": "Disabled on OCI \u2014 use oci_vnic source instead (reads OCI freeform tags)"
     },
     "identity_center": {
       "enabled": false,
       "store_id": "",
-      "_note": "Set store_id from AWS Identity Center console. Enable if SSO is configured."
+      "_note": "Set store_id from OCI Identity Domain console. Enable if SSO is configured."
     },
     "active_directory": {
       "enabled": false,
@@ -72,6 +73,12 @@
     "nac_csv": {
       "enabled": true,
       "_note": "Fallback. Upload IP to MAC to user mapping CSV to identity/ prefix in S3."
+    },
+    "oci_vnic": {
+      "enabled": true,
+      "owner_tag_key": "Owner",
+      "department_tag_key": "Department",
+      "_note": "OCI VNIC freeform tags. Set Owner and Department tags on OCI Compute instances."
     }
   },
   "crowdstrike": {
@@ -114,8 +121,8 @@
   },
   "_meta": {
     "schema_version": "1.0.0",
-    "last_written_by": "defaults",
-    "last_written_at": "2026-04-18T00:00:00Z",
+    "last_written_by": "oci-migration",
+    "last_written_at": "2026-06-11T00:00:00Z",
     "_note": "last_written_by and last_written_at updated by Streamlit on every save.",
     "marauder_scan_added": "2026-04-18"
   },
@@ -129,7 +136,7 @@
       "max_tokens": 300,
       "timeout_seconds": 30,
       "threads": 2,
-      "_note": "Gemma 4 E4B Q4_K_M. Runs on EC2 only. Never on edge device."
+      "_note": "Gemma 4 E4B Q4_K_M. Runs on OCI Compute VM. Never on edge device."
     },
     "git_hook": {
       "enabled": true,

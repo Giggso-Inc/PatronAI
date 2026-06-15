@@ -21,7 +21,7 @@ def resolve(
     ip: str,
     store_id: str,
     session_name: str = "",
-    region: str = "us-east-1",
+    region: str = "us-chicago-1",
 ) -> Optional[dict]:
     """
     Look up SSO session_name in Identity Center user store.

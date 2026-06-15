@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: src/bootstrap.py
-# VERSION: 1.2.0
-# UPDATED: 2026-04-25
+# VERSION: 1.3.0
+# UPDATED: 2026-06-11
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: Container startup tasks — validate env, build store,
 #          load settings, build identity resolver, maybe backfill.
@@ -12,7 +12,8 @@
 #   v1.1.0  2026-04-20  seed_config_files() — push bundled CSVs to S3 on startup.
 #                       unauthorized.csv always overwritten (Giggso owns it).
 #                       authorized.csv and settings.json seeded only if absent.
-#   v1.2.0  2026-04-25  Group 6 — self_check_rules() writes load_status.json,
+#   v1.2.0  2026-04-25  Group 6
+#   v1.3.0  2026-06-11  OCI migration — S3_ENDPOINT_URL, region us-chicago-1, CLOUD_PROVIDER=oci — self_check_rules() writes load_status.json,
 #                       fires self-alert when rule count below STRICT_MIN_RULES.
 #                       Empty *_custom.csv seeds pushed only-if-absent.
 # =============================================================
@@ -28,8 +29,8 @@ log = logging.getLogger("marauder-scan.bootstrap")
 _LOCAL_CONFIG = Path("/app/config")
 
 BUCKET             = os.environ.get("MARAUDER_SCAN_BUCKET",        "")
-REGION             = os.environ.get("AWS_REGION",              "us-east-1")
-CLOUD_PROVIDER     = os.environ.get("CLOUD_PROVIDER",          "aws")
+REGION             = os.environ.get("AWS_REGION",              "us-chicago-1")  # boto3 var holds OCI region
+CLOUD_PROVIDER     = os.environ.get("CLOUD_PROVIDER",          "oci")
 SCAN_INTERVAL_SECS = int(os.environ.get("SCAN_INTERVAL_SECS",  "300"))
 COMPANY_SLUG       = os.environ.get("COMPANY_SLUG",            "company")
 STRICT_MIN_RULES   = int(os.environ.get("STRICT_MIN_RULES",    "50"))
@@ -92,7 +93,12 @@ def seed_config_files(store) -> None:
     """
     import boto3
 
-    s3 = boto3.client("s3", region_name=REGION)
+    import os as _os
+    _endpoint = _os.environ.get("S3_ENDPOINT_URL", "")
+    _s3_kwargs = {"region_name": REGION}
+    if _endpoint:
+        _s3_kwargs["endpoint_url"] = _endpoint
+    s3 = boto3.client("s3", **_s3_kwargs)
 
     def _exists(key: str) -> bool:
         """Return True if key exists in the bucket."""

@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: src/blob_index_store.py
-# VERSION: 1.1.0
-# UPDATED: 2026-04-25
+# VERSION: 1.2.0
+# UPDATED: 2026-06-11
 # PURPOSE: Coordinator. Single entry point for all persistence
 #          operations. Imports and wires all store submodules.
 #          Every other module imports this — not the submodules directly.
@@ -13,7 +13,8 @@
 #   store.cursor.write(last_key, file_count)
 # AUDIT LOG:
 #   v1.0.0  2026-04-18  Initial.
-#   v1.1.0  2026-04-25  Step 0 — wire AgentStore so url_refresh_loop reaches it.
+#   v1.1.0  2026-04-25  Step 0
+#   v1.2.0  2026-06-11  OCI migration — region default us-chicago-1 — wire AgentStore so url_refresh_loop reaches it.
 # =============================================================
 
 from store.settings_store import SettingsStore
@@ -32,7 +33,7 @@ class BlobIndexStore:
     Instantiate once in main.py. Pass to every module that needs storage.
     """
 
-    def __init__(self, bucket: str, region: str = "us-east-1"):
+    def __init__(self, bucket: str, region: str = "us-chicago-1"):
         # Wire all stores to the same bucket and region
         self.settings = SettingsStore(bucket, region)
         self.cursor   = CursorStore(bucket, region)

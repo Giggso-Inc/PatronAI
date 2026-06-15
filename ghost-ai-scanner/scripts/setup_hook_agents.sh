@@ -1,148 +1,129 @@
 #!/usr/bin/env bash
 # =============================================================
 # FILE: scripts/setup_hook_agents.sh
-# VERSION: 1.3.0
-# UPDATED: 2026-04-20
+# VERSION: 2.0.0
+# UPDATED: 2026-06-11
 # OWNER: Giggso Inc
-# PURPOSE: One-time post-deploy provisioning for agent delivery.
-#          Applies iam-policy.json to the EC2 instance role (auto-detected).
-#          Runs IAM Access Analyzer validate-policy after apply.
-#          Creates config/HOOK_AGENTS/catalog.json on S3 if missing.
-#          Verifies IAM permissions for SES + S3 config/HOOK_AGENTS/ prefix.
-#          Run once after initial deployment or after bucket change.
+# PURPOSE: One-time post-deploy provisioning for agent delivery on OCI.
+#          Creates config/HOOK_AGENTS/ prefix in OCI Object Storage.
+#          Validates OCI Object Storage write permissions.
+#          Verifies OCI Email Delivery SMTP credentials.
+#          OCI migration: replaced AWS IAM/SES/S3 CLI with
+#          OCI CLI + boto3 S3-compat + smtplib check.
 # USAGE: bash scripts/setup_hook_agents.sh
-# REQUIRES: aws CLI, MARAUDER_SCAN_BUCKET + AWS_REGION env vars
+# REQUIRES: MARAUDER_SCAN_BUCKET + S3_ENDPOINT_URL + AWS_REGION env vars
 # AUDIT LOG:
-#   v1.0.0  2026-04-19  Initial — agent delivery system
-#   v1.1.0  2026-04-19  S3 prefix agents/ → config/HOOK_AGENTS/; IAM validation
-#   v1.2.0  2026-04-19  Auto-detect EC2 instance role; apply iam-policy.json
-#   v1.3.0  2026-04-20  IAM Access Analyzer validate-policy after apply
+#   v1.0.0  2026-04-19  Initial (AWS IAM/SES/S3)
+#   v1.1.0  2026-04-19  S3 prefix agents/ → config/HOOK_AGENTS/
+#   v1.2.0  2026-04-19  Auto-detect EC2 instance role
+#   v1.3.0  2026-04-20  IAM Access Analyzer validate-policy
+#   v2.0.0  2026-06-11  OCI migration — replaced AWS CLI with
+#                       OCI CLI + boto3 S3-compat. Removed IAM/SES.
+#                       Added OCI Email Delivery SMTP check.
 # =============================================================
 set -euo pipefail
 
 BUCKET="${MARAUDER_SCAN_BUCKET:-}"
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-us-chicago-1}"
+S3_ENDPOINT="${S3_ENDPOINT_URL:-}"
 
 [ -n "$BUCKET" ] || { echo "ERROR: MARAUDER_SCAN_BUCKET is not set." >&2; exit 1; }
+[ -n "$S3_ENDPOINT" ] || { echo "ERROR: S3_ENDPOINT_URL is not set." >&2; exit 1; }
 
-echo "PatronAI — Agent Delivery Setup"
-echo "Bucket : $BUCKET"
-echo "Region : $REGION"
+echo "PatronAI — Agent Delivery Setup (OCI)"
+echo "Bucket    : $BUCKET"
+echo "Region    : $REGION"
+echo "Endpoint  : $S3_ENDPOINT"
 echo ""
 
-# ── Apply IAM policy to EC2 instance role ────────────────────
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-POLICY_FILE="$SCRIPT_DIR/../iam-policy.json"
+# ── Check OCI Object Storage access ──────────────────────────
+echo "Checking OCI Object Storage access..."
+python3 -c "
+import boto3, os
+try:
+    s3 = boto3.client('s3',
+        endpoint_url='${S3_ENDPOINT}',
+        region_name='${REGION}')
+    s3.head_bucket(Bucket='${BUCKET}')
+    print('  OCI Object Storage accessible.')
+except Exception as e:
+    print(f'  ERROR: {e}')
+    exit(1)
+" || { echo "ERROR: Cannot access oci://$BUCKET/" >&2; exit 1; }
 
-echo "Applying IAM policy..."
-if [ ! -f "$POLICY_FILE" ]; then
-  echo "  WARNING: iam-policy.json not found at $POLICY_FILE — skipping IAM update."
-else
-  # Auto-detect EC2 instance role via IMDSv2
-  IMDS_TOKEN=$(curl -sf --max-time 3 -X PUT \
-    -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" \
-    http://169.254.169.254/latest/api/token 2>/dev/null || echo "")
-  INSTANCE_ROLE=$(curl -sf --max-time 3 \
-    -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
-    http://169.254.169.254/latest/meta-data/iam/security-credentials/ 2>/dev/null || echo "")
-  if [ -z "$INSTANCE_ROLE" ]; then
-    echo "  WARNING: Could not detect EC2 instance role (not on EC2 or no role attached)."
-    echo "  Apply manually: aws iam put-role-policy --role-name <ROLE> \\"
-    echo "    --policy-name PatronAIPolicy --policy-document file://iam-policy.json"
-  else
-    aws iam put-role-policy \
-      --role-name "$INSTANCE_ROLE" \
-      --policy-name "PatronAIPolicy" \
-      --policy-document "file://$POLICY_FILE" \
-      --region "$REGION" \
-      && echo "  PatronAIPolicy applied to role: $INSTANCE_ROLE" \
-      || echo "  ERROR: Failed to apply IAM policy — check caller permissions."
-  fi
-fi
-
-# ── IAM Access Analyzer — validate policy document ───────────
-echo "Running IAM Access Analyzer on iam-policy.json..."
-if [ -f "$POLICY_FILE" ]; then
-  FINDINGS=$(aws accessanalyzer validate-policy \
-    --policy-document "file://$POLICY_FILE" \
-    --policy-type IDENTITY_POLICY \
-    --region "$REGION" \
-    --query 'findings[*].[findingType,issueCode,learnMoreLink]' \
-    --output text 2>/dev/null || echo "ANALYZER_UNAVAILABLE")
-
-  if [ "$FINDINGS" = "ANALYZER_UNAVAILABLE" ]; then
-    echo "  WARNING: Access Analyzer unavailable — check IAM permissions or region support."
-  elif [ -z "$FINDINGS" ]; then
-    echo "  No issues found — policy is clean."
-  else
-    while IFS=$'\t' read -r ftype code link; do
-      echo "    [$ftype] $code"
-      [ -n "$link" ] && echo "      More info: $link"
-    done <<< "$FINDINGS"
-    echo "  Review findings before deploying to production."
-  fi
-else
-  echo "  Skipped — iam-policy.json not found."
-fi
-echo ""
-
-# ── Check S3 access ───────────────────────────────────────────
-echo "Checking S3 access..."
-aws s3 ls "s3://$BUCKET/" --region "$REGION" >/dev/null \
-  && echo "  S3 bucket accessible." \
-  || { echo "ERROR: Cannot access s3://$BUCKET/" >&2; exit 1; }
-
-# ── Establish config/HOOK_AGENTS/ prefix ──────────────────────
+# ── Establish config/HOOK_AGENTS/ prefix ─────────────────────
 HOOK_PREFIX="config/HOOK_AGENTS"
-echo "Establishing s3://$BUCKET/$HOOK_PREFIX/ prefix..."
-KEEP_TMP=$(mktemp)
-aws s3api put-object --bucket "$BUCKET" \
-  --key "$HOOK_PREFIX/.keep" --body "$KEEP_TMP" --region "$REGION" >/dev/null
-rm -f "$KEEP_TMP"
-echo "  Prefix marker created."
+echo ""
+echo "Establishing oci://$BUCKET/$HOOK_PREFIX/ prefix..."
+python3 -c "
+import boto3
+s3 = boto3.client('s3',
+    endpoint_url='${S3_ENDPOINT}',
+    region_name='${REGION}')
+s3.put_object(Bucket='${BUCKET}', Key='${HOOK_PREFIX}/.keep', Body=b'')
+print('  Prefix marker created.')
+"
 
-# ── Bootstrap catalog if missing ──────────────────────────────
+# ── Bootstrap catalog if missing ─────────────────────────────
 CATALOG_KEY="$HOOK_PREFIX/catalog.json"
-if aws s3api head-object --bucket "$BUCKET" --key "$CATALOG_KEY" \
-       --region "$REGION" >/dev/null 2>&1; then
-  echo "  Catalog already exists at s3://$BUCKET/$CATALOG_KEY"
-else
-  echo "  Creating empty catalog..."
-  echo "[]" | aws s3 cp - "s3://$BUCKET/$CATALOG_KEY" \
-    --region "$REGION" \
-    --content-type "application/json" \
-    --quiet
-  echo "  Catalog created at s3://$BUCKET/$CATALOG_KEY"
-fi
+echo "Checking catalog at oci://$BUCKET/$CATALOG_KEY..."
+python3 -c "
+import boto3, json
+s3 = boto3.client('s3',
+    endpoint_url='${S3_ENDPOINT}',
+    region_name='${REGION}')
+try:
+    s3.head_object(Bucket='${BUCKET}', Key='${CATALOG_KEY}')
+    print('  Catalog already exists.')
+except Exception:
+    s3.put_object(
+        Bucket='${BUCKET}',
+        Key='${CATALOG_KEY}',
+        Body=json.dumps([]).encode(),
+        ContentType='application/json')
+    print('  Catalog created.')
+"
 
-# ── Validate HOOK_AGENTS S3 write permission ──────────────────
+# ── Validate HOOK_AGENTS write permission ─────────────────────
 echo ""
-echo "Validating config/HOOK_AGENTS S3 write permissions..."
-echo "test" | aws s3 cp - "s3://$BUCKET/$HOOK_PREFIX/.iam-test" \
-  --region "$REGION" --quiet 2>/dev/null \
-  && aws s3 rm "s3://$BUCKET/$HOOK_PREFIX/.iam-test" \
-     --region "$REGION" --quiet 2>/dev/null \
-  && echo "  HOOK_AGENTS write permission verified." \
-  || echo "  ERROR: Cannot write to $HOOK_PREFIX/ — check IAM policy (HookAgentsDelivery)."
+echo "Validating config/HOOK_AGENTS write permissions..."
+python3 -c "
+import boto3
+s3 = boto3.client('s3',
+    endpoint_url='${S3_ENDPOINT}',
+    region_name='${REGION}')
+try:
+    s3.put_object(Bucket='${BUCKET}', Key='${HOOK_PREFIX}/.iam-test', Body=b'test')
+    s3.delete_object(Bucket='${BUCKET}', Key='${HOOK_PREFIX}/.iam-test')
+    print('  HOOK_AGENTS write permission verified.')
+except Exception as e:
+    print(f'  ERROR: Cannot write to ${HOOK_PREFIX}/ — {e}')
+    exit(1)
+"
 
-# ── Verify SES identity ───────────────────────────────────────
+# ── Verify OCI Email Delivery SMTP credentials ────────────────
 echo ""
-echo "Checking SES sender identity..."
-SES_SENDER="${SES_SENDER_EMAIL:-}"
-if [ -n "$SES_SENDER" ]; then
-  STATUS=$(aws ses get-identity-verification-attributes \
-    --identities "$SES_SENDER" \
-    --region "$REGION" \
-    --query "VerificationAttributes.\"$SES_SENDER\".VerificationStatus" \
-    --output text 2>/dev/null || echo "UNKNOWN")
-  echo "  $SES_SENDER → $STATUS"
-  if [ "$STATUS" != "Success" ]; then
-    echo "  WARNING: SES sender not verified. Emails will not be delivered."
-    echo "  Run: aws ses verify-email-identity --email-address $SES_SENDER --region $REGION"
-  fi
+echo "Checking OCI Email Delivery SMTP credentials..."
+SMTP_USER="${OCI_EMAIL_SMTP_USER:-}"
+SMTP_PASS="${OCI_EMAIL_SMTP_PASSWORD:-}"
+if [ -n "$SMTP_USER" ] && [ -n "$SMTP_PASS" ]; then
+    python3 -c "
+import smtplib
+try:
+    smtp_host = 'smtp.email.${REGION}.oci.oraclecloud.com'
+    with smtplib.SMTP(smtp_host, 587) as smtp:
+        smtp.ehlo()
+        smtp.starttls()
+        smtp.login('${SMTP_USER}', '${SMTP_PASS}')
+    print('  OCI Email Delivery SMTP credentials valid.')
+except smtplib.SMTPAuthenticationError:
+    print('  WARNING: SMTP auth failed — check OCI_EMAIL_SMTP_USER and OCI_EMAIL_SMTP_PASSWORD')
+except Exception as e:
+    print(f'  WARNING: SMTP check failed — {e}')
+"
 else
-  echo "  SES_SENDER_EMAIL not set — email delivery will be disabled."
-  echo "  Set it in .env to enable automatic OTP emails."
+    echo "  OCI_EMAIL_SMTP_USER / OCI_EMAIL_SMTP_PASSWORD not set — email delivery will be disabled."
+    echo "  Generate SMTP credentials: OCI Console → Email Delivery → SMTP Credentials"
 fi
 
 echo ""

@@ -1,34 +1,42 @@
 # =============================================================
 # FILE: src/alerter/cloudtrail_check.py
-# VERSION: 1.0.0
-# UPDATED: 2026-04-18
+# VERSION: 2.0.0
+# UPDATED: 2026-06-11
 # OWNER: Ravi Venugopal, Giggso Inc
-# PURPOSE: Lightweight CloudTrail spot check — called only when
+# PURPOSE: Lightweight OCI Audit log spot check — called only when
 #          an alert fires on an authorized domain. Checks if a
-#          Parameter Store GetParameter call preceded the API call.
-#          No-op on non-AWS clouds or if CloudTrail not configured.
+#          Vault GetSecret call preceded the API call.
+#          No-op on non-OCI clouds or if Audit log not configured.
 #          Returns enrichment dict merged into alert payload.
-# DEPENDS: boto3
-# NOTE: CloudTrail has up to 15 min delivery lag. Result is
+# DEPENDS: oci (OCI Python SDK) — optional, gracefully skipped if absent
+# NOTE: OCI Audit log has up to 15 min delivery lag. Result is
 #       best-effort enrichment only — not a hard gate.
+# AUDIT LOG:
+#   v1.0.0  2026-04-18  Initial (AWS CloudTrail GetParameter check)
+#   v2.0.0  2026-06-11  OCI migration — replaced CloudTrail with
+#                       OCI Audit log. Checks for Vault GetSecret
+#                       events instead of SSM GetParameter.
+#                       Falls back gracefully if OCI SDK not installed.
 # =============================================================
 
 import logging
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 log = logging.getLogger("marauder-scan.alerter.cloudtrail_check")
 
 LOOKBACK_MINUTES = 15
+_OCI_REGION = os.environ.get("AWS_REGION", "us-chicago-1")  # boto3 var holds OCI region
 
 
 def check(
     owner: str,
     provider: str,
-    region: str = "us-east-1",
+    region: str = "",
 ) -> dict:
     """
-    Spot-check CloudTrail for a GetParameter call from this owner
+    Spot-check OCI Audit log for a Vault GetSecret call from this owner
     within the last LOOKBACK_MINUTES before the alert time.
 
     Returns enrichment dict:
@@ -36,52 +44,68 @@ def check(
         "cloudtrail_check": "found" | "not_found" | "error" | "skipped",
         "token_status":     "company_key" | "personal_key" | "unknown",
     }
+
+    NOTE: Function signature and return keys kept identical to v1.0.0
+    for backwards compatibility with alert payload consumers.
     """
     if not owner or owner == "unknown":
         return _result("skipped", "unknown")
 
-    try:
-        import boto3
-        ct = boto3.client("cloudtrail", region_name=region)
+    region = region or _OCI_REGION
 
-        # Search for GetParameter events in the lookback window
+    try:
+        import oci  # type: ignore
+        config = oci.config.from_file()  # reads ~/.oci/config
+        audit  = oci.audit.AuditClient(config)
+
+        compartment_id = os.environ.get("OCI_COMPARTMENT_ID", config.get("tenancy", ""))
+        if not compartment_id:
+            log.debug("OCI_COMPARTMENT_ID not set — skipping audit check")
+            return _result("skipped", "unknown")
+
         end_time   = datetime.now(timezone.utc)
         start_time = end_time - timedelta(minutes=LOOKBACK_MINUTES)
 
-        resp = ct.lookup_events(
-            LookupAttributes=[
-                {"AttributeKey": "EventName", "AttributeValue": "GetParameter"}
-            ],
-            StartTime=start_time,
-            EndTime=end_time,
-            MaxResults=20,
+        # Search OCI Audit log for Vault GetSecret events
+        resp = audit.list_events(
+            compartment_id=compartment_id,
+            start_time=start_time,
+            end_time=end_time,
         )
 
-        events = resp.get("Events", [])
-        if not events:
-            log.info(f"CloudTrail: no GetParameter found for {owner} — personal key suspected")
-            return _result("not_found", "personal_key")
-
-        # Check if any event involves an AI key parameter for this provider
+        events = resp.data if resp.data else []
         provider_slug = provider.lower().replace(" ", "_").replace(".", "_")
+
         for event in events:
-            resources = event.get("Resources", [])
-            for r in resources:
-                if provider_slug in (r.get("ResourceName", "")).lower():
-                    log.info(f"CloudTrail: company key confirmed for {owner} → {provider}")
+            event_name = getattr(event, "event_name", "") or ""
+            # Look for Vault GetSecretBundle (OCI equivalent of SSM GetParameter)
+            if "GetSecretBundle" in event_name or "GetSecret" in event_name:
+                # Check if the resource name includes the provider
+                resource_name = ""
+                if hasattr(event, "data") and event.data:
+                    resource_name = str(getattr(event.data, "resource_name", ""))
+                if provider_slug in resource_name.lower():
+                    log.info(f"OCI Audit: company key confirmed for {owner} → {provider}")
                     return _result("found", "company_key")
 
-        # GetParameter events exist but not for this provider
-        log.info(f"CloudTrail: GetParameter found but not for {provider} — personal key suspected")
+        if not events:
+            log.info(f"OCI Audit: no GetSecret found for {owner} — personal key suspected")
+            return _result("not_found", "personal_key")
+
+        log.info(f"OCI Audit: events found but not for {provider} — personal key suspected")
         return _result("found", "personal_key")
 
+    except ImportError:
+        # OCI SDK not installed — skip gracefully
+        log.debug("OCI SDK not installed — audit check skipped")
+        return _result("skipped", "unknown")
     except Exception as e:
-        log.debug(f"CloudTrail check failed: {e}")
+        log.debug(f"OCI Audit check failed: {e}")
         return _result("error", "unknown")
 
 
 def _result(check_status: str, token_status: str) -> dict:
     return {
-        "cloudtrail_check": check_status,
+        "cloudtrail_check": check_status,  # key kept for backwards compat
         "token_status":     token_status,
     }

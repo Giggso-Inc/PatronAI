@@ -9,7 +9,7 @@
 #          NOT called on every event — specialist on referral model.
 #          Grammar-constrained JSON output — always valid JSON back.
 #          30s timeout — never blocks scanner pipeline.
-#          Model runs on EC2. Never on edge device.
+#          Model runs on OCI Compute VM. Never on edge device.
 #          Regex fallback fires when classifier is unreachable so layer 3
 #          still produces a useful classification.
 # DEPENDS: llama-cli binary in Dockerfile, Qwen 3 1.7B GGUF model
