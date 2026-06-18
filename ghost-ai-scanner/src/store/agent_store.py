@@ -191,6 +191,18 @@ class AgentStore(BaseStore):
             log.error("get_artifact_url failed [%s]: %s", key, e)
             return ""
 
+    def get_heartbeat(self, token: str) -> Optional[dict]:
+        """Read the latest heartbeat JSON for an agent token.
+        Returns None if the key does not exist or cannot be parsed."""
+        raw = self._get(f"ocsf/agent/heartbeats/{token}/latest.json")
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except Exception as e:
+            log.debug("Heartbeat parse failed [%s...]: %s", token[:8], e)
+            return None
+
     def get_authorized_domains(self, token: str) -> list:
         """Read current authorized_domains for a token from meta.json."""
         try:
