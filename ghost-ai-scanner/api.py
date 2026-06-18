@@ -40,7 +40,6 @@ from blob_index_store import BlobIndexStore  # noqa: E402
 from dashboard.ui.reports import r3_user  # noqa: E402
 from dashboard.ui.reports._logo import fetch_logo_b64  # noqa: E402
 from dashboard.ui.reports._pdf import html_to_pdf  # noqa: E402
-from agent_package_store import AgentPackageStore
 from scoring.posture_score import (
     build_approved_set,
     compute_user_score,
