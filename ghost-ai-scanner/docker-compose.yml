@@ -113,10 +113,14 @@ services:
       # 0 / very low values clamp to 60s; default 5 min is plenty since
       # docs change at most once per deploy.
       - DOCS_REFRESH_INTERVAL_S=${DOCS_REFRESH_INTERVAL_S:-300}
+      - INTEGRATION_API_ENABLED=${INTEGRATION_API_ENABLED:-1}
+      - API_KEY=${API_KEY:-mOBakBb4ECT1exikCkkc6QDb}
+      - INTEGRATION_API_PORT=${INTEGRATION_API_PORT:-8002}
     volumes:
       - patronai-models:/models
     ports:
       - "8501:8501"
+      - "8002:8002"
     networks:
       - marauder-scan
     healthcheck:
@@ -150,7 +154,8 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_ANALYTICS_REPORTING_ENABLED=false
       - GF_USERS_DEFAULT_THEME=light
-      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana
+      #- GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana
+      - GF_SERVER_ROOT_URL=https://patronai.giggso.com/grafana
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
     ports:
       - "3000:3000"
@@ -177,8 +182,10 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/domaincert:/etc/nginx/certs
     networks:
       - marauder-scan
     depends_on:
