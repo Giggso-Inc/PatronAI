@@ -15,11 +15,13 @@
 # =============================================================
 
 import csv
+import functools
 import json
 import logging
 import os
+import secrets
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -58,7 +60,7 @@ _CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
 # ── Auth / store helpers ──────────────────────────────────────────────────────
 
 def _auth(creds: HTTPAuthorizationCredentials | None = Security(_bearer)) -> None:
-    if creds is None or creds.credentials != _API_KEY:
+    if creds is None or not secrets.compare_digest(creds.credentials, _API_KEY):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
@@ -72,6 +74,7 @@ def _blob_store() -> BlobIndexStore:
 
 # ── CSV loaders (disk) ────────────────────────────────────────────────────────
 
+@functools.lru_cache(maxsize=None)
 def _load_authorized_csv(filename: str) -> list[dict]:
     """Load an authorized-list CSV, skipping blank lines and comment rows."""
     path = os.path.join(_CONFIG_DIR, filename)
@@ -101,8 +104,23 @@ def _read_heartbeat(store: BlobIndexStore, token: str) -> Optional[dict]:
     try:
         return json.loads(raw)
     except Exception as exc:
-        logger.debug("Heartbeat parse failed [%s...]: %s", token[:8], exc)
+        logger.warning("Heartbeat parse failed [%s...]: %s", token[:8], exc)
         return None
+
+
+def _freshest_heartbeat(store: BlobIndexStore, tokens: list) -> Optional[dict]:
+    """Return the heartbeat with the most recent timestamp across all tokens.
+    Any fresh agent wins — catalog ordering is not authoritative."""
+    best: Optional[dict] = None
+    best_ts = ""
+    for token in tokens:
+        hb = _read_heartbeat(store, token)
+        if hb is None:
+            continue
+        ts = hb.get("timestamp") or hb.get("time") or ""
+        if best is None or ts > best_ts:
+            best, best_ts = hb, ts
+    return best
 
 
 def _list_finding_dates(store: BlobIndexStore, d_from: str, d_to: str) -> list[str]:
@@ -135,8 +153,8 @@ def _fetch_all_events(store: BlobIndexStore, dates: list[str]) -> list[dict]:
             df = store.findings.read(dt, limit=2000)
             if not df.is_empty():
                 events.extend(df.to_dicts())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to read findings for date %s: %s", dt, exc)
     return events
 
 
@@ -153,7 +171,7 @@ def _filter_user_events(all_events: list, email: str) -> list:
 
 
 def _default_dates(d_from: Optional[str], d_to: Optional[str]) -> tuple[str, str]:
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     return (
         d_from or (today - timedelta(days=30)).isoformat(),
         d_to   or today.isoformat(),
@@ -232,11 +250,11 @@ def get_score(
     user_entries = [e for e in catalog
                     if (e.get("recipient_email") or "").lower() == email_lower]
     per_user_domains: list = []
-    user_token: Optional[str] = None
+    user_tokens: list = []
     for entry in user_entries:
         per_user_domains.extend(entry.get("authorized_domains") or [])
-        if not user_token and entry.get("token"):
-            user_token = entry["token"]
+        if entry.get("token"):
+            user_tokens.append(entry["token"])
 
     approved_set = build_approved_set(auth_csv, auth_code_csv, list(set(per_user_domains)))
 
@@ -247,8 +265,10 @@ def get_score(
     # 4. Filter to this user's events
     user_events = _filter_user_events(org_events, email_lower)
 
-    # 5. Heartbeat (identity binding)
-    heartbeat = _read_heartbeat(store, user_token) if user_token else None
+    # 5. Heartbeat (identity binding) — pick the freshest across all agent tokens so
+    #    a user with multiple devices (e.g. mac + windows) is not failed because the
+    #    first catalog entry happens to be stale.
+    heartbeat = _freshest_heartbeat(store, user_tokens)
 
     # 6. Compute score
     result = compute_user_score(

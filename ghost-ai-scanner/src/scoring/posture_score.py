@@ -99,6 +99,27 @@ def _findings(events: list) -> list:
     return [e for e in events if e.get("outcome") == "ENDPOINT_FINDING"]
 
 
+def _parse_date(value: str) -> Optional[str]:
+    """Return a YYYY-MM-DD string if value is parseable, else None.
+    Accepts ISO-8601 datetime strings and bare YYYY-MM-DD dates.
+    Rejects slash-separated or partial formats instead of silently
+    misclassifying them via lexicographic comparison."""
+    if not value:
+        return None
+    # Bare date fast-path: must be exactly YYYY-MM-DD with hyphens.
+    if len(value) == 10:
+        try:
+            datetime.strptime(value, "%Y-%m-%d")
+            return value
+        except ValueError:
+            return None
+    # Full datetime — let fromisoformat handle it.
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).date().isoformat()
+    except (ValueError, TypeError):
+        return None
+
+
 # ── Component scorers ─────────────────────────────────────────────────────────
 # Each returns (earned: int, detail: dict).
 
@@ -126,21 +147,26 @@ def c_ghost_assets(user_events: list, period_end: str) -> tuple[int, dict]:
     """20 pts · -2 per asset with last_seen > 30 days before period_end."""
     try:
         cutoff = (datetime.fromisoformat(period_end) - timedelta(days=GHOST_THRESHOLD_DAYS)).date().isoformat()
-    except Exception:
+    except Exception as exc:
+        log.warning("c_ghost_assets: unparseable period_end %r — ghost detection skipped: %s", period_end, exc)
         cutoff = ""
 
-    # Latest timestamp per unique (category, provider) asset
+    # Latest timestamp per unique (category, provider) asset.
+    # Events with unparseable date fields are excluded rather than
+    # silently misclassified by lexicographic comparison.
     assets: dict = {}
     for e in _findings(user_events):
         key = (e.get("category") or "", e.get("provider") or "")
-        ts = (e.get("last_seen") or e.get("timestamp") or "")[:10]
+        ts = _parse_date(e.get("last_seen") or e.get("timestamp") or "")
+        if ts is None:
+            continue
         if key not in assets or ts > assets[key]:
             assets[key] = ts
 
     ghosts = [
         {"category": k[0], "provider": k[1], "last_seen": v}
         for k, v in assets.items()
-        if v and cutoff and v < cutoff
+        if cutoff and v < cutoff
     ]
     earned = max(0, 20 - len(ghosts) * GHOST_COST_PTS)
     return earned, {"ghost_count": len(ghosts), "cutoff_date": cutoff, "ghost_assets": ghosts}
@@ -210,9 +236,7 @@ def c_high_findings(user_events: list) -> tuple[int, dict]:
 def c_domain_compliance(user_events: list, authorized_domains: list) -> tuple[int, dict]:
     """10 pts · Pro-rated by fraction of per-user authorised domains showing real activity."""
     if not authorized_domains:
-        # No per-user domains provisioned; award partial credit to avoid penalising
-        # users whose admins have not yet completed onboarding.
-        return 5, {"reason": "no_per_user_domains_configured"}
+        return 0, {"reason": "no_per_user_domains_configured", "needs_configuration": True}
 
     evts = _findings(user_events)
     active_providers = {(e.get("provider") or "").lower() for e in evts} - {""}
@@ -407,7 +431,10 @@ def _top_improvements(components: dict) -> list:
         _add("identity_binding", f"Fix identity binding: {'; '.join(issues[:3])}.", 5)
 
     dom_detail = components.get("domain_compliance", {}).get("detail", {})
-    if dom_detail.get("coverage_ratio", 1.0) < 0.7:
+    if dom_detail.get("needs_configuration"):
+        _add("domain_compliance",
+             "Configure per-user authorized_domains so domain compliance can be measured.", 6)
+    elif dom_detail.get("coverage_ratio", 1.0) < 0.7:
         _add("domain_compliance",
              f"Improve authorised-domain coverage from "
              f"{dom_detail.get('coverage_ratio', 0):.0%} to ≥ 70 %: ensure the tools listed in "
