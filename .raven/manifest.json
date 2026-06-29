@@ -1,0 +1,56 @@
+{
+  "manifest_version": "1.0",
+  "project": "PatronAI",
+  "display_name": "PatronAI — Raven Enterprise (ghost-ai-scanner)",
+  "version": "1.2.0",
+  "owner": "Giggso-Inc",
+  "maintainer": "k.sanjaykumar@giggso.com",
+  "repo": "https://github.com/Giggso-Inc/PatronAI.git",
+  "created_at": "2026-06-29T00:00:00Z",
+  "created_by": "k.sanjaykumar@giggso.com",
+  "stack": {
+    "language": "python",
+    "frontend": "streamlit",
+    "framework": ["fastapi", "streamlit"],
+    "db": "s3",
+    "db_planned": "postgresql-16 (ADR_2026-06-29-policy-scoring-amendment.md — not yet built)",
+    "infra": ["docker", "docker-compose", "nginx", "grafana"],
+    "cloud": "aws",
+    "cloud_services": ["s3", "sns", "ec2"],
+    "libraries": [
+      "boto3", "botocore", "polars", "pandas", "streamlit", "plotly",
+      "networkx", "reportlab", "weasyprint", "cairocffi", "requests",
+      "fastmcp", "ldap3", "python-dateutil", "pytz", "pyyaml", "watchdog",
+      "bcrypt", "rank-bm25", "fastapi", "uvicorn", "email-validator",
+      "python-dotenv"
+    ]
+  },
+  "components": [
+    { "name": "api", "path": "ghost-ai-scanner/api.py", "kind": "fastapi-service" },
+    { "name": "ghost-ai-scanner", "path": "ghost-ai-scanner/src", "kind": "scanner-engine" },
+    { "name": "dashboard", "path": "ghost-ai-scanner/dashboard", "kind": "streamlit-ui" },
+    { "name": "agent", "path": "ghost-ai-scanner/agent", "kind": "hook-agent" },
+    { "name": "scripts", "path": "ghost-ai-scanner/scripts", "kind": "deploy-utils" }
+  ],
+  "standards": "raven-v1",
+  "approval_mode": "first_responder",
+  "guards": [
+    "manifest-checker", "secret-scan", "audit-log",
+    "cve-prompt-guard", "tool-guard"
+  ],
+  "approved_skills": [
+    "raven-core", "raven-plan", "raven-security", "raven-review",
+    "raven-document", "raven-init", "raven-debug", "task-observer",
+    "fastapi-specialist", "aws-specialist", "devops-specialist",
+    "postgres-specialist", "security-specialist", "andie", "andie-jr"
+  ],
+  "changelog": [
+    {
+      "version": "1.0",
+      "changed_by": "k.sanjaykumar@giggso.com",
+      "changed_at": "2026-06-29T00:00:00Z",
+      "changes": "raven-init — manifest created via Andie auto-scan. Stack: Python/FastAPI/Streamlit on AWS (S3+SNS+EC2), Docker/nginx/Grafana. 23 libraries detected from ghost-ai-scanner/requirements.txt.",
+      "pr": "pending"
+    }
+  ]
+}
