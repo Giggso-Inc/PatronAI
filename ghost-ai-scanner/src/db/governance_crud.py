@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: src/db/governance_crud.py
-# VERSION: 1.1.0
-# UPDATED: 2026-07-01
+# VERSION: 1.2.0
+# UPDATED: 2026-07-03
 # OWNER: Giggso Inc
 # PURPOSE: Write-path for the Provider Governance tab (Phase D) with
 #          SERVER-SIDE authorisation (condition C8 — never trust a client
@@ -18,6 +18,9 @@
 #                       flip-to-allow is forced through the guarded override
 #                       path (reason+approver+expiry). commit= param added so
 #                       the flips compose in a single transaction.
+#   v1.2.0  2026-07-03  _check_scope_authz also refuses a cross-org write
+#                       (org_id must equal actor.org_id) — defence-in-depth
+#                       for any future API path (PR#8 review).
 # =============================================================
 
 from sqlalchemy import func, select
@@ -37,8 +40,16 @@ def _require(cond: bool, msg: str) -> None:
         raise PolicyAuthzError(msg)
 
 
-def _check_scope_authz(actor, scope: str, user_id) -> None:
-    """C8: org/project edits need org-admin; user edits only for oneself."""
+def _check_scope_authz(actor, scope: str, user_id, org_id=None) -> None:
+    """C8: org/project edits need org-admin; user edits only for oneself.
+
+    Defence-in-depth (PR#8 review): a caller-supplied org_id must match the
+    actor's own org — an org-A admin can never write into org B's lists even
+    if an API path ever forwards a client-influenced org_id. Today every call
+    site derives org_id server-side, so this only closes a future hole."""
+    actor_org = getattr(actor, "org_id", None)
+    if org_id is not None and actor_org is not None and org_id != actor_org:
+        raise PolicyAuthzError("C8: cross-org policy write refused")
     if scope in ("org", "project"):
         _require(getattr(actor, "is_org_admin", False),
                  "C8: org/project policy edits require an org admin")
@@ -60,7 +71,7 @@ def add_approved(session, *, actor, org_id, scope, name, provider_pattern,
     existing row is a plain approve and the new call is a guarded override,
     the existing row is UPGRADED to the override in place (prevents the
     'same provider listed twice' state)."""
-    _check_scope_authz(actor, scope, user_id)
+    _check_scope_authz(actor, scope, user_id, org_id=org_id)
     if overrides_giggso:
         errs = validate_override_request(
             is_org_admin=getattr(actor, "is_org_admin", False),
@@ -108,7 +119,7 @@ def add_blacklisted(session, *, actor, org_id, scope, domain, name=None,
                     reason=None, commit=True):
     """Add a deny entry at the given scope (server-side authz enforced).
     Idempotent per (scope, owner, pattern) — no duplicate deny rows."""
-    _check_scope_authz(actor, scope, user_id)
+    _check_scope_authz(actor, scope, user_id, org_id=org_id)
     pattern = (domain or "").strip().lower()
     existing = session.execute(
         select(BlacklistedTool).where(
@@ -137,7 +148,7 @@ def remove_entry(session, *, actor, model, row_id, commit=True) -> bool:
     row = session.get(model, row_id)
     if row is None:
         return False
-    _check_scope_authz(actor, row.scope, getattr(row, "user_id", None))
+    _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None))
     session.delete(row)
     if commit:
         session.commit()
@@ -162,7 +173,7 @@ def move_to_allowed(session, *, actor, org_id, block_row_id,
     baseline override, False for a plain approve."""
     row = session.get(BlacklistedTool, block_row_id)
     _require(row is not None, "blocked entry not found")
-    _check_scope_authz(actor, row.scope, getattr(row, "user_id", None))
+    _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None))
     pattern = row.domain
     baseline = is_giggso_blocked(session, pattern)
     add_approved(
@@ -182,7 +193,7 @@ def move_to_blocked(session, *, actor, org_id, approve_row_id, severity="HIGH"):
     """Flip an approved row to the deny list at the SAME scope, atomically."""
     row = session.get(ApprovedTool, approve_row_id)
     _require(row is not None, "approved entry not found")
-    _check_scope_authz(actor, row.scope, getattr(row, "user_id", None))
+    _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None))
     add_blacklisted(
         session, actor=actor, org_id=org_id, scope=row.scope,
         project_id=row.project_id, user_id=row.user_id,

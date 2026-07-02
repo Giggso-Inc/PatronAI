@@ -14,8 +14,11 @@
 #                       returns (email, role, is_admin) tuple.
 # =============================================================
 
+import logging
 import os
 import streamlit as st
+
+_log = logging.getLogger("patronai.ui.auth_gate")
 
 _ALLOWED: list = [e.strip().lower() for e in
                   os.environ.get("ALLOWED_EMAILS", "").split(",") if e.strip()]
@@ -57,7 +60,10 @@ def _db_resolve(email: str) -> tuple:
             if u is None:
                 return None
             return ("manager" if u.is_org_admin else "support"), bool(u.is_org_admin)
-    except Exception:
+    except Exception as exc:
+        # A DB outage/misconfig must not look identical to "user not found":
+        # log it, then fall through to the S3/env resolvers (PR#8 review).
+        _log.warning("DB auth resolve failed (falling back to S3/env): %s", exc)
         return None
 
 

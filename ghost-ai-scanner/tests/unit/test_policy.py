@@ -12,13 +12,28 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from scoring.policy import PolicyContext, policy_tier, policy_multiplier
+import scoring.policy as _pol
+from scoring.policy import PolicyContext, policy_tier, policy_multiplier, _norm
 from scoring.scoring_weights import POLICY_MULTIPLIER
 
 
 def test_unknown_provider_is_neutral():
     assert policy_tier("anything", PolicyContext.empty()) == "unknown"
     assert policy_multiplier("anything", PolicyContext.empty()) == 1.0
+
+
+def test_norm_tolerates_non_string_input():
+    """PR#8: blank CSV cells arrive as float NaN — _norm must not crash."""
+    assert _norm(float("nan")) == ""
+    assert _norm(None) == ""
+    assert _norm("  AbC.com ") == "abc.com"
+    assert _norm(123) == "123"
+
+
+def test_policy_multiplier_defaults_neutral_for_unknown_tier(monkeypatch):
+    """PR#8: a tier with no weights entry fails neutral (1.0), not KeyError."""
+    monkeypatch.setattr(_pol, "policy_tier", lambda provider, ctx: "brand_new_tier")
+    assert _pol.policy_multiplier("x", PolicyContext()) == 1.0
 
 
 def test_none_context_is_policy_blind():

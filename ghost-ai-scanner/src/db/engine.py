@@ -17,6 +17,8 @@
 # AUDIT LOG:
 #   v1.0.0  2026-06-29  Lazy engine + session factory.
 #   v1.1.0  2026-07-02  Auto-run Alembic `upgrade head` on first engine build.
+#   v1.2.0  2026-07-03  Guard auto-migrate with a Postgres advisory lock so
+#                       concurrent workers/replicas don't race on DDL (PR#8 rvw).
 # =============================================================
 
 import logging
@@ -29,6 +31,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 _log = logging.getLogger(__name__)
 _MIGRATED = False
+# Fixed 64-bit key for the migration advisory lock (any constant, shared by all
+# processes migrating THIS database). Prevents concurrent `alembic upgrade`.
+_MIGRATION_LOCK_KEY = 728_411_053_921
 
 
 def database_url() -> str:
@@ -67,12 +72,26 @@ def run_migrations() -> None:
     try:
         from alembic import command
         from alembic.config import Config
+        from sqlalchemy import text
+        from sqlalchemy.pool import NullPool
         # src/db/engine.py -> ghost-ai-scanner/
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         cfg = Config(os.path.join(root, "alembic.ini"))
         cfg.set_main_option("script_location", os.path.join(root, "alembic"))
-        command.upgrade(cfg, "head")
-        _log.info("policy DB migrated to head")
+        # Serialise concurrent starters (multiple workers/replicas boot together):
+        # hold a session-level Postgres advisory lock across the upgrade so only
+        # one process runs DDL at a time; the rest block, then see a no-op.
+        lock_engine = create_engine(database_url(), poolclass=NullPool, future=True)
+        try:
+            with lock_engine.connect() as conn:
+                conn.exec_driver_sql(f"SELECT pg_advisory_lock({_MIGRATION_LOCK_KEY})")
+                try:
+                    command.upgrade(cfg, "head")
+                    _log.info("policy DB migrated to head")
+                finally:
+                    conn.exec_driver_sql(f"SELECT pg_advisory_unlock({_MIGRATION_LOCK_KEY})")
+        finally:
+            lock_engine.dispose()
     except Exception as exc:                       # noqa: BLE001 — best effort
         _log.warning("auto-migration skipped/failed: %s", exc)
     finally:

@@ -100,4 +100,6 @@ def policy_multiplier(provider: str, ctx) -> float:
     backward-compatible path used before any context is resolved)."""
     if ctx is None:
         return 1.0
-    return POLICY_MULTIPLIER[policy_tier(provider, ctx)]
+    # .get(...) default: if a new tier is ever added to policy_tier() without a
+    # matching weights entry, fail neutral (1.0) rather than raise KeyError.
+    return POLICY_MULTIPLIER.get(policy_tier(provider, ctx), 1.0)

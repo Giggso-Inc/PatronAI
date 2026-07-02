@@ -25,9 +25,9 @@ def validate_override_request(*, is_org_admin: bool, scope: str,
                               today=None) -> list:
     """Return a list of human-readable violations (empty == allowed).
 
-    Enforces: C1 org-admin + org-scope only; C3 reason + approver;
-    C4 mandatory expiry ≤ 90 days. Callers MUST refuse the write when this
-    returns a non-empty list."""
+    Enforces: C1' org-admin at org/project/user scope (see migration 0003);
+    C3 reason + approver; C4 mandatory expiry ≤ 90 days. Callers MUST refuse
+    the write when this returns a non-empty list."""
     today = today or _dt.date.today()
     errs: list = []
     if not is_org_admin:

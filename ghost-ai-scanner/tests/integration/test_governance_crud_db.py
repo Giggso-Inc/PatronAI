@@ -149,7 +149,17 @@ def _run():
             assert ov2 is not None and ov2.overrides_giggso is True
             assert ov2.valid_until is not None       # C4 expiry auto-applied
 
-            print("PASS test_governance_crud_authz (11 checks)")
+            # 12. cross-org write refused (PR#8 defence-in-depth): an org admin
+            #     cannot write into a DIFFERENT org even if org_id is forged.
+            import uuid as _uuid
+            try:
+                add_approved(s, actor=admin, org_id=_uuid.uuid4(), scope="org",
+                             name="x", provider_pattern="cross.org")
+                assert False, "cross-org write should be refused"
+            except PolicyAuthzError:
+                s.rollback()
+
+            print("PASS test_governance_crud_authz (12 checks)")
         finally:
             s.execute(delete(Org).where(Org.slug == "ztest-crud"))
             s.execute(delete(GiggsoBaselineDeny).where(GiggsoBaselineDeny.domain == _ZBASE))
