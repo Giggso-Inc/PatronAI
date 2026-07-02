@@ -40,9 +40,34 @@ def _users_store():
         return None
 
 
+def _db_resolve(email: str) -> tuple:
+    """Resolve against the Postgres users table (any listed user may log in;
+    admin rights only if is_org_admin). Returns (role, is_admin) or None if
+    the DB is unavailable / the email is not a DB user."""
+    if not os.environ.get("DATABASE_URL"):
+        return None
+    try:
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
+        from sqlalchemy import select
+        from db.engine import get_session
+        from db.models_identity import User
+        with get_session() as s:
+            u = s.execute(select(User).where(User.email == email)).scalar_one_or_none()
+            if u is None:
+                return None
+            return ("manager" if u.is_org_admin else "support"), bool(u.is_org_admin)
+    except Exception:
+        return None
+
+
 def _resolve(email: str) -> tuple:
-    """Return (role, is_admin) — '' role means unauthorised."""
+    """Return (role, is_admin) — '' role means unauthorised.
+    Order: Postgres users table → S3 users.json → env allowlist."""
     email = (email or "").strip().lower()
+    db = _db_resolve(email)
+    if db is not None:
+        return db
     store = _users_store()
     if store is not None:
         try:

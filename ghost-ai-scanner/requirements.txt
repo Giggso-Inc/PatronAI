@@ -64,3 +64,11 @@ fastapi>=0.115.0,<1.0.0       # MIT — integration REST API (integration_app.py
 uvicorn[standard]>=0.32.0,<1.0.0  # BSD — ASGI server for integration_app.py
 email-validator>=2.0.0,<3.0.0  # MIT — EmailStr validation for FastAPI
 python-dotenv>=1.0.0         # Apache 2.0 — load .env into os.environ for local runs
+
+# ── Policy & identity DB (Postgres) — ADR_2026-06-29 ──────────
+# CVE-cleared 2026-06-29 via OSV.dev (no CVSS>7 affecting these pins).
+# See docs/observations/security_log.md. Policy/identity data only —
+# findings stay in S3. PROD: prefer source `psycopg2` over `-binary`.
+sqlalchemy>=2.0,<3.0          # MIT — ORM + Core for policy/identity tables
+alembic>=1.13,<2.0            # MIT — schema migrations
+psycopg2-binary>=2.9,<3.0     # LGPL — PostgreSQL driver (dev/convenience build)

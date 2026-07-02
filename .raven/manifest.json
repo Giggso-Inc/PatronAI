@@ -1,56 +1,75 @@
 {
-  "manifest_version": "1.0",
   "project": "PatronAI",
-  "display_name": "PatronAI — Raven Enterprise (ghost-ai-scanner)",
-  "version": "1.2.0",
-  "owner": "Giggso-Inc",
-  "maintainer": "k.sanjaykumar@giggso.com",
-  "repo": "https://github.com/Giggso-Inc/PatronAI.git",
-  "created_at": "2026-06-29T00:00:00Z",
-  "created_by": "k.sanjaykumar@giggso.com",
+  "org": "giggso",
+  "owner": "k.sanjaykumar@giggso.com",
+  "user_email": "k.sanjaykumar@giggso.com",
+  "hub_url": "https://ravenhub.giggso.com",
+  "version": "1.0.0",
+  "raven_version": "3.0.0",
   "stack": {
-    "language": "python",
-    "frontend": "streamlit",
-    "framework": ["fastapi", "streamlit"],
-    "db": "s3",
-    "db_planned": "postgresql-16 (ADR_2026-06-29-policy-scoring-amendment.md — not yet built)",
-    "infra": ["docker", "docker-compose", "nginx", "grafana"],
-    "cloud": "aws",
-    "cloud_services": ["s3", "sns", "ec2"],
+    "language": [],
+    "frontend": [],
+    "data": [],
+    "db": [],
+    "infra": [],
+    "cloud": "none",
     "libraries": [
-      "boto3", "botocore", "polars", "pandas", "streamlit", "plotly",
-      "networkx", "reportlab", "weasyprint", "cairocffi", "requests",
-      "fastmcp", "ldap3", "python-dateutil", "pytz", "pyyaml", "watchdog",
-      "bcrypt", "rank-bm25", "fastapi", "uvicorn", "email-validator",
-      "python-dotenv"
+      {
+        "name": "sqlalchemy",
+        "version": ">=2.0,<3.0",
+        "license": "MIT",
+        "purpose": "ORM + Core for policy/identity tables",
+        "approved": true,
+        "cve_status": "clear",
+        "cve_source": "OSV.dev 2026-06-29 — no CVSS>7 affecting range",
+        "ref": "docs/observations/security_log.md#2026-06-29-cve-check"
+      },
+      {
+        "name": "alembic",
+        "version": ">=1.13,<2.0",
+        "license": "MIT",
+        "purpose": "schema migrations",
+        "approved": true,
+        "cve_status": "clear",
+        "cve_source": "OSV.dev 2026-06-29 — none",
+        "ref": "docs/observations/security_log.md#2026-06-29-cve-check"
+      },
+      {
+        "name": "psycopg2-binary",
+        "version": ">=2.9,<3.0",
+        "license": "LGPL",
+        "purpose": "PostgreSQL driver (dev/convenience build)",
+        "approved": true,
+        "cve_status": "clear",
+        "cve_source": "OSV.dev 2026-06-29 — none",
+        "prod_hardening": "prefer source psycopg2 over -binary in prod",
+        "ref": "docs/observations/security_log.md#2026-06-29-cve-check"
+      }
     ]
   },
-  "components": [
-    { "name": "api", "path": "ghost-ai-scanner/api.py", "kind": "fastapi-service" },
-    { "name": "ghost-ai-scanner", "path": "ghost-ai-scanner/src", "kind": "scanner-engine" },
-    { "name": "dashboard", "path": "ghost-ai-scanner/dashboard", "kind": "streamlit-ui" },
-    { "name": "agent", "path": "ghost-ai-scanner/agent", "kind": "hook-agent" },
-    { "name": "scripts", "path": "ghost-ai-scanner/scripts", "kind": "deploy-utils" }
-  ],
   "standards": "raven-v1",
-  "approval_mode": "first_responder",
-  "guards": [
-    "manifest-checker", "secret-scan", "audit-log",
-    "cve-prompt-guard", "tool-guard"
-  ],
-  "approved_skills": [
-    "raven-core", "raven-plan", "raven-security", "raven-review",
-    "raven-document", "raven-init", "raven-debug", "task-observer",
-    "fastapi-specialist", "aws-specialist", "devops-specialist",
-    "postgres-specialist", "security-specialist", "andie", "andie-jr"
-  ],
+  "guard": {
+    "enabled": true,
+    "version": "1.0"
+  },
   "changelog": [
     {
-      "version": "1.0",
+      "version": "1.0.0",
+      "date": "2026-07-01T12:36:31Z",
       "changed_by": "k.sanjaykumar@giggso.com",
-      "changed_at": "2026-06-29T00:00:00Z",
-      "changes": "raven-init — manifest created via Andie auto-scan. Stack: Python/FastAPI/Streamlit on AWS (S3+SNS+EC2), Docker/nginx/Grafana. 23 libraries detected from ghost-ai-scanner/requirements.txt.",
-      "pr": "pending"
+      "summary": "Raven project auto-initialised by session-start.py"
+    },
+    {
+      "version": "1.3.0",
+      "date": "2026-07-01T17:00:00Z",
+      "changed_by": "k.sanjaykumar@giggso.com",
+      "summary": "Provider Governance: allow<->block flip (baseline flip routed through guarded override), idempotent add (no duplicate list rows / plain->override upgrade), Manage reordered (Inherited+Override -> Newly Found -> this-scope lists), redundant Name column dropped. governance_crud v1.1.0 + provider_governance v4.3.0. Tests 63/63 unit + 11/11 governance integration."
+    },
+    {
+      "version": "1.4.0",
+      "date": "2026-07-02T00:00:00Z",
+      "changed_by": "k.sanjaykumar@giggso.com",
+      "summary": "raven-sync: recorded 3 CVE-cleared policy-DB libs (sqlalchemy, alembic, psycopg2-binary) in stack.libraries. CVE-clear per OSV.dev 2026-06-29. Prod: prefer source psycopg2."
     }
   ]
 }

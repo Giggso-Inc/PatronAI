@@ -29,6 +29,7 @@ from .filtered_table   import search_box, apply_search_dicts
 from .clickable_metric import clickable_metric, static_metric
 from .drill_panel      import render_drill_panel
 from .ai_posture_card  import render_ai_posture
+from .policy_context_loader import load_org_policy_context
 
 _PANEL = "mgr_inventory"
 
@@ -60,7 +61,39 @@ def render_inventory(events: list) -> None:
     # When compacted findings_current rows are available they're used;
     # otherwise we degrade gracefully to raw events.
     device_label = unique_keys[0] if len(unique_keys) == 1 else f"{len(unique_keys)} devices"
-    render_ai_posture(events, device_label=device_label)
+    # Per-device scores -> worst-case-blend fleet number. Decomposable:
+    # the per-device numbers also appear in the ASSET INVENTORY SCORE column.
+    # Each device is scored with its OWNER's EFFECTIVE policy (org + their
+    # teams + their own list) so the SCORE column matches the User-detail page.
+    from scoring.risk_score import risk_score as _rs, risk_band as _rb
+    from scoring.breakdown import fleet_blend as _blend
+    from .policy_context_loader import load_user_policy_context
+    _dev_events: dict = defaultdict(list)
+    _dev_owner: dict = {}
+    for _e in events:
+        _k = _asset_key(_e)
+        _dev_events[_k].append(_e)
+        _o = (_e.get("email") or _e.get("owner") or "").strip()
+        if _o and not _dev_owner.get(_k):
+            _dev_owner[_k] = _o
+    _ctx_cache: dict = {}   # resolve each owner's effective context once per render
+
+    def _owner_ctx(owner_email: str):
+        if not owner_email:
+            return load_org_policy_context()
+        if owner_email not in _ctx_cache:
+            _ctx_cache[owner_email] = load_user_policy_context(owner_email)
+        return _ctx_cache[owner_email]
+
+    dev_score = {k: _rs(evs, _owner_ctx(_dev_owner.get(k, "")))
+                 for k, evs in _dev_events.items()}
+    _scores = list(dev_score.values())
+    _note = (f"Fleet = 60% x worst device ({max(_scores)}) + 40% x avg "
+             f"({round(sum(_scores) / len(_scores))}) across {len(_scores)} device(s)"
+             if _scores else "")
+    # fleet_score drives the headline, so policy_context is unused here.
+    render_ai_posture(events, device_label=device_label, policy_context=None,
+                      fleet_score=_blend(_scores), score_note=_note)
 
     # KPIs count DISTINCT DEVICES, not event rows. A laptop emitting a
     # scan every 30 min must show as 1 device + N scan events, never
@@ -160,7 +193,10 @@ def render_inventory(events: list) -> None:
             f"<td style='font-family:JetBrains Mono;font-size:10px;color:#57606A'>"
             f"{v['mac'] or '—'}</td>"
             f"<td style='text-align:center'>{v['count']}</td>"
-            f"<td>{sev_badge(v['severity'] if v['count'] > 0 else 'CLEAN')}</td>"
+            f"<td style='text-align:center;font-family:JetBrains Mono;font-weight:600'>"
+            f"{dev_score.get(key, 0)} <span style='color:#57606A;font-weight:400'>"
+            f"/100</span></td>"
+            f"<td>{sev_badge(_rb(dev_score.get(key, 0)) if v['count'] > 0 else 'CLEAN')}</td>"
             f"</tr>"
         )
 
@@ -174,7 +210,7 @@ def render_inventory(events: list) -> None:
     st.markdown(
         f"<table><thead><tr>"
         f"<th>SOURCE IP / DEVICE</th><th>TYPE</th><th>USER</th>"
-        f"<th>DEPT</th><th>MAC</th><th>EVENTS</th><th>STATUS</th>"
+        f"<th>DEPT</th><th>MAC</th><th>EVENTS</th><th>SCORE</th><th>STATUS</th>"
         f"</tr></thead><tbody>{rows}</tbody></table>",
         unsafe_allow_html=True,
     )

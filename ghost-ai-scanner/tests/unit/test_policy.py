@@ -1,0 +1,85 @@
+# =============================================================
+# FILE: tests/unit/test_policy.py
+# VERSION: 1.0.0
+# UPDATED: 2026-06-29
+# OWNER: Giggso Inc
+# PURPOSE: Lock the policy waterfall (ADR_2026-06-29) — tier resolution
+#          and multipliers. Pure; no DB.
+# =============================================================
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+
+from scoring.policy import PolicyContext, policy_tier, policy_multiplier
+from scoring.scoring_weights import POLICY_MULTIPLIER
+
+
+def test_unknown_provider_is_neutral():
+    assert policy_tier("anything", PolicyContext.empty()) == "unknown"
+    assert policy_multiplier("anything", PolicyContext.empty()) == 1.0
+
+
+def test_none_context_is_policy_blind():
+    assert policy_multiplier("anything", None) == 1.0
+
+
+def test_full_waterfall_order_and_multipliers():
+    cases = [
+        ("giggso_deny",  PolicyContext(giggso_deny={"x"}),  3.0),
+        ("org_deny",     PolicyContext(org_deny={"x"}),     2.0),
+        ("project_deny",    PolicyContext(project_deny={"x"}),    2.0),
+        ("user_deny",    PolicyContext(user_deny={"x"}),    2.0),
+        ("org_approve",  PolicyContext(org_approve={"x"}),  0.10),
+        ("project_approve", PolicyContext(project_approve={"x"}), 0.15),
+        ("user_ack",     PolicyContext(user_ack={"x"}),     0.50),
+    ]
+    for tier, ctx, mult in cases:
+        assert policy_tier("x", ctx) == tier
+        assert policy_multiplier("x", ctx) == mult == POLICY_MULTIPLIER[tier]
+
+
+def test_deny_beats_approve_at_every_scope():
+    ctx = PolicyContext(org_approve={"x"}, org_deny={"x"})
+    assert policy_tier("x", ctx) == "org_deny"
+
+
+def test_giggso_deny_wins_over_org_approve():
+    ctx = PolicyContext(giggso_deny={"x"}, org_approve={"x"})
+    assert policy_tier("x", ctx) == "giggso_deny"
+
+
+def test_giggso_override_flips_baseline_to_capped():
+    ctx = PolicyContext(giggso_deny={"x"}, giggso_override={"x"})
+    assert policy_tier("x", ctx) == "giggso_override"
+    assert policy_multiplier("x", ctx) == 0.50
+
+
+def test_override_only_applies_when_also_baseline_denied():
+    # override set without a baseline deny has no effect (not a free approve)
+    ctx = PolicyContext(giggso_override={"x"})
+    assert policy_tier("x", ctx) == "unknown"
+
+
+def test_glob_and_case_insensitive_match():
+    ctx = PolicyContext(org_approve={"mcp:claude_desktop:*"})
+    assert policy_tier("MCP:Claude_Desktop:puppeteer", ctx) == "org_approve"
+
+
+def test_scoped_giggso_override_tiers_and_weights():
+    cases = [
+        ("giggso_override",         "giggso_override",         0.50),
+        ("giggso_override_project", "giggso_override_project", 0.60),
+        ("giggso_override_user",    "giggso_override_user",    0.70),
+    ]
+    for field_name, tier, mult in cases:
+        ctx = PolicyContext(giggso_deny={"x"}, **{field_name: {"x"}})
+        assert policy_tier("x", ctx) == tier
+        assert policy_multiplier("x", ctx) == mult == POLICY_MULTIPLIER[tier]
+
+
+def test_override_precedence_user_over_project_over_org():
+    ctx = PolicyContext(giggso_deny={"x"}, giggso_override={"x"},
+                        giggso_override_project={"x"}, giggso_override_user={"x"})
+    assert policy_tier("x", ctx) == "giggso_override_user"   # most specific wins

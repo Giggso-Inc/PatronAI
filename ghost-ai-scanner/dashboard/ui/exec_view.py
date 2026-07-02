@@ -30,13 +30,13 @@ def render(events: list, summary: dict, email: str = "") -> None:
     _kpis(events, summary)
     render_drill_panel(_PANEL, events, limit=100)
     st.markdown("<br>", unsafe_allow_html=True)
-    t1, t2, t3 = st.tabs(["  AI LANDSCAPE  ", "  RISK HEATMAP  ", "  DATA EXPOSURE  "])
+    t1, t2, t3 = st.tabs(["  DATA EXPOSURE  ", "  RISK HEATMAP  ", "  AI LANDSCAPE  "])
     with t1:
-        render_landscape(events, summary)
+        render_exposure(events)
     with t2:
         render_risk(events)
     with t3:
-        render_exposure(events)
+        render_landscape(events, summary)
 
 
 def _kpis(events: list, summary: dict) -> None:
