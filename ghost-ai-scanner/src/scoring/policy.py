@@ -21,8 +21,17 @@ from dataclasses import dataclass, field
 from scoring.scoring_weights import POLICY_MULTIPLIER
 
 
-def _norm(s: str) -> str:
-    return (s or "").strip().lower()
+def _norm(s) -> str:
+    """Normalise a provider/domain to trimmed lowercase.
+
+    Tolerates non-str input: pandas reads a blank CSV cell as float('nan'),
+    which is TRUTHY — so the old `(s or "")` let a NaN through to `.strip()`
+    and blew up with "'float' object has no attribute 'strip'". Coerce to str
+    and treat NaN/None as empty."""
+    if s is None:
+        return ""
+    text = str(s).strip().lower()
+    return "" if text == "nan" else text
 
 
 def _matches(provider: str, patterns: set) -> bool:

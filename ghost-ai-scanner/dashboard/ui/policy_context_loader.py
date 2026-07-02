@@ -43,7 +43,9 @@ _BASELINE    = ("config/unauthorized.csv", ["name", "category", "domain", "port"
 
 def _rows(key_cols):
     key, cols = key_cols
-    return _io.read_csv_df(key, cols).to_dict("records")
+    # fillna("") — a blank CSV cell is pandas NaN (float); downstream code
+    # calls .strip()/.lower() and would crash on a float. Coerce to "" here.
+    return _io.read_csv_df(key, cols).fillna("").to_dict("records")
 
 
 def _csv_context():
