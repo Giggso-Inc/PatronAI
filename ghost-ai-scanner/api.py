@@ -17,6 +17,7 @@
 #   API_KEY               — bearer token for auth (required)
 # =============================================================
 
+import contextlib
 import csv
 import functools
 import json
@@ -46,10 +47,29 @@ from scoring.posture_score import (
     is_approved_provider,
 )
 
+_log = logging.getLogger("patronai.api")
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(app: "FastAPI"):
+    """On startup, bring the policy DB schema to head (auto-migrate).
+    No-op when DATABASE_URL is unset (CSV-backed path). Best-effort: a
+    failure is logged, not fatal — a later query surfaces the real error."""
+    if os.environ.get("DATABASE_URL"):
+        try:
+            from db.engine import run_migrations
+            run_migrations()
+            _log.info("[startup] policy DB migrations applied (head)")
+        except Exception as exc:                     # noqa: BLE001 — best effort
+            _log.warning("[startup] policy DB migration skipped/failed: %s", exc)
+    yield
+
+
 app = FastAPI(
     title="PatronAI API",
     description="Deploy Agents status, user risk reports, and AI-governance posture scores.",
     version="2.0.0",
+    lifespan=_lifespan,
 )
 
 _bearer  = HTTPBearer(auto_error=False)

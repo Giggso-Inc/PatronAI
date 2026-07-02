@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: src/db/engine.py
-# VERSION: 1.0.0
-# UPDATED: 2026-06-29
+# VERSION: 1.1.0
+# UPDATED: 2026-07-02
 # OWNER: Giggso Inc
 # PURPOSE: Lazy SQLAlchemy engine + session factory for the policy DB.
 #          Reads DATABASE_URL from the environment ONLY — no credential
@@ -11,14 +11,24 @@
 #          DATABASE_URL set.
 # POOL: pool_size=3 / max_overflow=2 / pre_ping / recycle 30 min
 #       (ADR_2026-06-23 — Streamlit is single-threaded per session).
+# MIGRATIONS: get_engine() applies Alembic to `head` once per process
+#       (auto-migrate on startup — any entry point that touches the DB gets a
+#       current schema). Toggle off with PATRONAI_AUTO_MIGRATE=0.
+# AUDIT LOG:
+#   v1.0.0  2026-06-29  Lazy engine + session factory.
+#   v1.1.0  2026-07-02  Auto-run Alembic `upgrade head` on first engine build.
 # =============================================================
 
+import logging
 import os
 from functools import lru_cache
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+
+_log = logging.getLogger(__name__)
+_MIGRATED = False
 
 
 def database_url() -> str:
@@ -36,10 +46,44 @@ def database_url() -> str:
     return url
 
 
+def _auto_migrate_enabled() -> bool:
+    """Auto-migrate is ON unless explicitly disabled (0/false/no)."""
+    return (os.environ.get("PATRONAI_AUTO_MIGRATE", "1").strip().lower()
+            not in ("0", "false", "no"))
+
+
+def run_migrations() -> None:
+    """Apply Alembic migrations up to `head`. Idempotent and once-per-process.
+
+    Called automatically on first engine build so a fresh deploy comes up with
+    a current schema instead of crashing on a missing table. Paths are resolved
+    ABSOLUTELY (the app's CWD is not always ghost-ai-scanner/); the URL comes
+    from DATABASE_URL via alembic/env.py — no credential in code. Best-effort:
+    a failure is logged, not fatal (a later query surfaces the real error),
+    matching the engine's import-safe philosophy."""
+    global _MIGRATED
+    if _MIGRATED or not _auto_migrate_enabled():
+        return
+    try:
+        from alembic import command
+        from alembic.config import Config
+        # src/db/engine.py -> ghost-ai-scanner/
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        cfg = Config(os.path.join(root, "alembic.ini"))
+        cfg.set_main_option("script_location", os.path.join(root, "alembic"))
+        command.upgrade(cfg, "head")
+        _log.info("policy DB migrated to head")
+    except Exception as exc:                       # noqa: BLE001 — best effort
+        _log.warning("auto-migration skipped/failed: %s", exc)
+    finally:
+        _MIGRATED = True   # don't retry every session; run once per process
+
+
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
-    """Build (once) and return the process-wide SQLAlchemy engine."""
-    return create_engine(
+    """Build (once) and return the process-wide SQLAlchemy engine.
+    Applies pending Alembic migrations before first use (auto-migrate)."""
+    engine = create_engine(
         database_url(),
         pool_size=3,
         max_overflow=2,
@@ -47,6 +91,8 @@ def get_engine() -> Engine:
         pool_recycle=1800,    # recycle every 30 min — survives PG restarts
         future=True,
     )
+    run_migrations()          # schema current before any caller queries
+    return engine
 
 
 @lru_cache(maxsize=1)
@@ -62,8 +108,11 @@ def get_session() -> Session:
 
 
 def reset_engine() -> None:
-    """Dispose the cached engine/sessionmaker — for tests or after a config change."""
+    """Dispose the cached engine/sessionmaker — for tests or after a config change.
+    Also re-arms auto-migration so a new DATABASE_URL gets its schema applied."""
+    global _MIGRATED
     if get_engine.cache_info().currsize:
         get_engine().dispose()
     get_engine.cache_clear()
     _session_factory.cache_clear()
+    _MIGRATED = False
