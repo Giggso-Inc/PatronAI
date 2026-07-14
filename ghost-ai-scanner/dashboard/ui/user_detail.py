@@ -33,7 +33,9 @@ def render_user_detail(events: list, email: str) -> None:
                    if (e.get("email") or e.get("owner") or "") == email]
     st.caption(f"{len(user_events)} total event(s) for this user.")
 
-    t1, t2 = st.tabs(["  ASSETS  ", "  LOGS  "])
+    t0, t1, t2 = st.tabs(["  SCORE  ", "  ASSETS  ", "  LOGS  "])
+    with t0:
+        _render_score_breakdown(user_events, email)
     with t1:
         render_user_mindmap(events, email)
     with t2:
@@ -43,6 +45,95 @@ def render_user_detail(events: list, email: str) -> None:
     if st.button("← back"):
         st.query_params.clear()
         st.rerun()
+
+
+_TIER_LABEL = {
+    "giggso_deny": "🔴 Giggso deny", "org_deny": "🔴 Org deny",
+    "project_deny": "🔴 Project deny", "user_deny": "🔴 User deny",
+    "org_approve": "🟢 Org approved", "project_approve": "🟢 Project approved",
+    "user_ack": "🟢 User approved", "giggso_override": "🟠 Giggso override (org)",
+    "giggso_override_project": "🟠 Giggso override (project)",
+    "giggso_override_user": "🟠 Giggso override (user)",
+    "unknown": "⚪ Unknown",
+}
+
+# Severity dot shown on the COLLAPSED category bar (so severity reads before opening).
+_SEV_DOT = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵", "CLEAN": "🟢"}
+
+# Human-readable category titles (e.g. ide_plugin -> "IDE Plugin").
+_CATEGORY_LABEL = {
+    "ide_plugin": "IDE Plugin", "mcp_server": "MCP Server", "vector_db": "Vector DB",
+    "browser": "Browser (AI)", "package": "Package", "process": "Process",
+    "shell_history": "Shell History", "tool_registration": "Tool Registration",
+    "agent_workflow": "Agent Workflow", "agent_scheduled": "Scheduled Agent",
+    "container_image": "Container Image", "container_log_signal": "Container Log",
+    "unknown": "Unknown",
+}
+
+
+def _render_score_breakdown(user_events: list, email: str = "") -> None:
+    """Full per-provider derivation of this user's risk score, using the
+    user's EFFECTIVE policy (org + their projects + their own list)."""
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
+    from scoring.breakdown import score_detail
+    from .policy_context_loader import load_user_policy_context
+
+    d = score_detail(user_events, load_user_policy_context(email))
+    band_color = {"CRITICAL": "#cf222e", "HIGH": "#bc4c00", "MEDIUM": "#9a6700",
+                  "LOW": "#1f6feb", "CLEAN": "#1a7f37"}.get(d["band"], "#57606A")
+    # Light severity tints — convey severity without loud HIGH/MEDIUM/LOW labels.
+    tint = {"CRITICAL": "#fde7ea", "HIGH": "#fdeee2", "MEDIUM": "#fcf7e3",
+            "LOW": "#eef4fc", "CLEAN": "#eafaf0"}
+
+    st.markdown(
+        f"<div style='font-family:JetBrains Mono;font-size:15px;font-weight:700;"
+        f"color:{band_color};margin:4px 0 2px'>RISK SCORE: {d['score']} / 100 · {d['band']}"
+        f"</div>", unsafe_allow_html=True,
+    )
+    provs = d["providers"]
+    if not provs:
+        st.success("No open findings for this user — clean.")
+        return
+    with st.expander("How is this scored?"):
+        st.caption(
+            f"Worst provider weight {d['worst']} sets the floor; {d['risky_count']} risky "
+            "provider(s) add breadth. Approved tools weigh x0.1-0.5, denied x2-3. "
+            "Score = floor + (100 - floor) x breadth x 0.5.")
+
+    from collections import defaultdict
+    groups: dict = defaultdict(list)
+    for p in provs:
+        groups[p["category"] or "unknown"].append(p)
+    # Categories sorted by total weight (highest first).
+    ordered = sorted(groups.items(), key=lambda kv: -sum(x["weighted"] for x in kv[1]))
+
+    sev_rank = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+    for idx, (cat, items) in enumerate(ordered):
+        items = sorted(items, key=lambda x: -x["weighted"])   # providers: heaviest first
+        total = round(sum(x["weighted"] for x in items), 1)
+        max_sev = max(items, key=lambda x: sev_rank.get(x["severity"], 0))["severity"]
+        dot = _SEV_DOT.get(max_sev, "⚪")
+        title = _CATEGORY_LABEL.get(cat, cat.replace("_", " ").title())
+        with st.expander(f"{dot} {title}  ·  {len(items)} provider(s)  ·  weight {total}",
+                         expanded=(idx == 0)):
+            rows_html = "".join(
+                f"<tr style='background:{tint.get(p['severity'], '#ffffff')}'>"
+                f"<td style='font-family:JetBrains Mono;font-size:11px'>{p['provider'][:48]}</td>"
+                f"<td style='text-align:center'>{p['occurrences']}</td>"
+                f"<td style='font-size:11px'>{_TIER_LABEL.get(p['tier'], p['tier'])}</td>"
+                f"<td style='text-align:center'>×{p['multiplier']}</td>"
+                f"<td style='text-align:center;font-weight:700'>{p['weighted']}</td>"
+                f"</tr>"
+                for p in items
+            )
+            st.markdown(
+                f"<div style='overflow-x:auto'><table><thead><tr>"
+                f"<th>PROVIDER</th><th>OCCUR</th><th>POLICY</th><th>MULT</th><th>WEIGHT</th>"
+                f"</tr></thead><tbody>{rows_html}</tbody></table></div>",
+                unsafe_allow_html=True,
+            )
 
 
 def _render_logs(user_events: list) -> None:

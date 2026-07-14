@@ -42,3 +42,7 @@ reports/regression-*.html
 .DS_Store
 
 .codex-security-venv/
+# Raven Enterprise -- never commit these
+.raven/manifest.secrets.json
+.raven/.cache/
+.model.env

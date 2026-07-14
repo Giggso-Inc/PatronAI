@@ -18,20 +18,50 @@
 #                       downloads.
 # =============================================================
 
+import os
 import logging
 import boto3
 from botocore.config import Config
 
 log = logging.getLogger("marauder-scan.store")
 
+# A custom endpoint (AWS_ENDPOINT_URL) means we are talking to LocalStack /
+# another S3-compatible mock in dev, not real AWS. botocore auto-detects this
+# env var; we mirror that detection here to pick safe per-environment defaults.
+_CUSTOM_ENDPOINT = os.environ.get("AWS_ENDPOINT_URL", "").strip()
+
+
+def _build_s3_config() -> Config:
+    """Shared S3 client config. SigV4 everywhere so presigned URLs sign
+    correctly (see audit log v1.1.0).
+
+    Production (real AWS): virtual-hosted addressing + botocore's default
+    flexible checksums.
+
+    Dev (AWS_ENDPOINT_URL set → LocalStack): path-style addressing is
+    REQUIRED — bucket-as-subdomain (marauder-scan-demo.localhost) does not
+    resolve against localhost. Checksum calculation is forced to
+    "when_required" because LocalStack 3.4's S3 provider cannot parse the
+    CRC32/CRC64NVME trailers botocore >=1.36 attaches by default and dies with
+    "'NoneType' object has no attribute 'to_bytes'".
+    """
+    if _CUSTOM_ENDPOINT:
+        return Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+            request_checksum_calculation="when_required",
+            response_checksum_validation="when_required",
+            retries={"max_attempts": 3, "mode": "standard"},
+        )
+    return Config(
+        signature_version="s3v4",
+        s3={"addressing_style": "virtual"},
+        retries={"max_attempts": 3, "mode": "standard"},
+    )
+
+
 # All S3 clients share this config so presigned URLs are SigV4-signed.
-# Path-style (vs virtual-hosted) is irrelevant to signing but s3v4 + the
-# explicit region matters for cross-region buckets.
-_S3_CLIENT_CONFIG = Config(
-    signature_version="s3v4",
-    s3={"addressing_style": "virtual"},
-    retries={"max_attempts": 3, "mode": "standard"},
-)
+_S3_CLIENT_CONFIG = _build_s3_config()
 
 
 class BaseStore:

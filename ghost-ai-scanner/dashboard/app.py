@@ -56,8 +56,8 @@ def handle_query_params(store, summarizer):
 
 
 def main():
-    # Auth gate — returns (email, is_admin) or stops
-    email, is_admin = gate()
+    # Auth gate — returns (email, role, is_admin) or stops (auth.py v2.0.0)
+    email, role, is_admin = gate()
 
     if not BUCKET:
         st.error("MARAUDER_SCAN_BUCKET environment variable not set.")

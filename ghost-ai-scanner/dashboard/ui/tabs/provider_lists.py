@@ -16,6 +16,7 @@
 # =============================================================
 
 import logging
+import os
 
 import streamlit as st
 
@@ -44,6 +45,13 @@ ALLOW_COLS = ["name", "domain_pattern", "notes"]
 
 def render(is_admin: bool, email: str = "") -> None:
     """Render the Provider Lists tab."""
+    if os.environ.get("DATABASE_URL"):
+        # Transient toast (auto-dismisses) — only the SCORING multiplier moved to the DB.
+        st.toast(
+            "DB mode: only the SCORE's policy multiplier (×0.1 approve / ×2–3 deny) now "
+            "comes from the database. These CSV lists still drive INGESTION "
+            "(what gets detected / suppressed). To change scoring, use Provider Governance.",
+            icon="ℹ️")
     _io.render_status_banner(STATUS_KEY)
 
     st.markdown("**Network denylist — Baseline (Giggso-managed)**")

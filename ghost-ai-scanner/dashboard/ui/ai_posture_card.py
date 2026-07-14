@@ -49,16 +49,27 @@ def _band_colour(band: str) -> str:
     }.get(band, "#57606A")
 
 
-def render_ai_posture(rows: list, device_label: str = "this fleet") -> None:
+def render_ai_posture(rows: list, device_label: str = "this fleet",
+                      policy_context=None, fleet_score=None,
+                      score_note: str = "") -> None:
     """Render the aggregated AI Posture card.
     `rows` must be the COMPACTED rows (findings_current view) — one
     per signature, with severity/category/occurrences/last_seen.
-    Falls back gracefully if older raw-finding rows are passed."""
-    score = risk_score(rows)
+    Falls back gracefully if older raw-finding rows are passed.
+
+    policy_context: optional resolved PolicyContext (org/team/user allow
+    & deny). None → policy-blind score (backward compatible).
+    fleet_score: if given, use this as the headline (e.g. the worst-case
+    blend of per-device scores) instead of scoring `rows` directly.
+    score_note: small caption under the headline that derives the number."""
+    score = fleet_score if fleet_score is not None else risk_score(rows, policy_context)
     band  = risk_band(score)
     bdown = posture_breakdown(rows)
     open_categories = sum(1 for v in bdown.values() if v["count"] > 0)
 
+    # Formula lives in the hover tooltip of an ⓘ icon (not shown inline).
+    info = (f"<span title='{score_note}' style='cursor:help;font-weight:400;"
+            f"color:#8b949e'>&nbsp;ⓘ</span>" if score_note else "")
     st.markdown(
         f"<div style='border:1px solid #d0d7de;border-radius:8px;"
         f"padding:18px 20px;margin:8px 0 18px;background:#ffffff'>"
@@ -66,10 +77,10 @@ def render_ai_posture(rows: list, device_label: str = "this fleet") -> None:
         f"align-items:baseline;margin-bottom:14px'>"
         f"<div style='font-family:JetBrains Mono;font-size:12px;"
         f"letter-spacing:0.05em;text-transform:uppercase;color:#57606A'>"
-        f"AI POSTURE — {device_label}</div>"
+        f"AI POSTURE — {device_label} &nbsp;·&nbsp; ORG-WIDE</div>"
         f"<div style='font-family:JetBrains Mono;font-size:13px;"
         f"font-weight:600;color:{_band_colour(band)}'>"
-        f"RISK SCORE: {score} / 100 &nbsp;·&nbsp; {band}</div>"
+        f"RISK SCORE: {score} / 100 &nbsp;·&nbsp; {band}{info}</div>"
         f"</div>",
         unsafe_allow_html=True,
     )

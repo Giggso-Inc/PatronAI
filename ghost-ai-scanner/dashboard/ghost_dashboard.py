@@ -65,7 +65,7 @@ def main() -> None:
 
     # Load data for all data-dependent views (home needs events for chat)
     events, summary = [], {}
-    if view in ("exec", "manager", "providers", "support", "reports", "home"):
+    if view in ("exec", "manager", "providers", "support", "reports", "home", "settings"):
         events, summary = load_data(email=email, role=role)
     if view != "home":
         _render_header(summary)
@@ -98,7 +98,7 @@ def main() -> None:
         render_reports(events, email)
 
     elif view == "settings" and is_admin:
-        _render_settings(email)
+        _render_settings(email, events)
 
 
 def _build_store():
@@ -120,18 +120,23 @@ def _render_support(events: list, summary: dict, email: str) -> None:
     if err: st.error(err)
     support_render(events, summary, store, email)
 
-def _render_settings(email: str) -> None:
+def _render_settings(email: str, events: list = None) -> None:
     """Tabbed settings panel — admin only."""
     store, err = _build_store()
     if err:
         st.error(err); return
     _tab_names = ["Scanning","Alerting","Identity",
-                  "Provider Lists","Users","Deploy Agents","Branding"]
+                  "Provider Lists","Provider Governance","Projects",
+                  "Users","Deploy Agents","Branding"]
     tabs = st.tabs(_tab_names)
     from ui.tabs.scanning import render as r_scan
     from ui.tabs.alerting import render as r_alert
     from ui.tabs.identity import render as r_ident
     from ui.tabs.provider_lists import render as r_prov
+    from ui.tabs.provider_governance import render as r_gov
+    from ui.tabs.projects import render as r_projects
+    from ui.policy_context_loader import load_org_policy_context, sync_scanned_users_from_events
+    sync_scanned_users_from_events(events)   # keep DB users current with scanned owners
     from ui.tabs.users import render as r_users
     from ui.tabs.deploy_agents import render as r_agents
     from ui.tabs.branding import render as r_brand
@@ -139,9 +144,12 @@ def _render_settings(email: str) -> None:
     with tabs[1]: r_alert(store, email)
     with tabs[2]: r_ident(store, email)
     with tabs[3]: r_prov(is_admin=True, email=email)
-    with tabs[4]: r_users(email)
-    with tabs[5]: r_agents(email)
-    with tabs[6]: r_brand(email)
+    with tabs[4]: r_gov(is_admin=True, events=(events or []),
+                        policy_context=load_org_policy_context(), email=email)
+    with tabs[5]: r_projects(is_admin=True, email=email)
+    with tabs[6]: r_users(email)
+    with tabs[7]: r_agents(email)
+    with tabs[8]: r_brand(email)
 
 
 if __name__ == "__main__":

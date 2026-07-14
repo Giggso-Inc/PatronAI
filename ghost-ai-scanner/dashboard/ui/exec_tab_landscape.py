@@ -26,11 +26,8 @@ _PANEL = "exec_landscape"
 def render_landscape(events: list, summary: dict) -> None:
     """World map + provider bubble side-by-side, then 30-day trend.
     Provider bubble click → drill on provider."""
-    col_l, col_r = st.columns([3, 2])
-    with col_l:
-        _world_map(events)
-    with col_r:
-        _provider_bubble(events)
+    _world_map(events)
+    _provider_bubble(events)   # full width — was cramped in a narrow 2/5 column
     _trend_30d(events)
     render_drill_panel(_PANEL, events, limit=100)
 
@@ -78,27 +75,30 @@ def _provider_bubble(events: list) -> None:
                 by_prov[p]["severity"] = "HIGH"
 
     df = pd.DataFrame([
-        {"provider": p, "count": v["count"],
+        {"provider": p,
+         "label": (p[:20] + "…") if len(p) > 21 else p,   # short label, full name on hover
+         "count": v["count"],
          "bytes_mb": round(v["bytes"]/1_000_000, 1),
          "colour": SEV_COLOURS.get(v["severity"], "#57606A")}
-        for p, v in sorted(by_prov.items(), key=lambda x: x[1]["count"], reverse=True)[:12]
+        for p, v in sorted(by_prov.items(), key=lambda x: x[1]["count"], reverse=True)[:10]
     ])
     if df.empty:
         return
 
     fig = go.Figure(go.Scatter(
         x=df["bytes_mb"], y=df["count"], mode="markers+text",
-        marker=dict(size=df["count"].apply(lambda x: min(max(x*1.5,12),48)),
+        marker=dict(size=df["count"].apply(lambda x: min(max(x*1.5,14),52)),
                     color=df["colour"], opacity=0.85,
                     line=dict(width=1, color="#D0D7DE")),
-        text=df["provider"], textposition="top center",
-        textfont=dict(size=9, color="#57606A"),
-        # customdata carries the provider name into the selection event dict
-        # — more reliable than text which Plotly.js may not surface in pts[].
+        text=df["label"], textposition="top center",
+        textfont=dict(size=10, color="#57606A"), cliponaxis=False,
+        # customdata carries the FULL provider name into the selection event
+        # dict — more reliable than text which Plotly.js may not surface.
         customdata=df["provider"].tolist(),
         hovertemplate="<b>%{customdata}</b><br>Events: %{y}<br>MB out: %{x}<extra></extra>",
     ))
-    fig.update_layout(**PLOTLY_BASE, height=260,
+    fig.update_layout(**{**PLOTLY_BASE, "margin": dict(l=10, r=30, t=30, b=10)},
+                      height=440,
                       xaxis=dict(title="MB Out", gridcolor="#E1E4E8", zeroline=False),
                       yaxis=dict(title="Events",  gridcolor="#E1E4E8", zeroline=False))
     st.markdown('<div class="card-title">PROVIDER ACTIVITY · click a bubble to drill</div>',
