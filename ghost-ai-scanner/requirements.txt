@@ -72,3 +72,14 @@ python-dotenv>=1.0.0         # Apache 2.0 — load .env into os.environ for loca
 sqlalchemy>=2.0,<3.0          # MIT — ORM + Core for policy/identity tables
 alembic>=1.13,<2.0            # MIT — schema migrations
 psycopg2-binary>=2.9,<3.0     # LGPL — PostgreSQL driver (dev/convenience build)
+
+# ── RavenHub caller-identity verification — PR#9 review, C1 ───
+# Verifies the raven-enterprise-issued JWT (routers/ravenhub.py
+# _verify_ravenhub_identity), scoped to the ravenhub router only.
+# CVE check 2026-07-21 (NVD/OSV/GitHub Advisory): CVE-2024-33663 /
+# GHSA-6c5p-j8vq-pqhj — algorithm-confusion, CVSS v3.1 High / v4 9.3 —
+# affects python-jose through 3.3.0, fixed in 3.4.0. Pinned >=3.4.0 to
+# stay clear of it. NOTE: raven-enterprise's own requirements.txt still
+# pins ==3.3.0 (the last vulnerable release) — flag for that repo,
+# separate from this fix.
+python-jose[cryptography]>=3.4.0,<4.0.0   # MIT — verify raven-enterprise JWTs (RavenHub identity)

@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: routers/ravenhub.py
-# VERSION: 1.2.0
-# UPDATED: 2026-07-20
+# VERSION: 1.4.0
+# UPDATED: 2026-07-21
 # OWNER: Giggso Inc
 # PURPOSE: RavenHub router — serves dashboard content as REST APIs so
 #          RavenHub can consume it without the FE reading S3 directly.
@@ -21,23 +21,29 @@
 #            dashboard/ui/ai_posture_card.py
 #          Read-only. Does not modify or touch the Streamlit UI
 #          code path — additive only.
-# NOTE — TRUST BOUNDARY (PR#9 review): every route below takes the
-#        caller's identity (`email` / `viewer_email`) as a plain query
-#        param and trusts it as-is — `_auth`'s bearer check (api.py)
-#        only proves "holds the shared API_KEY", not "is this email".
-#        This router does NOT bind the two. Enforcement is required
-#        upstream, by both of:
-#          - RavenHub's own backend (not browser JS) must derive
-#            `email`/`viewer_email` from the caller's authenticated
-#            session and inject it server-side — the browser must
-#            never be able to set or edit this value.
-#          - nginx / network policy must make this API unreachable
-#            except from RavenHub's backend (no public route to
-#            INTEGRATION_API_PORT). docker-compose*.yml in this repo
-#            are dev-only and do not represent that topology.
-#        If either control is missing, any holder of API_KEY can
-#        assert any email and read/act as that user (or an admin).
-#        See PR#9 review note for the accepted-risk writeup.
+# NOTE — IDENTITY ENFORCEMENT (PR#9 review, C1 — resolved v1.3.0):
+#        every route on THIS router requires a verified `X-Raven-Identity`
+#        JWT (see _verify_ravenhub_identity below) — issued by
+#        raven-enterprise's login/SSO (app/core/auth.py:create_access_token),
+#        same secret + HS256. The caller's `email` is read from that
+#        verified token, never from a client-supplied query param, so
+#        holding the shared API_KEY (api.py's `_auth`, still required
+#        unchanged) is no longer sufficient on its own to assert someone
+#        else's identity.
+#        SCOPE — deliberately limited to this router only. It does NOT
+#        apply to api.py's older /agent/status, /score, /agent/report,
+#        /score/fleet routes — those are a separate, pre-existing surface
+#        with their own (unchanged) email-param pattern, out of scope for
+#        this change. This is enforced by declaring the dependency on
+#        THIS FILE's `router = APIRouter(...)` only, never on `app` in
+#        api.py — so it can never leak onto routes registered elsewhere.
+#        Requires RAVEN_JWT_SECRET env var == raven-enterprise's
+#        SECRET_KEY (same value, both services). Requires `python-jose`
+#        (see requirements.txt) — CVE-check per CLAUDE.md before deploy.
+#        ghost-ai-scanner has no centralized settings/config module (no
+#        BaseSettings-style class anywhere in this repo) — RAVEN_JWT_SECRET
+#        is read inline via os.environ.get(), matching the existing
+#        convention (api.py's API_KEY, this file's own MARAUDER_SCAN_BUCKET).
 # AUDIT LOG:
 #   v1.0.0  2026-07-20  Initial — /exec/overview.
 #   v1.1.0  2026-07-20  Add /inventory/overview (AI Posture + Asset
@@ -45,6 +51,16 @@
 #   v1.2.0  2026-07-20  Document the identity trust boundary (PR#9
 #                       review) — FE/session and nginx/network must
 #                       enforce caller==email; this router doesn't.
+#   v1.3.0  2026-07-21  Close the gap documented in v1.2.0: verify a
+#                       raven-enterprise-issued JWT (X-Raven-Identity)
+#                       and derive caller email from it, router-scoped
+#                       only — /exec/overview, /inventory/overview now
+#                       take no client email param; /user/detail keeps
+#                       target_email (explicit admin-view) but derives
+#                       viewer_email from the verified token.
+#   v1.4.0  2026-07-21  Reorder file: imports -> response models ->
+#                       helper functions -> API routes (no behavior
+#                       change).
 # =============================================================
 
 import logging
@@ -53,14 +69,86 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr
 
 from blob_index_store import BlobIndexStore
 
 _log = logging.getLogger("patronai.ravenhub")
 
-router = APIRouter()
+# ── Caller-identity verification config (scoped to THIS router only) ─
+# See NOTE — IDENTITY ENFORCEMENT above. Must match raven-enterprise's
+# app/core/config.py SECRET_KEY/ALGORITHM exactly, or every token here
+# fails to verify. No centralized settings module exists in this repo
+# to route this through (see note above) — inline os.environ.get() is
+# the established pattern here.
+_RAVEN_JWT_SECRET = os.environ.get("RAVEN_JWT_SECRET", "")
+_RAVEN_JWT_ALGORITHM = "HS256"
+
+
+# =============================================================
+# Response models
+# =============================================================
+
+class ExecOverviewResponse(BaseModel):
+    email: str
+    is_admin: bool
+    source_date: Optional[str]
+    scoped_event_count: int
+    kpis: dict
+    data_exposure: dict
+    risk_heatmap: dict
+    ai_landscape: dict
+
+
+class InventoryOverviewResponse(BaseModel):
+    email: str
+    is_admin: bool
+    message: Optional[str] = None
+    source_date: Optional[str] = None
+    ai_posture: Optional[dict] = None
+    asset_inventory: Optional[list] = None
+
+
+class UserDetailResponse(BaseModel):
+    viewer_email: str
+    target_email: str
+    authorized: bool
+    message: Optional[str] = None
+    total_events: Optional[int] = None
+    score: Optional[dict] = None
+    logs: Optional[list] = None
+
+
+# =============================================================
+# Helper functions
+# =============================================================
+
+def _verify_ravenhub_identity(
+    x_raven_identity: Optional[str] = Header(default=None, alias="X-Raven-Identity"),
+) -> str:
+    """Decode + verify the raven-enterprise-issued JWT carried in the
+    X-Raven-Identity header and return its verified `email` claim.
+
+    This is the caller's identity for every route on THIS router — do
+    NOT reintroduce a client-supplied email/viewer_email query param for
+    identity; that was C1 in the PR#9 review. Separate header from
+    Authorization on purpose: Authorization stays reserved for api.py's
+    existing shared API_KEY (service-level) check; this is the
+    user-level check, layered on top, not a replacement for it."""
+    if not _RAVEN_JWT_SECRET:
+        raise HTTPException(status_code=503, detail="RAVEN_JWT_SECRET not configured")
+    if not x_raven_identity:
+        raise HTTPException(status_code=401, detail="Missing X-Raven-Identity token")
+    try:
+        payload = jwt.decode(x_raven_identity, _RAVEN_JWT_SECRET, algorithms=[_RAVEN_JWT_ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired identity token")
+    email = payload.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Identity token missing email claim")
+    return str(email).strip().lower()
 
 
 def _blob_store() -> BlobIndexStore:
@@ -140,17 +228,6 @@ def _resolve_is_admin(email: str) -> bool:
     if s3 is not None:
         return s3
     return _env_is_admin(email)
-
-
-class ExecOverviewResponse(BaseModel):
-    email: str
-    is_admin: bool
-    source_date: Optional[str]
-    scoped_event_count: int
-    kpis: dict
-    data_exposure: dict
-    risk_heatmap: dict
-    ai_landscape: dict
 
 
 def _load_events(store: BlobIndexStore, email: str, is_admin: bool) -> tuple:
@@ -304,40 +381,6 @@ def _ai_landscape(events: list) -> dict:
         "trend_30d": [{"date": d, "count": by_day[d]} for d in dates],
     }
 
-
-@router.get("/exec/overview", response_model=ExecOverviewResponse)
-def get_exec_overview(
-    email: EmailStr = Query(..., description="Caller's dashboard email"),
-) -> ExecOverviewResponse:
-    """Exec view content — KPIs, Data Exposure (Sankey + incidents),
-    Risk Heatmap (category x severity + top offenders), AI Landscape
-    (world map + provider bubble + 30-day trend). Same S3 data and same
-    aggregation the Streamlit Exec view renders — computed fresh per
-    call, no cache.
-
-    Admin status is resolved server-side from `email` (Postgres users
-    table -> S3 users.json -> env allowlist), the same chain
-    dashboard/ui/auth_gate.py uses at login. The caller cannot assert
-    is_admin — a 403 is raised if the email isn't recognized anywhere."""
-    store = _blob_store()
-    email_norm = str(email).strip().lower()
-    is_admin = _resolve_is_admin(email_norm)
-
-    events, _summary, y_summary, source_date = _load_events(store, email_norm, is_admin)
-
-    return ExecOverviewResponse(
-        email=email_norm,
-        is_admin=is_admin,
-        source_date=source_date,
-        scoped_event_count=len(events),
-        kpis=_kpis(events, y_summary),
-        data_exposure=_data_exposure(events),
-        risk_heatmap=_risk_heatmap(events),
-        ai_landscape=_ai_landscape(events),
-    )
-
-
-# ── Manager view / INVENTORY tab (AI Posture + Asset Inventory) ───────
 
 def _org_policy_context():
     """DB-only equivalent of dashboard/ui/policy_context_loader.py's
@@ -506,25 +549,83 @@ def _asset_inventory(events: list, dev_score: dict, limit: int = 20) -> list:
     ]
 
 
-class InventoryOverviewResponse(BaseModel):
-    email: str
-    is_admin: bool
-    message: Optional[str] = None
-    source_date: Optional[str] = None
-    ai_posture: Optional[dict] = None
-    asset_inventory: Optional[list] = None
+def _user_logs(user_events: list, limit: int = 200) -> list:
+    """Recent-events rows for one user, mirrors dashboard/ui/user_detail.py
+    _render_logs() — newest first, capped at `limit`."""
+    rows = sorted(user_events, key=lambda e: e.get("timestamp", ""), reverse=True)[:limit]
+    return [
+        {
+            "timestamp": e.get("timestamp"),
+            "device": e.get("src_ip") or e.get("device_id") or None,
+            "provider": (e.get("provider") or "")[:60] or None,
+            "severity": e.get("severity", "UNKNOWN"),
+            "source": (e.get("source") or "")[:30] or None,
+            "geo_country": e.get("geo_country") or None,
+        }
+        for e in rows
+    ]
+
+
+# =============================================================
+# API routes
+# =============================================================
+
+# `dependencies=` enforces _verify_ravenhub_identity on every route below
+# even if a future route forgets to declare the parameter explicitly —
+# router-scoped, so it can never apply to routes registered on `app` in
+# api.py.
+router = APIRouter(dependencies=[Depends(_verify_ravenhub_identity)])
+
+
+@router.get("/exec/overview", response_model=ExecOverviewResponse)
+def get_exec_overview(
+    email: str = Depends(_verify_ravenhub_identity),
+) -> ExecOverviewResponse:
+    """Exec view content — KPIs, Data Exposure (Sankey + incidents),
+    Risk Heatmap (category x severity + top offenders), AI Landscape
+    (world map + provider bubble + 30-day trend). Same S3 data and same
+    aggregation the Streamlit Exec view renders — computed fresh per
+    call, no cache.
+
+    `email` is the verified identity from _verify_ravenhub_identity (PR#9
+    review, C1) — no longer a client-supplied query param. Admin status is
+    then resolved server-side from that verified email (Postgres users
+    table -> S3 users.json -> env allowlist), the same chain
+    dashboard/ui/auth_gate.py uses at login. The caller cannot assert
+    is_admin — a 403 is raised if the email isn't recognized anywhere."""
+    store = _blob_store()
+    email_norm = email
+    is_admin = _resolve_is_admin(email_norm)
+
+    events, _summary, y_summary, source_date = _load_events(store, email_norm, is_admin)
+
+    return ExecOverviewResponse(
+        email=email_norm,
+        is_admin=is_admin,
+        source_date=source_date,
+        scoped_event_count=len(events),
+        kpis=_kpis(events, y_summary),
+        data_exposure=_data_exposure(events),
+        risk_heatmap=_risk_heatmap(events),
+        ai_landscape=_ai_landscape(events),
+    )
 
 
 @router.get("/inventory/overview", response_model=InventoryOverviewResponse)
 def get_inventory_overview(
-    email: EmailStr = Query(..., description="Caller's dashboard email"),
+    email: str = Depends(_verify_ravenhub_identity),
 ) -> InventoryOverviewResponse:
     """Manager view's INVENTORY tab — AI Posture (fleet risk score +
     category breakdown) and Asset Inventory (top 20 assets by event
     count), org-wide. Admin-only: a non-admin (or unrecognized) email
     gets 200 OK with is_admin=false and no data, not an error status —
-    this endpoint's data is a privilege gate, not an auth failure."""
-    email_norm = str(email).strip().lower()
+    this endpoint's data is a privilege gate, not an auth failure.
+
+    `email` is the verified identity from _verify_ravenhub_identity
+    (PR#9 review, C1) — no longer a client-supplied query param, so this
+    admin-only gate can no longer be defeated by simply asserting an
+    admin's address."""
+    email_norm = email
     try:
         is_admin = _resolve_is_admin(email_norm)
     except HTTPException:
@@ -553,39 +654,10 @@ def get_inventory_overview(
     )
 
 
-# ── Per-user detail page (SCORE + LOGS) ───────────────────────────
-
-def _user_logs(user_events: list, limit: int = 200) -> list:
-    """Recent-events rows for one user, mirrors dashboard/ui/user_detail.py
-    _render_logs() — newest first, capped at `limit`."""
-    rows = sorted(user_events, key=lambda e: e.get("timestamp", ""), reverse=True)[:limit]
-    return [
-        {
-            "timestamp": e.get("timestamp"),
-            "device": e.get("src_ip") or e.get("device_id") or None,
-            "provider": (e.get("provider") or "")[:60] or None,
-            "severity": e.get("severity", "UNKNOWN"),
-            "source": (e.get("source") or "")[:30] or None,
-            "geo_country": e.get("geo_country") or None,
-        }
-        for e in rows
-    ]
-
-
-class UserDetailResponse(BaseModel):
-    viewer_email: str
-    target_email: str
-    authorized: bool
-    message: Optional[str] = None
-    total_events: Optional[int] = None
-    score: Optional[dict] = None
-    logs: Optional[list] = None
-
-
 @router.get("/user/detail", response_model=UserDetailResponse)
 def get_user_detail(
-    viewer_email: EmailStr = Query(..., description="Caller's own dashboard email"),
     target_email: EmailStr = Query(..., description="Email of the user whose detail page to fetch"),
+    viewer_email: str = Depends(_verify_ravenhub_identity),
 ) -> UserDetailResponse:
     """Per-user detail page — SCORE (per-provider risk breakdown, scored
     with the target's EFFECTIVE policy context) and LOGS (up to 200
@@ -593,15 +665,19 @@ def get_user_detail(
     tabs (the ASSETS tab is a visual mind-map of the same provider data
     already in `score.providers` — not separately reproduced here).
 
+    `viewer_email` is the verified identity from _verify_ravenhub_identity
+    (PR#9 review, C1) — the caller can no longer just assert being the
+    viewer. `target_email` stays a client-supplied query param on
+    purpose: choosing WHICH user's data to look up is the legitimate
+    admin-views-someone-else feature this endpoint exists for; only WHO
+    is asking needed to stop being self-asserted.
+
     Access: admins may view anyone; non-admins may only view themselves
     (viewer_email == target_email). Otherwise 200 OK with authorized=false
-    and no data — a privilege gate, not an auth failure. Unlike
-    /exec/overview and /inventory/overview, an unresolvable viewer_email
-    does not raise 403 here — it's simply treated as non-admin, since
-    self-view only needs the viewer/target emails to match."""
+    and no data — a privilege gate, not an auth failure."""
     from scoring.breakdown import score_detail
 
-    viewer_norm = str(viewer_email).strip().lower()
+    viewer_norm = viewer_email
     target_norm = str(target_email).strip().lower()
 
     try:
