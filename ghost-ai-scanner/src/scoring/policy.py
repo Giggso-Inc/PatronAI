@@ -60,6 +60,12 @@ class PolicyContext:
     giggso_override:         set = field(default_factory=set)   # org scope
     giggso_override_project: set = field(default_factory=set)
     giggso_override_user:    set = field(default_factory=set)
+    # Providers an org admin permitted at a NARROWER scope despite a WIDER
+    # org/project deny (deny-override; security_log 2026-07-03 D1-D7). Bucketed
+    # by the grant scope. NEVER touches the Giggso floor (giggso_deny resolves
+    # first in the waterfall).
+    deny_override_project:   set = field(default_factory=set)   # granted at a project
+    deny_override_user:      set = field(default_factory=set)   # granted at a user
 
     @classmethod
     def empty(cls) -> "PolicyContext":
@@ -78,10 +84,19 @@ def policy_tier(provider: str, ctx: PolicyContext) -> str:
         if _matches(provider, ctx.giggso_override):
             return "giggso_override"
         return "giggso_deny"
-    # 2-4. Org / project / user deny (deny always beats approve).
+    # 2-4. Org / project / user deny (deny always beats approve). A wider deny
+    #      may be overridden at a NARROWER grant scope (org-admin only, guarded,
+    #      band-floored) — most-specific grant wins. This never reaches a Giggso
+    #      block: giggso_deny already returned above (D4).
     if _matches(provider, ctx.org_deny):
+        if _matches(provider, ctx.deny_override_user):
+            return "deny_override_user"
+        if _matches(provider, ctx.deny_override_project):
+            return "deny_override_project"
         return "org_deny"
     if _matches(provider, ctx.project_deny):
+        if _matches(provider, ctx.deny_override_user):   # only a narrower (user) grant
+            return "deny_override_user"
         return "project_deny"
     if _matches(provider, ctx.user_deny):
         return "user_deny"

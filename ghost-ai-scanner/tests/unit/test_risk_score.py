@@ -195,6 +195,16 @@ def test_override_enforces_medium_band_floor_c2():
     assert risk_band(s) not in ("CLEAN", "LOW")
 
 
+def test_deny_override_enforces_medium_band_floor():
+    """A deny-override (allow what a wider scope blocked) is band-floored ≥
+    MEDIUM too (D2) — it can't render a device CLEAN/LOW."""
+    rows = [_prow("x", sev="HIGH", cat="browser")]
+    for field_name in ("deny_override_project", "deny_override_user"):
+        ctx = PolicyContext(org_deny={"x"}, **{field_name: {"x"}})
+        s = risk_score(rows, ctx)
+        assert s >= 15 and risk_band(s) not in ("CLEAN", "LOW"), field_name
+
+
 def test_scoped_override_band_floor_all_scopes():
     """C2 band floor applies to project- and user-scope overrides too."""
     rows = [_prow("ollama", sev="HIGH", cat="browser")]

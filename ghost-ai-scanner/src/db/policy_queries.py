@@ -101,6 +101,13 @@ def load_policy_context(session, *, org_id=None, user_id=None,
             elif t.scope == "user" and t.user_id == user_id:
                 ctx.giggso_override_user.add(pat)
             continue
+        if getattr(t, "overrides_deny", False):
+            # permits a WIDER-denied tool at this narrower grant scope
+            if t.scope == "project" and t.project_id in project_ids:
+                ctx.deny_override_project.add(pat)
+            elif t.scope == "user" and t.user_id == user_id:
+                ctx.deny_override_user.add(pat)
+            continue
         if t.scope == "org":
             ctx.org_approve.add(pat)
         elif t.scope == "project" and t.project_id in project_ids:

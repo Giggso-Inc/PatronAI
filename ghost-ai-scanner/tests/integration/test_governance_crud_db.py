@@ -19,12 +19,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import Session
 
-from db.models_identity import Org, User
+from datetime import date, timedelta
+
+from db.models_identity import Org, Project, ProjectMember, User
 from db.models_policy import ApprovedTool, BlacklistedTool, GiggsoBaselineDeny
 from db.governance_crud import (
     PolicyAuthzError, add_approved, add_blacklisted,
-    move_to_allowed, move_to_blocked, is_giggso_blocked,
+    move_to_allowed, move_to_blocked, is_giggso_blocked, grant_deny_override,
 )
+from db.policy_queries import load_policy_context
+from scoring.policy import policy_tier
 
 _ZBASE = "zbaseline-flip.ai"   # isolated Giggso-baseline domain for the flip test
 
@@ -159,7 +163,48 @@ def _run():
             except PolicyAuthzError:
                 s.rollback()
 
-            print("PASS test_governance_crud_authz (12 checks)")
+            # 13. deny-override (allow what a WIDER scope blocked) — D1-D7.
+            proj = Project(org_id=org.id, slug="zdo", display_name="ZDO")
+            s.add(proj); s.flush()
+            s.add(ProjectMember(project_id=proj.id, user_id=member.id)); s.flush()
+            add_blacklisted(s, actor=admin, org_id=org.id, scope="org",
+                            domain="wider.ai", severity="HIGH")
+            _exp = date.today() + timedelta(days=30)
+            # D1: non-admin cannot grant
+            try:
+                grant_deny_override(s, actor=member, org_id=org.id, scope="project",
+                                    project_id=proj.id, provider_pattern="wider.ai",
+                                    reason="r", valid_until=_exp)
+                assert False, "non-admin deny-override must be refused (D1)"
+            except PolicyAuthzError:
+                s.rollback()
+            # scope=org rejected (only project/user)
+            try:
+                grant_deny_override(s, actor=admin, org_id=org.id, scope="org",
+                                    provider_pattern="wider.ai", reason="r",
+                                    valid_until=_exp)
+                assert False, "org-scope deny-override must be refused"
+            except PolicyAuthzError:
+                s.rollback()
+            # D3: no reason rejected
+            try:
+                grant_deny_override(s, actor=admin, org_id=org.id, scope="project",
+                                    project_id=proj.id, provider_pattern="wider.ai",
+                                    reason="  ", valid_until=_exp)
+                assert False, "reasonless deny-override must be refused (D3)"
+            except PolicyAuthzError:
+                s.rollback()
+            # valid grant → overrides_deny row, and the waterfall resolves it
+            row = grant_deny_override(s, actor=admin, org_id=org.id, scope="project",
+                                      project_id=proj.id, provider_pattern="wider.ai",
+                                      reason="research, time-boxed", valid_until=_exp)
+            assert row.overrides_deny is True
+            ctx = load_policy_context(s, org_id=org.id, user_id=member.id,
+                                      project_ids=[proj.id])
+            assert "wider.ai" in ctx.deny_override_project
+            assert policy_tier("wider.ai", ctx) == "deny_override_project"
+
+            print("PASS test_governance_crud_authz (13 checks)")
         finally:
             s.execute(delete(Org).where(Org.slug == "ztest-crud"))
             s.execute(delete(GiggsoBaselineDeny).where(GiggsoBaselineDeny.domain == _ZBASE))

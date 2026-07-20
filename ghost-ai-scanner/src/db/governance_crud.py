@@ -1,6 +1,6 @@
 # =============================================================
 # FILE: src/db/governance_crud.py
-# VERSION: 1.2.0
+# VERSION: 1.3.0
 # UPDATED: 2026-07-03
 # OWNER: Giggso Inc
 # PURPOSE: Write-path for the Provider Governance tab (Phase D) with
@@ -21,6 +21,9 @@
 #   v1.2.0  2026-07-03  _check_scope_authz also refuses a cross-org write
 #                       (org_id must equal actor.org_id) — defence-in-depth
 #                       for any future API path (PR#8 review).
+#   v1.3.0  2026-07-03  grant_deny_override: permit a wider-denied tool at a
+#                       narrower scope (org-admin only, reason+approver+≤90d,
+#                       project/user only). security_log 2026-07-03 D1-D7.
 # =============================================================
 
 from sqlalchemy import func, select
@@ -203,6 +206,58 @@ def move_to_blocked(session, *, actor, org_id, approve_row_id, severity="HIGH"):
     session.delete(row)
     session.commit()
     return True
+
+
+def grant_deny_override(session, *, actor, org_id, scope, provider_pattern,
+                        project_id=None, user_id=None, reason=None,
+                        valid_until=None, name=None, commit=True):
+    """Permit, at a NARROWER scope, a tool a WIDER scope DENIED (security_log
+    2026-07-03, D1-D7). Writes an ApprovedTool with overrides_deny=True.
+
+    Guards: org-admin ONLY (D1 — never the project member / user themselves);
+    reason + approver + ≤90-day expiry (D3, via validate_override_request);
+    scope must be project/user (an org can't deny-override its own org deny).
+    The Giggso floor is untouchable (D4) — a giggso-blocked tool is resolved
+    before org/project deny in the waterfall, so this never reaches it; callers
+    must not offer giggso-denied tools here. Idempotent per (scope,owner,pattern)."""
+    if scope not in ("project", "user"):
+        raise PolicyAuthzError("D1: deny-override is only valid at project/user scope")
+    _require(getattr(actor, "is_org_admin", False),
+             "D1: only an org admin may grant a deny-override")
+    _check_scope_authz(actor, scope, user_id, org_id=org_id)
+    errs = validate_override_request(
+        is_org_admin=getattr(actor, "is_org_admin", False),
+        scope=scope, reason=reason, approved_by=actor.id, valid_until=valid_until,
+    )
+    _require(not errs, "Deny-override rejected — " + "; ".join(errs))
+
+    pat = (provider_pattern or "").strip().lower()
+    existing = session.execute(
+        select(ApprovedTool).where(
+            ApprovedTool.org_id == org_id, ApprovedTool.scope == scope,
+            ApprovedTool.project_id == project_id,
+            ApprovedTool.user_id == user_id,
+            ApprovedTool.domain_pattern == pat,
+        )
+    ).scalars().first()
+    if existing is not None:
+        existing.overrides_deny = True
+        existing.reason = reason
+        existing.valid_until = valid_until
+        existing.approved_by = actor.id
+        if commit:
+            session.commit()
+        return existing
+    row = ApprovedTool(
+        org_id=org_id, scope=scope, name=(name or pat), domain_pattern=pat,
+        project_id=project_id, user_id=user_id, reason=reason,
+        added_by=actor.id, approved_by=actor.id, valid_until=valid_until,
+        overrides_deny=True,
+    )
+    session.add(row)
+    if commit:
+        session.commit()
+    return row
 
 
 def list_scope(session, model, *, org_id, scope, project_id=None, user_id=None):

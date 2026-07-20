@@ -98,3 +98,32 @@ def test_override_precedence_user_over_project_over_org():
     ctx = PolicyContext(giggso_deny={"x"}, giggso_override={"x"},
                         giggso_override_project={"x"}, giggso_override_user={"x"})
     assert policy_tier("x", ctx) == "giggso_override_user"   # most specific wins
+
+
+# ── deny-override (allow what a WIDER scope blocked) — 2026-07-03 D1-D7 ──
+
+def test_deny_override_of_org_deny_tiers_and_weights():
+    # org-denied tool permitted at project → deny_override_project (×0.60)
+    ctx = PolicyContext(org_deny={"x"}, deny_override_project={"x"})
+    assert policy_tier("x", ctx) == "deny_override_project"
+    assert policy_multiplier("x", ctx) == 0.60
+    # a user-scope grant is more specific → wins, ×0.70
+    ctx2 = PolicyContext(org_deny={"x"}, deny_override_project={"x"},
+                         deny_override_user={"x"})
+    assert policy_tier("x", ctx2) == "deny_override_user"
+    assert policy_multiplier("x", ctx2) == 0.70
+
+
+def test_deny_override_of_project_deny_only_at_user():
+    ctx = PolicyContext(project_deny={"x"}, deny_override_user={"x"})
+    assert policy_tier("x", ctx) == "deny_override_user"
+    # a project-scope grant does NOT override a project deny (same scope)
+    ctx2 = PolicyContext(project_deny={"x"}, deny_override_project={"x"})
+    assert policy_tier("x", ctx2) == "project_deny"
+
+
+def test_deny_override_never_touches_giggso_floor_d4():
+    # D4: a Giggso-blocked tool resolves first; a deny-override can't lower it.
+    ctx = PolicyContext(giggso_deny={"x"}, org_deny={"x"}, deny_override_user={"x"})
+    assert policy_tier("x", ctx) == "giggso_deny"
+    assert policy_multiplier("x", ctx) == 3.0

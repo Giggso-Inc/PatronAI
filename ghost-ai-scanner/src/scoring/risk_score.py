@@ -70,8 +70,8 @@ def risk_score(rows: Iterable[dict], policy_context: Optional[PolicyContext] = N
             mult = 1.0
         else:
             tier = policy_tier(provider, policy_context)
-            mult = W.POLICY_MULTIPLIER[tier]
-            if tier.startswith("giggso_override"):   # any scope → C2 band floor
+            mult = W.POLICY_MULTIPLIER.get(tier, 1.0)   # unknown tier → neutral
+            if "override" in tier:   # giggso OR deny override, any scope → band floor (C2/D2)
                 has_override = True
         weighted = base * mult
         key = _provider_key(r, i)
