@@ -1,13 +1,19 @@
 # =============================================================
 # FILE: tests/unit/test_ravenhub.py
-# VERSION: 1.0.0
+# VERSION: 1.1.0
 # UPDATED: 2026-07-20
 # OWNER: Giggso Inc
 # PURPOSE: Lock routers/ravenhub.py — the pure aggregation functions
-#          (KPIs, Data Exposure, Risk Heatmap, AI Landscape) and the
-#          server-side admin-resolution chain (DB -> S3 -> env),
-#          including the deny-on-unknown-email 403 path. Pure; no
-#          real S3/DB — identity resolvers are stubbed.
+#          (KPIs, Data Exposure, Risk Heatmap, AI Landscape, AI Posture,
+#          Asset Inventory), the server-side admin-resolution chain
+#          (DB -> S3 -> env) incl. the deny-on-unknown-email 403 path,
+#          and the /inventory/overview endpoint's admin-only gate
+#          (non-admin / unknown email -> 200 with is_admin=false, not
+#          an error). Pure; no real S3/DB — everything is stubbed.
+# AUDIT LOG:
+#   v1.0.0  2026-07-20  /exec/overview coverage.
+#   v1.1.0  2026-07-20  /inventory/overview coverage (AI Posture,
+#                       Asset Inventory, admin-only gate).
 # =============================================================
 
 import sys
@@ -21,9 +27,12 @@ sys.path.insert(0, str(_ROOT))
 
 from fastapi import HTTPException
 
+import routers.ravenhub as ravenhub
 from routers.ravenhub import (
     _kpis, _data_exposure, _risk_heatmap, _ai_landscape,
     _resolve_is_admin, _db_is_admin, _s3_is_admin, _env_is_admin,
+    _asset_key, _owner_of, _ai_posture, _asset_inventory,
+    get_inventory_overview, InventoryOverviewResponse,
 )
 
 
@@ -300,3 +309,120 @@ def test_resolve_is_admin_denies_unknown_email_everywhere(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         _resolve_is_admin("totally-unknown@giggso.com")
     assert exc.value.status_code == 403
+
+
+# ── _asset_key / _owner_of ──────────────────────────────────────
+
+def test_asset_key_prefers_device_id_then_hostname_then_ip():
+    assert _asset_key({"device_id": "d1", "src_hostname": "h1", "src_ip": "1.1.1.1"}) == "d1"
+    assert _asset_key({"src_hostname": "h1", "src_ip": "1.1.1.1"}) == "h1"
+    assert _asset_key({"src_ip": "1.1.1.1"}) == "1.1.1.1"
+    assert _asset_key({}) == "unknown"
+
+
+def test_owner_of_prefers_email_over_owner():
+    assert _owner_of({"email": "e@x.com", "owner": "o@x.com"}) == "e@x.com"
+    assert _owner_of({"owner": "o@x.com"}) == "o@x.com"
+    assert _owner_of({}) == ""
+
+
+# ── _ai_posture (policy-blind — DATABASE_URL unset) ─────────────
+
+def test_ai_posture_fleet_score_and_breakdown(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    events = (
+        [_ev(src_hostname="dev-a", category="browser", severity="HIGH", outcome="ENDPOINT_FINDING")]
+        + [_ev(src_hostname="dev-b", category="package", severity="LOW", outcome="ENDPOINT_FINDING")]
+    )
+    posture = _ai_posture(events)
+    assert posture["device_label"] == "2 devices"
+    assert set(posture["device_scores"].keys()) == {"dev-a", "dev-b"}
+    assert posture["score"] > 0
+    cats = {b["category"] for b in posture["breakdown"]}
+    assert cats == {"browser", "package"}
+
+
+def test_ai_posture_single_device_label(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    events = [_ev(src_hostname="solo-box")]
+    posture = _ai_posture(events)
+    assert posture["device_label"] == "solo-box"
+
+
+def test_ai_posture_empty_events_scores_zero(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    posture = _ai_posture([])
+    assert posture["score"] == 0
+    assert posture["band"] == "CLEAN"
+    assert posture["breakdown"] == []
+
+
+# ── _asset_inventory ─────────────────────────────────────────────
+
+def test_asset_inventory_ranks_by_count_and_reports_fields():
+    events = (
+        [_ev(src_hostname="busy-box", owner="a@giggso.com", asset_type="laptop",
+             mac_address="aa:bb", severity="HIGH") for _ in range(5)]
+        + [_ev(src_hostname="quiet-box", owner="b@giggso.com", asset_type="ec2",
+               severity="LOW")]
+    )
+    rows = _asset_inventory(events, dev_score={"busy-box": 50, "quiet-box": 5})
+    assert rows[0]["asset_key"] == "busy-box"
+    assert rows[0]["events"] == 5
+    assert rows[0]["owner"] == "a@giggso.com"
+    assert rows[0]["type"] == "laptop"
+    assert rows[0]["mac"] == "aa:bb"
+    assert rows[0]["score"] == 50
+    assert rows[0]["status"] == "HIGH"   # CRITICAL_AT=75, HIGH_AT=40 (scoring_weights.py)
+    assert rows[1]["asset_key"] == "quiet-box"
+
+
+def test_asset_inventory_caps_at_limit():
+    events = [_ev(src_hostname=f"box-{i}") for i in range(25)]
+    rows = _asset_inventory(events, dev_score={}, limit=20)
+    assert len(rows) == 20
+
+
+def test_asset_inventory_zero_events_asset_is_clean_status():
+    events = [_ev(src_hostname="box", outcome="SUPPRESS")]
+    rows = _asset_inventory(events, dev_score={"box": 0})
+    assert rows[0]["events"] == 0
+    assert rows[0]["status"] == "CLEAN"
+
+
+# ── get_inventory_overview: admin-only gate ─────────────────────
+
+def test_inventory_overview_non_admin_returns_200_with_no_data(monkeypatch):
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: False)
+    result = get_inventory_overview(email="dev@giggso.com")
+    assert isinstance(result, InventoryOverviewResponse)
+    assert result.is_admin is False
+    assert result.message == "Not an admin — no inventory data available."
+    assert result.ai_posture is None
+    assert result.asset_inventory is None
+
+
+def test_inventory_overview_unknown_email_returns_200_not_403(monkeypatch):
+    def _deny(email):
+        raise HTTPException(status_code=403, detail="Access denied")
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", _deny)
+    result = get_inventory_overview(email="totally-unknown@giggso.com")
+    assert result.is_admin is False
+    assert result.message == "Not an admin — no inventory data available."
+
+
+def test_inventory_overview_admin_returns_full_data(monkeypatch):
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: True)
+    monkeypatch.setattr(ravenhub, "_blob_store", lambda: object())
+    fake_events = [_ev(src_hostname="box-1", category="browser", severity="HIGH")]
+    monkeypatch.setattr(
+        ravenhub, "_load_events",
+        lambda store, email, is_admin: (fake_events, {}, {}, "2026-07-20"),
+    )
+    result = get_inventory_overview(email="admin@giggso.com")
+    assert result.is_admin is True
+    assert result.message is None
+    assert result.source_date == "2026-07-20"
+    assert result.ai_posture is not None
+    assert result.ai_posture["score"] > 0
+    assert result.asset_inventory[0]["asset_key"] == "box-1"

@@ -1,22 +1,30 @@
 # =============================================================
 # FILE: routers/ravenhub.py
-# VERSION: 1.0.0
+# VERSION: 1.1.0
 # UPDATED: 2026-07-20
 # OWNER: Giggso Inc
-# PURPOSE: RavenHub router — serves the Exec view's data (KPIs,
-#          Data Exposure, Risk Heatmap, AI Landscape, Recent
-#          Incidents) as a REST API, so RavenHub can consume it
-#          without the FE reading S3 directly.
+# PURPOSE: RavenHub router — serves dashboard content as REST APIs so
+#          RavenHub can consume it without the FE reading S3 directly.
+#          GET /exec/overview      — Exec view (KPIs, Data Exposure,
+#                                     Risk Heatmap, AI Landscape).
+#          GET /inventory/overview — Manager view's INVENTORY tab
+#                                     (AI Posture + Asset Inventory),
+#                                     admin-only (non-admin -> 200 with
+#                                     is_admin=false, no data).
 #          Mirrors, field-for-field, the aggregation logic in:
-#            dashboard/ui/data.py            (load_data)
-#            dashboard/ui/exec_view.py        (_kpis)
+#            dashboard/ui/data.py               (load_data)
+#            dashboard/ui/exec_view.py          (_kpis)
 #            dashboard/ui/exec_tab_exposure.py
 #            dashboard/ui/exec_tab_risk.py
 #            dashboard/ui/exec_tab_landscape.py
+#            dashboard/ui/manager_tab_inventory.py
+#            dashboard/ui/ai_posture_card.py
 #          Read-only. Does not modify or touch the Streamlit UI
 #          code path — additive only.
 # AUDIT LOG:
-#   v1.0.0  2026-07-20  Initial.
+#   v1.0.0  2026-07-20  Initial — /exec/overview.
+#   v1.1.0  2026-07-20  Add /inventory/overview (AI Posture + Asset
+#                       Inventory, admin-only).
 # =============================================================
 
 import logging
@@ -306,4 +314,220 @@ def get_exec_overview(
         data_exposure=_data_exposure(events),
         risk_heatmap=_risk_heatmap(events),
         ai_landscape=_ai_landscape(events),
+    )
+
+
+# ── Manager view / INVENTORY tab (AI Posture + Asset Inventory) ───────
+
+def _org_policy_context():
+    """DB-only equivalent of dashboard/ui/policy_context_loader.py's
+    load_org_policy_context() — no st.session_state cache (recomputed
+    per call), and no CSV fallback (that path reads through a
+    Streamlit-coupled provider_lists_io module this API doesn't import).
+    Returns None (policy-blind scoring) if DATABASE_URL is unset or the
+    lookup fails for any reason — same graceful-degrade contract."""
+    if not os.environ.get("DATABASE_URL"):
+        return None
+    try:
+        from sqlalchemy import select
+        from db.engine import get_session
+        from db.models_identity import Org
+        from db.policy_queries import load_policy_context
+        slug = os.environ.get("COMPANY_SLUG", "dev")
+        with get_session() as s:
+            org = (s.execute(select(Org).where(Org.slug == slug)).scalar_one_or_none()
+                   or s.execute(select(Org)).scalars().first())
+            if org is None:
+                return None
+            return load_policy_context(s, org_id=org.id)
+    except Exception as exc:                       # noqa: BLE001 — best effort
+        _log.warning("RavenHub org policy context failed, scoring policy-blind: %s", exc)
+        return None
+
+
+def _user_policy_context(email: str, org_ctx):
+    """DB-only equivalent of load_user_policy_context() — effective
+    context for one owner (org + their projects + their own list).
+    Falls back to `org_ctx` on no DB / unknown user / any error."""
+    if not os.environ.get("DATABASE_URL"):
+        return org_ctx
+    try:
+        from sqlalchemy import select
+        from db.engine import get_session
+        from db.models_identity import Org
+        from db.policy_queries import get_identity, load_policy_context
+        slug = os.environ.get("COMPANY_SLUG", "dev")
+        with get_session() as s:
+            user, org_id, project_ids = get_identity(s, email)
+            if org_id is None:
+                org = (s.execute(select(Org).where(Org.slug == slug)).scalar_one_or_none()
+                       or s.execute(select(Org)).scalars().first())
+                org_id = org.id if org else None
+            if org_id is None:
+                return org_ctx
+            return load_policy_context(s, org_id=org_id,
+                                       user_id=(user.id if user else None),
+                                       project_ids=project_ids)
+    except Exception as exc:                       # noqa: BLE001 — best effort
+        _log.warning("RavenHub user policy context failed for %s, using org: %s", email, exc)
+        return org_ctx
+
+
+def _asset_key(e: dict) -> str:
+    """Best identifier for grouping: device_id > src_hostname > src_ip.
+    Matches dashboard/ui/manager_tab_inventory.py exactly."""
+    return e.get("device_id") or e.get("src_hostname") or e.get("src_ip") or "unknown"
+
+
+def _owner_of(e: dict) -> str:
+    return (e.get("email") or e.get("owner") or "").strip()
+
+
+def _posture_breakdown_rows(events: list) -> list:
+    """Category breakdown rows for the AI Posture card, worst-severity-first
+    then highest-count. Extracted from _ai_posture to keep it under the
+    50-line style guideline."""
+    from scoring.risk_score import posture_breakdown
+    bdown = posture_breakdown(events)
+    sev_rank = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+    return sorted(
+        (
+            {"category": cat, "count": info["count"], "max_severity": info["max_severity"]}
+            for cat, info in bdown.items() if info["count"] > 0
+        ),
+        key=lambda d: (-sev_rank.get(d["max_severity"], 0), -d["count"]),
+    )
+
+
+def _ai_posture(events: list) -> dict:
+    """Org-wide AI Posture: per-device score (each scored with its
+    owner's EFFECTIVE policy context) -> 60/40 worst-case+avg fleet
+    blend, plus the category breakdown. Mirrors
+    dashboard/ui/manager_tab_inventory.py:render_inventory() +
+    dashboard/ui/ai_posture_card.py:render_ai_posture()."""
+    from scoring.risk_score import risk_score, risk_band
+    from scoring.breakdown import fleet_blend
+
+    org_ctx = _org_policy_context()
+    dev_events: dict = defaultdict(list)
+    dev_owner: dict = {}
+    for e in events:
+        k = _asset_key(e)
+        dev_events[k].append(e)
+        o = _owner_of(e)
+        if o and not dev_owner.get(k):
+            dev_owner[k] = o
+
+    ctx_cache: dict = {}
+
+    def _owner_ctx(owner_email: str):
+        if not owner_email:
+            return org_ctx
+        if owner_email not in ctx_cache:
+            ctx_cache[owner_email] = _user_policy_context(owner_email, org_ctx)
+        return ctx_cache[owner_email]
+
+    dev_score = {k: risk_score(evs, _owner_ctx(dev_owner.get(k, "")))
+                 for k, evs in dev_events.items()}
+    scores = list(dev_score.values())
+    fleet_score = fleet_blend(scores)
+
+    unique_devices = len(dev_events)
+    device_label = next(iter(dev_events)) if unique_devices == 1 else f"{unique_devices} devices"
+    note = (f"Fleet = 60% x worst device ({max(scores)}) + 40% x avg "
+            f"({round(sum(scores) / len(scores))}) across {len(scores)} device(s)"
+            if scores else "")
+
+    return {
+        "score": fleet_score, "band": risk_band(fleet_score), "device_label": device_label,
+        "score_note": note, "breakdown": _posture_breakdown_rows(events), "device_scores": dev_score,
+    }
+
+
+def _asset_inventory(events: list, dev_score: dict, limit: int = 20) -> list:
+    """Per-asset rows (top `limit` by event count), mirrors the ASSET
+    INVENTORY table in dashboard/ui/manager_tab_inventory.py."""
+    from scoring.risk_score import risk_band
+
+    by_asset: dict = defaultdict(lambda: {
+        "count": 0, "severity": "CLEAN", "owner": "", "department": "", "mac": "", "type": "",
+    })
+    sev_rank = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "CLEAN": 0}
+    for e in events:
+        key = _asset_key(e)
+        a = by_asset[key]
+        a["count"] += 1 if e.get("outcome") != "SUPPRESS" else 0
+        new_owner = _owner_of(e)
+        if new_owner and (not a["owner"] or e.get("email")):
+            a["owner"] = new_owner
+        if e.get("department"):
+            a["department"] = e["department"]
+        if e.get("mac_address"):
+            a["mac"] = e["mac_address"]
+        if e.get("asset_type"):
+            a["type"] = e["asset_type"]
+        ev_sev = (e.get("severity") or "CLEAN").upper()
+        if sev_rank.get(ev_sev, 0) > sev_rank.get(a["severity"], 0):
+            a["severity"] = ev_sev
+
+    ranked = sorted(by_asset.items(), key=lambda x: x[1]["count"], reverse=True)[:limit]
+    return [
+        {
+            "asset_key": key,
+            "type": v["type"] or None,
+            "owner": v["owner"] or None,
+            "department": v["department"] or None,
+            "mac": v["mac"] or None,
+            "events": v["count"],
+            "score": dev_score.get(key, 0),
+            "status": risk_band(dev_score.get(key, 0)) if v["count"] > 0 else "CLEAN",
+        }
+        for key, v in ranked
+    ]
+
+
+class InventoryOverviewResponse(BaseModel):
+    email: str
+    is_admin: bool
+    message: Optional[str] = None
+    source_date: Optional[str] = None
+    ai_posture: Optional[dict] = None
+    asset_inventory: Optional[list] = None
+
+
+@router.get("/inventory/overview", response_model=InventoryOverviewResponse)
+def get_inventory_overview(
+    email: EmailStr = Query(..., description="Caller's dashboard email"),
+) -> InventoryOverviewResponse:
+    """Manager view's INVENTORY tab — AI Posture (fleet risk score +
+    category breakdown) and Asset Inventory (top 20 assets by event
+    count), org-wide. Admin-only: a non-admin (or unrecognized) email
+    gets 200 OK with is_admin=false and no data, not an error status —
+    this endpoint's data is a privilege gate, not an auth failure."""
+    email_norm = str(email).strip().lower()
+    try:
+        is_admin = _resolve_is_admin(email_norm)
+    except HTTPException:
+        return InventoryOverviewResponse(
+            email=email_norm, is_admin=False,
+            message="Not an admin — no inventory data available.",
+        )
+
+    if not is_admin:
+        return InventoryOverviewResponse(
+            email=email_norm, is_admin=False,
+            message="Not an admin — no inventory data available.",
+        )
+
+    store = _blob_store()
+    events, _summary, _y_summary, source_date = _load_events(store, email_norm, is_admin=True)
+    posture = _ai_posture(events)
+    dev_score = posture.pop("device_scores")
+
+    return InventoryOverviewResponse(
+        email=email_norm,
+        is_admin=True,
+        source_date=source_date,
+        ai_posture=posture,
+        asset_inventory=_asset_inventory(events, dev_score),
     )
