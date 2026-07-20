@@ -46,6 +46,7 @@ from scoring.posture_score import (
     compute_user_score,
     is_approved_provider,
 )
+from routers.ravenhub import router as ravenhub_router
 
 _log = logging.getLogger("patronai.api")
 
@@ -89,6 +90,14 @@ _CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
 def _auth(creds: HTTPAuthorizationCredentials | None = Security(_bearer)) -> None:
     if creds is None or not secrets.compare_digest(creds.credentials, _API_KEY):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+app.include_router(
+    ravenhub_router,
+    prefix="/ravenhub",
+    tags=["ravenhub"],
+    dependencies=[Depends(_auth)],
+)
 
 
 def _get_store() -> AgentStore:
