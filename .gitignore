@@ -62,4 +62,3 @@ DOC
 .raven/manifest.secrets.json
 .raven/.cache/
 .model.env
-.raven

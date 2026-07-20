@@ -1,6 +1,6 @@
 # =============================================================
 # FILE: routers/ravenhub.py
-# VERSION: 1.1.0
+# VERSION: 1.2.0
 # UPDATED: 2026-07-20
 # OWNER: Giggso Inc
 # PURPOSE: RavenHub router — serves dashboard content as REST APIs so
@@ -21,10 +21,30 @@
 #            dashboard/ui/ai_posture_card.py
 #          Read-only. Does not modify or touch the Streamlit UI
 #          code path — additive only.
+# NOTE — TRUST BOUNDARY (PR#9 review): every route below takes the
+#        caller's identity (`email` / `viewer_email`) as a plain query
+#        param and trusts it as-is — `_auth`'s bearer check (api.py)
+#        only proves "holds the shared API_KEY", not "is this email".
+#        This router does NOT bind the two. Enforcement is required
+#        upstream, by both of:
+#          - RavenHub's own backend (not browser JS) must derive
+#            `email`/`viewer_email` from the caller's authenticated
+#            session and inject it server-side — the browser must
+#            never be able to set or edit this value.
+#          - nginx / network policy must make this API unreachable
+#            except from RavenHub's backend (no public route to
+#            INTEGRATION_API_PORT). docker-compose*.yml in this repo
+#            are dev-only and do not represent that topology.
+#        If either control is missing, any holder of API_KEY can
+#        assert any email and read/act as that user (or an admin).
+#        See PR#9 review note for the accepted-risk writeup.
 # AUDIT LOG:
 #   v1.0.0  2026-07-20  Initial — /exec/overview.
 #   v1.1.0  2026-07-20  Add /inventory/overview (AI Posture + Asset
 #                       Inventory, admin-only).
+#   v1.2.0  2026-07-20  Document the identity trust boundary (PR#9
+#                       review) — FE/session and nginx/network must
+#                       enforce caller==email; this router doesn't.
 # =============================================================
 
 import logging
