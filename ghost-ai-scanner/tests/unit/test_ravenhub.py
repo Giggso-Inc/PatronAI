@@ -1,19 +1,22 @@
 # =============================================================
 # FILE: tests/unit/test_ravenhub.py
-# VERSION: 1.1.0
+# VERSION: 1.2.0
 # UPDATED: 2026-07-20
 # OWNER: Giggso Inc
 # PURPOSE: Lock routers/ravenhub.py — the pure aggregation functions
 #          (KPIs, Data Exposure, Risk Heatmap, AI Landscape, AI Posture,
-#          Asset Inventory), the server-side admin-resolution chain
-#          (DB -> S3 -> env) incl. the deny-on-unknown-email 403 path,
-#          and the /inventory/overview endpoint's admin-only gate
-#          (non-admin / unknown email -> 200 with is_admin=false, not
-#          an error). Pure; no real S3/DB — everything is stubbed.
+#          Asset Inventory, user logs), the server-side admin-resolution
+#          chain (DB -> S3 -> env) incl. the deny-on-unknown-email 403
+#          path, and the privilege gates on /inventory/overview
+#          (admin-only) and /user/detail (admin-or-self) — both return
+#          200 with no data rather than an error status when denied.
+#          Pure; no real S3/DB — everything is stubbed.
 # AUDIT LOG:
 #   v1.0.0  2026-07-20  /exec/overview coverage.
 #   v1.1.0  2026-07-20  /inventory/overview coverage (AI Posture,
 #                       Asset Inventory, admin-only gate).
+#   v1.2.0  2026-07-20  /user/detail coverage (user logs, admin-or-self
+#                       gate).
 # =============================================================
 
 import sys
@@ -33,6 +36,7 @@ from routers.ravenhub import (
     _resolve_is_admin, _db_is_admin, _s3_is_admin, _env_is_admin,
     _asset_key, _owner_of, _ai_posture, _asset_inventory,
     get_inventory_overview, InventoryOverviewResponse,
+    _user_logs, get_user_detail, UserDetailResponse,
 )
 
 
@@ -426,3 +430,98 @@ def test_inventory_overview_admin_returns_full_data(monkeypatch):
     assert result.ai_posture is not None
     assert result.ai_posture["score"] > 0
     assert result.asset_inventory[0]["asset_key"] == "box-1"
+
+
+# ── _user_logs ───────────────────────────────────────────────────
+
+def test_user_logs_sorted_newest_first_and_shaped():
+    events = [
+        _ev(timestamp="2026-07-20T05:00:00Z", provider="a.com", severity="LOW"),
+        _ev(timestamp="2026-07-20T09:00:00Z", provider="b.com", severity="HIGH"),
+    ]
+    logs = _user_logs(events)
+    assert [l["timestamp"] for l in logs] == ["2026-07-20T09:00:00Z", "2026-07-20T05:00:00Z"]
+    assert logs[0]["provider"] == "b.com"
+    assert logs[0]["severity"] == "HIGH"
+
+
+def test_user_logs_caps_at_limit():
+    events = [_ev(timestamp=f"2026-07-20T{h:02d}:00:00Z") for h in range(10)]
+    logs = _user_logs(events, limit=5)
+    assert len(logs) == 5
+
+
+def test_user_logs_missing_provider_is_none_not_empty_string():
+    events = [_ev(provider="")]
+    logs = _user_logs(events)
+    assert logs[0]["provider"] is None
+
+
+# ── get_user_detail: admin-or-self access gate ──────────────────
+
+def _stub_user_detail_deps(monkeypatch, events):
+    """Stub out identity/S3/DB so get_user_detail runs fully offline."""
+    monkeypatch.setattr(ravenhub, "_blob_store", lambda: object())
+    monkeypatch.setattr(
+        ravenhub, "_load_events",
+        lambda store, email, is_admin: (events, {}, {}, "2026-07-20"),
+    )
+    monkeypatch.setattr(ravenhub, "_org_policy_context", lambda: None)
+    monkeypatch.setattr(ravenhub, "_user_policy_context", lambda email, org_ctx: org_ctx)
+
+
+def test_user_detail_admin_can_view_anyone(monkeypatch):
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: True)
+    events = [_ev(email="target@giggso.com", severity="HIGH", provider="claude.ai")]
+    _stub_user_detail_deps(monkeypatch, events)
+
+    result = get_user_detail(viewer_email="admin@giggso.com", target_email="target@giggso.com")
+    assert isinstance(result, UserDetailResponse)
+    assert result.authorized is True
+    assert result.message is None
+    assert result.total_events == 1
+    assert result.score["score"] >= 0
+    assert result.logs[0]["provider"] == "claude.ai"
+
+
+def test_user_detail_non_admin_can_view_self(monkeypatch):
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: False)
+    events = [_ev(email="me@giggso.com")]
+    _stub_user_detail_deps(monkeypatch, events)
+
+    result = get_user_detail(viewer_email="me@giggso.com", target_email="me@giggso.com")
+    assert result.authorized is True
+    assert result.total_events == 1
+
+
+def test_user_detail_non_admin_cannot_view_someone_else(monkeypatch):
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: False)
+
+    result = get_user_detail(viewer_email="me@giggso.com", target_email="someone-else@giggso.com")
+    assert result.authorized is False
+    assert result.message == "Not authorized to view this user's data."
+    assert result.score is None
+    assert result.logs is None
+    assert result.total_events is None
+
+
+def test_user_detail_unresolvable_viewer_still_allows_self_view(monkeypatch):
+    """An unrecognized viewer_email must not raise — it degrades to
+    non-admin, and self-view (viewer == target) still works."""
+    def _deny(email):
+        raise HTTPException(status_code=403, detail="Access denied")
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", _deny)
+    events = [_ev(email="ghost@giggso.com")]
+    _stub_user_detail_deps(monkeypatch, events)
+
+    result = get_user_detail(viewer_email="ghost@giggso.com", target_email="ghost@giggso.com")
+    assert result.authorized is True
+
+
+def test_user_detail_unresolvable_viewer_denied_for_cross_view(monkeypatch):
+    def _deny(email):
+        raise HTTPException(status_code=403, detail="Access denied")
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", _deny)
+
+    result = get_user_detail(viewer_email="ghost@giggso.com", target_email="someone-else@giggso.com")
+    assert result.authorized is False

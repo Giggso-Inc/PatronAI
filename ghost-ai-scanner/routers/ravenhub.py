@@ -531,3 +531,77 @@ def get_inventory_overview(
         ai_posture=posture,
         asset_inventory=_asset_inventory(events, dev_score),
     )
+
+
+# ── Per-user detail page (SCORE + LOGS) ───────────────────────────
+
+def _user_logs(user_events: list, limit: int = 200) -> list:
+    """Recent-events rows for one user, mirrors dashboard/ui/user_detail.py
+    _render_logs() — newest first, capped at `limit`."""
+    rows = sorted(user_events, key=lambda e: e.get("timestamp", ""), reverse=True)[:limit]
+    return [
+        {
+            "timestamp": e.get("timestamp"),
+            "device": e.get("src_ip") or e.get("device_id") or None,
+            "provider": (e.get("provider") or "")[:60] or None,
+            "severity": e.get("severity", "UNKNOWN"),
+            "source": (e.get("source") or "")[:30] or None,
+            "geo_country": e.get("geo_country") or None,
+        }
+        for e in rows
+    ]
+
+
+class UserDetailResponse(BaseModel):
+    viewer_email: str
+    target_email: str
+    authorized: bool
+    message: Optional[str] = None
+    total_events: Optional[int] = None
+    score: Optional[dict] = None
+    logs: Optional[list] = None
+
+
+@router.get("/user/detail", response_model=UserDetailResponse)
+def get_user_detail(
+    viewer_email: EmailStr = Query(..., description="Caller's own dashboard email"),
+    target_email: EmailStr = Query(..., description="Email of the user whose detail page to fetch"),
+) -> UserDetailResponse:
+    """Per-user detail page — SCORE (per-provider risk breakdown, scored
+    with the target's EFFECTIVE policy context) and LOGS (up to 200
+    recent events). Mirrors dashboard/ui/user_detail.py's SCORE + LOGS
+    tabs (the ASSETS tab is a visual mind-map of the same provider data
+    already in `score.providers` — not separately reproduced here).
+
+    Access: admins may view anyone; non-admins may only view themselves
+    (viewer_email == target_email). Otherwise 200 OK with authorized=false
+    and no data — a privilege gate, not an auth failure. Unlike
+    /exec/overview and /inventory/overview, an unresolvable viewer_email
+    does not raise 403 here — it's simply treated as non-admin, since
+    self-view only needs the viewer/target emails to match."""
+    from scoring.breakdown import score_detail
+
+    viewer_norm = str(viewer_email).strip().lower()
+    target_norm = str(target_email).strip().lower()
+
+    try:
+        viewer_is_admin = _resolve_is_admin(viewer_norm)
+    except HTTPException:
+        viewer_is_admin = False
+
+    if not (viewer_is_admin or viewer_norm == target_norm):
+        return UserDetailResponse(
+            viewer_email=viewer_norm, target_email=target_norm, authorized=False,
+            message="Not authorized to view this user's data.",
+        )
+
+    store = _blob_store()
+    user_events, _summary, _y_summary, _source_date = _load_events(store, target_norm, is_admin=False)
+    policy_ctx = _user_policy_context(target_norm, _org_policy_context())
+
+    return UserDetailResponse(
+        viewer_email=viewer_norm, target_email=target_norm, authorized=True,
+        total_events=len(user_events),
+        score=score_detail(user_events, policy_ctx),
+        logs=_user_logs(user_events),
+    )
