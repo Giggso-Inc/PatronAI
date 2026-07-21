@@ -326,14 +326,29 @@ if (Test-Path $HookScript) {
 }
 '@ | Set-Content -Path $HeartbeatScript -Encoding UTF8
 
+# ── Hidden-launch shim ────────────────────────────────────────
+# Task Scheduler invoking powershell.exe directly still briefly flashes a
+# console window on many Windows builds even with -WindowStyle Hidden — the
+# OS allocates a console host before PowerShell's own startup code can apply
+# that style. WScript.Shell.Run with windowStyle=0 suppresses the window at
+# process-creation time instead, so nothing ever flashes on screen. Every 5
+# minutes was visibly popping a window; this is the fix.
+$HiddenLauncher = Join-Path $AgentDir "run_hidden.vbs"
+@'
+Dim shell, cmd
+Set shell = CreateObject("WScript.Shell")
+cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & WScript.Arguments(0) & Chr(34)
+shell.Run cmd, 0, False
+'@ | Set-Content -Path $HiddenLauncher -Encoding ASCII
+
 # ── Register Task Scheduler tasks ────────────────────────────
 function Register-PatronAITask($TaskName, $ScriptPath, $IntervalMinutes, $Desc) {
-    $Action   = New-ScheduledTaskAction -Execute "powershell.exe" `
-        -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`""
+    $Action   = New-ScheduledTaskAction -Execute "wscript.exe" `
+        -Argument "//B `"$HiddenLauncher`" `"$ScriptPath`""
     $Trigger  = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
         -Once -At (Get-Date)
     $Settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 2) `
-        -StartWhenAvailable -DontStopIfGoingOnBatteries -RunOnlyIfNetworkAvailable
+        -StartWhenAvailable -DontStopIfGoingOnBatteries -RunOnlyIfNetworkAvailable -Hidden
     try {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
         Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger `
@@ -348,7 +363,7 @@ Register-PatronAITask "PatronAI-Heartbeat" $HeartbeatScript 5  "PatronAI livenes
 Register-PatronAITask "PatronAI-Scan"      $ScanScript      30 "PatronAI endpoint scan (packages/processes/browser)"
 
 # Run first scan immediately in background
-Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScanScript`"" -WindowStyle Hidden
+Start-Process wscript.exe -ArgumentList "//B `"$HiddenLauncher`" `"$ScanScript`""
 
 Remove-Item -Path $TmpMeta -ErrorAction SilentlyContinue
 
