@@ -14,6 +14,16 @@
 #                       on off-white page; black text; sidebar gray.
 #   v2.1.0  2026-04-27  Severity badge colors: HIGH → red, MEDIUM → amber,
 #                       LOW → sky-blue. Matches theme.py v1.1.0.
+#   v2.2.0  2026-07-21  Fix: hiding `header` to remove Streamlit's
+#                       toolbar also hid the sidebar re-expand button
+#                       living inside that same header, so collapsing
+#                       the sidebar left no way back short of a full
+#                       page reload. Re-exposed it — verified in a live
+#                       DOM inspection that the installed Streamlit
+#                       version renders it as [data-testid=
+#                       "stExpandSidebarButton"] (older versions used
+#                       "collapsedControl"; kept both selectors so this
+#                       survives a Streamlit version bump either way).
 # =============================================================
 
 import streamlit as st
@@ -23,6 +33,7 @@ _CSS = """
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap');
 html,body,[class*="css"]{font-family:'DM Sans',sans-serif;background-color:#F8F9FA!important;color:#1F2328!important}
 #MainMenu,footer,header{visibility:hidden}
+[data-testid="stExpandSidebarButton"],[data-testid="collapsedControl"]{visibility:visible!important}
 .block-container{padding:1.2rem 2rem 2rem 2rem!important;max-width:100%!important;background-color:#F8F9FA!important}
 [data-testid="stAppViewContainer"]{background-color:#F8F9FA!important}
 [data-testid="stSidebar"]{background:#F1F3F5!important;border-right:1px solid #E1E4E8!important}
