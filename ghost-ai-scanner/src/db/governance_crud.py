@@ -26,6 +26,8 @@
 #                       project/user only). security_log 2026-07-03 D1-D7.
 # =============================================================
 
+import uuid as _uuid
+
 from sqlalchemy import func, select
 
 from db.models_identity import Project, ProjectMember, User
@@ -43,6 +45,17 @@ def _require(cond: bool, msg: str) -> None:
         raise PolicyAuthzError(msg)
 
 
+def _get_by_id(session, model, row_id):
+    """session.get() that treats a malformed (non-UUID) row_id the same as
+    'not found' instead of letting the DB driver raise on the cast — a
+    client-supplied id is untrusted input, never assume it's shaped right."""
+    try:
+        _uuid.UUID(str(row_id))
+    except (ValueError, AttributeError, TypeError):
+        return None
+    return session.get(model, row_id)
+
+
 def _check_scope_authz(actor, scope: str, user_id, org_id=None) -> None:
     """C8: org/project edits need org-admin; user edits only for oneself.
 
@@ -57,7 +70,11 @@ def _check_scope_authz(actor, scope: str, user_id, org_id=None) -> None:
         _require(getattr(actor, "is_org_admin", False),
                  "C8: org/project policy edits require an org admin")
     elif scope == "user":
-        _require(getattr(actor, "is_org_admin", False) or user_id == actor.id,
+        # str() on both sides: user_id may arrive as a client-supplied str
+        # (API request body) while actor.id is a SQLAlchemy uuid.UUID —
+        # str==UUID is always False, which silently blocked every
+        # self-service edit before this normalization.
+        _require(getattr(actor, "is_org_admin", False) or str(user_id) == str(actor.id),
                  "C8: you may only edit your own personal list (org admins may edit any)")
     else:
         raise PolicyAuthzError(f"unknown scope {scope!r}")
@@ -148,7 +165,7 @@ def add_blacklisted(session, *, actor, org_id, scope, domain, name=None,
 
 def remove_entry(session, *, actor, model, row_id, commit=True) -> bool:
     """Delete an approved/blacklisted row after re-checking authz on it."""
-    row = session.get(model, row_id)
+    row = _get_by_id(session, model, row_id)
     if row is None:
         return False
     _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None))
@@ -174,7 +191,7 @@ def move_to_allowed(session, *, actor, org_id, block_row_id,
     guarded OVERRIDE (reason + approver + ≤90-day expiry, band-floored); the
     guard rejects the move if those are missing. Returns True if it was a
     baseline override, False for a plain approve."""
-    row = session.get(BlacklistedTool, block_row_id)
+    row = _get_by_id(session, BlacklistedTool, block_row_id)
     _require(row is not None, "blocked entry not found")
     _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None))
     pattern = row.domain
@@ -194,7 +211,7 @@ def move_to_allowed(session, *, actor, org_id, block_row_id,
 
 def move_to_blocked(session, *, actor, org_id, approve_row_id, severity="HIGH"):
     """Flip an approved row to the deny list at the SAME scope, atomically."""
-    row = session.get(ApprovedTool, approve_row_id)
+    row = _get_by_id(session, ApprovedTool, approve_row_id)
     _require(row is not None, "approved entry not found")
     _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None))
     add_blacklisted(

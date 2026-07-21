@@ -1,0 +1,193 @@
+# =============================================================
+# FILE: routers/ravenhub_governance_reads.py
+# VERSION: 1.0.0
+# UPDATED: 2026-07-21
+# OWNER: Giggso Inc
+# PURPOSE: Read-only export of dashboard/ui/tabs/provider_governance.py
+#          as REST — the Overview cross-scope matrix, and the Manage
+#          tab's read-only state (Inherited, Current lists, Newly
+#          Found, override candidates) for one org/project/user scope.
+#          GET /governance/overview — every provider x its status at
+#                                      every scope (Giggso/Org/Project/
+#                                      User). Mirrors provider_governance
+#                                      .py:_overview().
+#          GET /governance/scope    — one scope's governance state.
+#                                      Mirrors _inherited_lists() +
+#                                      _current_lists() + _newly_found()
+#                                      (read portions only — see
+#                                      ravenhub_governance_writes_*.py
+#                                      for the mutating actions).
+#          Requires a policy-DB identity (db.policy_queries.get_identity)
+#          resolved from the verified X-Raven-Identity email — same
+#          identity check as routers/ravenhub.py (PR#9 review, C1),
+#          shared via routers/_raven_identity.py, not duplicated.
+#          Read-only. Does not modify or touch the Streamlit UI code
+#          path — additive only.
+# AUDIT LOG:
+#   v1.0.0  2026-07-21  Initial — /governance/overview, /governance/scope.
+# =============================================================
+
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+
+from routers._raven_actor import resolve_actor as _resolve_actor
+from routers._raven_identity import verify_ravenhub_identity
+from routers.ravenhub import _blob_store, _load_events
+
+router = APIRouter(dependencies=[Depends(verify_ravenhub_identity)])
+
+
+class GovernanceOverviewResponse(BaseModel):
+    email: str
+    providers: list
+
+
+class GovernanceScopeResponse(BaseModel):
+    email: str
+    is_admin: bool
+    scope: str
+    project_id: Optional[str] = None
+    user_id: Optional[str] = None
+    inherited_observed: list
+    inherited_policy: list
+    current_allowed: list
+    current_blocked: list
+    newly_found: list
+    override_candidates: Optional[list] = None
+    deny_override_candidates: Optional[list] = None
+
+
+def _org_events(email: str) -> list:
+    store = _blob_store()
+    events, _summary, _y_summary, _source_date = _load_events(store, email, is_admin=True)
+    return events
+
+
+@router.get("/governance/overview", response_model=GovernanceOverviewResponse)
+def get_governance_overview(email: str = Depends(verify_ravenhub_identity)) -> GovernanceOverviewResponse:
+    """Every observed provider x its status at Giggso/Org/Project/User
+    scope. Project/User show WHO set each rule (name, not just state).
+    Mirrors provider_governance.py:_overview() field-for-field."""
+    from sqlalchemy import select
+    from db.engine import get_session
+    from db.models_identity import Project, User
+    from db.models_policy import ApprovedTool, BlacklistedTool, GiggsoBaselineDeny
+    from scoring.policy import _matches, _norm
+    from scoring.provider_views import all_providers
+
+    with get_session() as s:
+        _actor, org_id = _resolve_actor(s, email)
+        proj_name = {p.id: p.display_name for p in
+                     s.execute(select(Project).where(Project.org_id == org_id)).scalars()}
+        user_name = {u.id: (u.display_name or u.email) for u in
+                     s.execute(select(User).where(User.org_id == org_id)).scalars()}
+        giggso = {_norm(d) for (d,) in s.execute(select(GiggsoBaselineDeny.domain))}
+        ap = list(s.execute(select(ApprovedTool).where(ApprovedTool.org_id == org_id)).scalars())
+        dn = list(s.execute(select(BlacklistedTool).where(BlacklistedTool.org_id == org_id)).scalars())
+
+    def _org_state(prov):
+        if any(r.scope == "org" and _matches(prov, {_norm(r.domain)}) for r in dn):
+            return "deny"
+        if any(r.scope == "org" and _matches(prov, {_norm(r.domain_pattern)}) for r in ap):
+            return "allow"
+        return None
+
+    def _named(prov, scope, name_map, owner_attr):
+        rows = [{"name": name_map.get(getattr(r, owner_attr), "?"), "state": "allow"} for r in ap
+                if r.scope == scope and _matches(prov, {_norm(r.domain_pattern)})]
+        rows += [{"name": name_map.get(getattr(r, owner_attr), "?"), "state": "deny"} for r in dn
+                 if r.scope == scope and _matches(prov, {_norm(r.domain)})]
+        return rows
+
+    providers = all_providers(_org_events(email), None)
+    rows = [{
+        "provider": p["provider"], "category": p["category"] or "unknown",
+        "giggso": _matches(p["provider"], giggso),
+        "org": _org_state(p["provider"]),
+        "project": _named(p["provider"], "project", proj_name, "project_id"),
+        "user": _named(p["provider"], "user", user_name, "user_id"),
+    } for p in providers]
+    return GovernanceOverviewResponse(email=email, providers=rows)
+
+
+@router.get("/governance/scope", response_model=GovernanceScopeResponse)
+def get_governance_scope(
+    scope: str = Query(..., pattern="^(org|project|user)$"),
+    project_id: Optional[str] = Query(None),
+    user_id: Optional[str] = Query(None),
+    email: str = Depends(verify_ravenhub_identity),
+) -> GovernanceScopeResponse:
+    """One scope's governance state: what's inherited (read-only, set
+    above this scope), this scope's own allow/deny lists, the newly-found
+    triage queue, and — admin only — what override/deny-override actions
+    are available here. Mirrors provider_governance.py's Manage tab
+    read-only sections (_inherited_lists, _current_lists, _newly_found)."""
+    from db.engine import get_session
+    from db.governance_crud import list_scope
+    from db.models_policy import ApprovedTool, BlacklistedTool
+    from db.policy_queries import load_policy_context, project_ids_for_user
+    from scoring.provider_views import all_providers, newly_found as _newly_found_fn
+
+    if scope == "project" and not project_id:
+        raise HTTPException(status_code=422, detail="project_id required for scope=project")
+    if scope == "user" and not user_id:
+        raise HTTPException(status_code=422, detail="user_id required for scope=user")
+
+    with get_session() as s:
+        actor, org_id = _resolve_actor(s, email)
+        is_admin = bool(actor.is_org_admin)
+        tgt_projects = ([project_id] if scope == "project" else
+                        (project_ids_for_user(s, user_id) if scope == "user" else []))
+        eff = load_policy_context(s, org_id=org_id,
+                                  user_id=(user_id if scope == "user" else None),
+                                  project_ids=tgt_projects)
+        events = _org_events(email)
+        providers = all_providers(events, eff)
+
+        tiers = {"org": ("giggso_deny", "giggso_override", "giggso_override_project", "giggso_override_user"),
+                 "project": ("giggso_deny", "giggso_override", "giggso_override_project",
+                             "giggso_override_user", "org_deny"),
+                 "user": ("giggso_deny", "giggso_override", "giggso_override_project",
+                          "giggso_override_user", "org_deny", "project_deny")}[scope]
+        inherited_observed = [
+            {"provider": p["provider"], "rule": p["tier"], "severity": p["max_severity"],
+             "finding_count": p["finding_count"]}
+            for p in providers if p["tier"] in tiers
+        ]
+        inherited_policy = [{"blocked_by": "giggso", "pattern": g} for g in sorted(eff.giggso_deny)]
+        if scope in ("project", "user"):
+            inherited_policy += [{"blocked_by": "org", "pattern": g} for g in sorted(eff.org_deny)]
+        if scope == "user":
+            inherited_policy += [{"blocked_by": "project", "pattern": g} for g in sorted(eff.project_deny)]
+
+        current_allowed = [{"id": str(r.id), "pattern": r.domain_pattern,
+                            "expires": str(r.valid_until) if r.valid_until else None,
+                            "overrides_giggso": bool(r.overrides_giggso)}
+                           for r in list_scope(s, ApprovedTool, org_id=org_id, scope=scope,
+                                              project_id=project_id, user_id=user_id)]
+        current_blocked = [{"id": str(r.id), "pattern": r.domain, "severity": r.severity}
+                           for r in list_scope(s, BlacklistedTool, org_id=org_id, scope=scope,
+                                              project_id=project_id, user_id=user_id)]
+
+        override_candidates = None
+        deny_override_candidates = None
+        if is_admin:
+            if scope == "org" or (project_id or user_id):
+                already = (eff.giggso_override if scope == "org" else
+                          eff.giggso_override_project if scope == "project" else
+                          eff.giggso_override_user)
+                override_candidates = sorted(eff.giggso_deny - already)
+            if scope in ("project", "user"):
+                wider_deny = set(eff.org_deny) | (set(eff.project_deny) if scope == "user" else set())
+                already_do = eff.deny_override_project | eff.deny_override_user
+                deny_override_candidates = sorted(wider_deny - set(eff.giggso_deny) - already_do)
+
+    return GovernanceScopeResponse(
+        email=email, is_admin=is_admin, scope=scope, project_id=project_id, user_id=user_id,
+        inherited_observed=inherited_observed, inherited_policy=inherited_policy,
+        current_allowed=current_allowed, current_blocked=current_blocked,
+        newly_found=_newly_found_fn(events, eff),
+        override_candidates=override_candidates, deny_override_candidates=deny_override_candidates,
+    )

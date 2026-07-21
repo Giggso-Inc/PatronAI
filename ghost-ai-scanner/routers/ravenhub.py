@@ -1,6 +1,6 @@
 # =============================================================
 # FILE: routers/ravenhub.py
-# VERSION: 1.4.0
+# VERSION: 1.5.0
 # UPDATED: 2026-07-21
 # OWNER: Giggso Inc
 # PURPOSE: RavenHub router — serves dashboard content as REST APIs so
@@ -61,6 +61,10 @@
 #   v1.4.0  2026-07-21  Reorder file: imports -> response models ->
 #                       helper functions -> API routes (no behavior
 #                       change).
+#   v1.5.0  2026-07-21  _verify_ravenhub_identity extracted to
+#                       routers/_raven_identity.py so the new
+#                       ravenhub_governance_* routers can share it
+#                       instead of duplicating it (no behavior change).
 # =============================================================
 
 import logging
@@ -69,22 +73,13 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from jose import JWTError, jwt
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, EmailStr
 
 from blob_index_store import BlobIndexStore
+from routers._raven_identity import verify_ravenhub_identity as _verify_ravenhub_identity
 
 _log = logging.getLogger("patronai.ravenhub")
-
-# ── Caller-identity verification config (scoped to THIS router only) ─
-# See NOTE — IDENTITY ENFORCEMENT above. Must match raven-enterprise's
-# app/core/config.py SECRET_KEY/ALGORITHM exactly, or every token here
-# fails to verify. No centralized settings module exists in this repo
-# to route this through (see note above) — inline os.environ.get() is
-# the established pattern here.
-_RAVEN_JWT_SECRET = os.environ.get("RAVEN_JWT_SECRET", "")
-_RAVEN_JWT_ALGORITHM = "HS256"
 
 
 # =============================================================
@@ -124,32 +119,6 @@ class UserDetailResponse(BaseModel):
 # =============================================================
 # Helper functions
 # =============================================================
-
-def _verify_ravenhub_identity(
-    x_raven_identity: Optional[str] = Header(default=None, alias="X-Raven-Identity"),
-) -> str:
-    """Decode + verify the raven-enterprise-issued JWT carried in the
-    X-Raven-Identity header and return its verified `email` claim.
-
-    This is the caller's identity for every route on THIS router — do
-    NOT reintroduce a client-supplied email/viewer_email query param for
-    identity; that was C1 in the PR#9 review. Separate header from
-    Authorization on purpose: Authorization stays reserved for api.py's
-    existing shared API_KEY (service-level) check; this is the
-    user-level check, layered on top, not a replacement for it."""
-    if not _RAVEN_JWT_SECRET:
-        raise HTTPException(status_code=503, detail="RAVEN_JWT_SECRET not configured")
-    if not x_raven_identity:
-        raise HTTPException(status_code=401, detail="Missing X-Raven-Identity token")
-    try:
-        payload = jwt.decode(x_raven_identity, _RAVEN_JWT_SECRET, algorithms=[_RAVEN_JWT_ALGORITHM])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired identity token")
-    email = payload.get("email")
-    if not email:
-        raise HTTPException(status_code=401, detail="Identity token missing email claim")
-    return str(email).strip().lower()
-
 
 def _blob_store() -> BlobIndexStore:
     bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")

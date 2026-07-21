@@ -1,6 +1,6 @@
 # =============================================================
 # FILE: tests/unit/test_ravenhub.py
-# VERSION: 1.3.0
+# VERSION: 1.4.0
 # UPDATED: 2026-07-21
 # OWNER: Giggso Inc
 # PURPOSE: Lock routers/ravenhub.py — the pure aggregation functions
@@ -11,6 +11,9 @@
 #          (admin-only) and /user/detail (admin-or-self) — both return
 #          200 with no data rather than an error status when denied.
 #          Pure; no real S3/DB — everything is stubbed.
+#          Caller-identity JWT coverage (_verify_ravenhub_identity) now
+#          lives in test_raven_identity.py, alongside the module it
+#          moved to (routers/_raven_identity.py, v1.5.0).
 # AUDIT LOG:
 #   v1.0.0  2026-07-20  /exec/overview coverage.
 #   v1.1.0  2026-07-20  /inventory/overview coverage (AI Posture,
@@ -21,6 +24,9 @@
 #                       C1) — missing/invalid/expired token, wrong
 #                       signing secret, missing email claim, secret not
 #                       configured, valid-token happy path.
+#   v1.4.0  2026-07-21  Moved _verify_ravenhub_identity coverage to
+#                       test_raven_identity.py (function extracted to
+#                       routers/_raven_identity.py in ravenhub.py v1.5.0).
 # =============================================================
 
 import sys
@@ -33,7 +39,6 @@ sys.path.insert(0, str(_ROOT / "src"))
 sys.path.insert(0, str(_ROOT))
 
 from fastapi import HTTPException
-from jose import jwt as jose_jwt
 
 import routers.ravenhub as ravenhub
 from routers.ravenhub import (
@@ -42,7 +47,6 @@ from routers.ravenhub import (
     _asset_key, _owner_of, _ai_posture, _asset_inventory,
     get_inventory_overview, InventoryOverviewResponse,
     _user_logs, get_user_detail, UserDetailResponse,
-    _verify_ravenhub_identity,
 )
 
 
@@ -531,80 +535,3 @@ def test_user_detail_unresolvable_viewer_denied_for_cross_view(monkeypatch):
 
     result = get_user_detail(viewer_email="ghost@giggso.com", target_email="someone-else@giggso.com")
     assert result.authorized is False
-
-
-# ── _verify_ravenhub_identity: caller-identity JWT (PR#9 review, C1) ────
-
-_TEST_SECRET = "test-only-secret-never-used-in-prod"
-
-
-def _make_token(secret=_TEST_SECRET, algorithm="HS256", **claims):
-    return jose_jwt.encode(claims, secret, algorithm=algorithm)
-
-
-def test_verify_identity_missing_secret_configured_returns_503(monkeypatch):
-    """If RAVEN_JWT_SECRET isn't set, fail closed (503), not silently
-    accept unverifiable tokens."""
-    monkeypatch.setattr(ravenhub, "_RAVEN_JWT_SECRET", "")
-    token = _make_token(email="dev@giggso.com")
-
-    with pytest.raises(HTTPException) as exc:
-        _verify_ravenhub_identity(x_raven_identity=token)
-    assert exc.value.status_code == 503
-
-
-def test_verify_identity_missing_header_returns_401(monkeypatch):
-    monkeypatch.setattr(ravenhub, "_RAVEN_JWT_SECRET", _TEST_SECRET)
-
-    with pytest.raises(HTTPException) as exc:
-        _verify_ravenhub_identity(x_raven_identity=None)
-    assert exc.value.status_code == 401
-    assert "Missing" in exc.value.detail
-
-
-def test_verify_identity_malformed_token_returns_401(monkeypatch):
-    monkeypatch.setattr(ravenhub, "_RAVEN_JWT_SECRET", _TEST_SECRET)
-
-    with pytest.raises(HTTPException) as exc:
-        _verify_ravenhub_identity(x_raven_identity="not-a-real-jwt")
-    assert exc.value.status_code == 401
-
-
-def test_verify_identity_wrong_signing_secret_returns_401(monkeypatch):
-    """A token signed with a DIFFERENT secret than RAVEN_JWT_SECRET must
-    be rejected — this is the actual signature check, not just decoding."""
-    monkeypatch.setattr(ravenhub, "_RAVEN_JWT_SECRET", _TEST_SECRET)
-    token = _make_token(secret="a-different-secret-entirely", email="dev@giggso.com")
-
-    with pytest.raises(HTTPException) as exc:
-        _verify_ravenhub_identity(x_raven_identity=token)
-    assert exc.value.status_code == 401
-    assert "Invalid or expired" in exc.value.detail
-
-
-def test_verify_identity_expired_token_returns_401(monkeypatch):
-    monkeypatch.setattr(ravenhub, "_RAVEN_JWT_SECRET", _TEST_SECRET)
-    expired = _make_token(email="dev@giggso.com", exp=0)  # epoch 0 — long expired
-
-    with pytest.raises(HTTPException) as exc:
-        _verify_ravenhub_identity(x_raven_identity=expired)
-    assert exc.value.status_code == 401
-    assert "Invalid or expired" in exc.value.detail
-
-
-def test_verify_identity_missing_email_claim_returns_401(monkeypatch):
-    monkeypatch.setattr(ravenhub, "_RAVEN_JWT_SECRET", _TEST_SECRET)
-    token = _make_token(sub="user-123", role="member")  # no `email` claim
-
-    with pytest.raises(HTTPException) as exc:
-        _verify_ravenhub_identity(x_raven_identity=token)
-    assert exc.value.status_code == 401
-    assert "email claim" in exc.value.detail
-
-
-def test_verify_identity_valid_token_returns_normalized_email(monkeypatch):
-    monkeypatch.setattr(ravenhub, "_RAVEN_JWT_SECRET", _TEST_SECRET)
-    token = _make_token(sub="user-123", email="  Dev@Giggso.COM  ", role="member")
-
-    result = _verify_ravenhub_identity(x_raven_identity=token)
-    assert result == "dev@giggso.com"
