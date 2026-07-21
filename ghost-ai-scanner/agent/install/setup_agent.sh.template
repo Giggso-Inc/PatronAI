@@ -235,6 +235,16 @@ LOG="$AGENT_DIR/agent.log"
 REFRESH_URL=$(cat "$AGENT_DIR/urls_refresh_url" 2>/dev/null || echo "")
 if [ -n "$REFRESH_URL" ]; then
   BUNDLE=$(curl -fsSL --max-time 10 "$REFRESH_URL" 2>/dev/null || echo "")
+  if [ -z "$BUNDLE" ]; then
+    # urls_refresh_url is itself a presigned URL with the same 7-day TTL
+    # and nothing re-pushes a fresh one to this laptop — the 2026-06 fleet
+    # heartbeat outage RCA. Fall back to the server's token-authenticated
+    # refresh endpoint (no API key needed).
+    TOKEN=$(python3 -c "import json;print(json.load(open('$AGENT_DIR/config.json'))['token'])" 2>/dev/null)
+    if [ -n "$TOKEN" ]; then
+      BUNDLE=$(curl -fsSL --max-time 10 "https://patronai.giggso.com/agent/url-refresh/$TOKEN" 2>/dev/null || echo "")
+    fi
+  fi
   if [ -n "$BUNDLE" ]; then
     python3 - <<PYREFRESH 2>/dev/null
 import json, os

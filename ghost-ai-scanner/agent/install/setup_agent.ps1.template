@@ -250,7 +250,19 @@ if (Test-Path $RefreshFile) {
             if ($Bundle.heartbeat_put_url)  { $Bundle.heartbeat_put_url  | Set-Content -Path $UrlFile -Encoding UTF8 }
             if ($Bundle.scan_put_url)       { $Bundle.scan_put_url       | Set-Content -Path (Join-Path $AgentDir "scan_url.txt") -Encoding UTF8 }
             if ($Bundle.authorized_get_url) { $Bundle.authorized_get_url | Set-Content -Path (Join-Path $AgentDir "authorized_url.txt") -Encoding UTF8 }
-        } catch { <# best-effort #> }
+        } catch {
+            # urls_refresh_url.txt is itself a presigned URL with the same
+            # 7-day TTL and nothing re-pushes a fresh one to this laptop —
+            # the 2026-06 fleet heartbeat outage RCA. Fall back to the
+            # server's token-authenticated refresh endpoint (no API key).
+            try {
+                $ServerUrl = "https://patronai.giggso.com/agent/url-refresh/$($Cfg.token)"
+                $Bundle = (Invoke-WebRequest -Uri $ServerUrl -TimeoutSec 10 -UseBasicParsing).Content | ConvertFrom-Json
+                if ($Bundle.heartbeat_put_url)  { $Bundle.heartbeat_put_url  | Set-Content -Path $UrlFile -Encoding UTF8 }
+                if ($Bundle.scan_put_url)       { $Bundle.scan_put_url       | Set-Content -Path (Join-Path $AgentDir "scan_url.txt") -Encoding UTF8 }
+                if ($Bundle.authorized_get_url) { $Bundle.authorized_get_url | Set-Content -Path (Join-Path $AgentDir "authorized_url.txt") -Encoding UTF8 }
+            } catch { <# best-effort — retried next cycle #> }
+        }
     }
 }
 

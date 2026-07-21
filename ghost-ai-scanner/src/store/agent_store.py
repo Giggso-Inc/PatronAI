@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: src/store/agent_store.py
-# VERSION: 2.0.0
-# UPDATED: 2026-04-25
+# VERSION: 2.1.0
+# UPDATED: 2026-07-21
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: S3-backed catalog for agent delivery packages.
 #          Generates tokens, bcrypt-hashes OTPs, uploads packages,
@@ -23,6 +23,13 @@
 #                       the walked prefix). New write_url_bundle() + urls_refresh_url
 #                       so the laptop refreshes presigned URLs daily — the 7-day
 #                       cliff that was silently killing fleet agents is gone.
+#   v2.1.0  2026-07-21  get_url_bundle() — re-mint + return the urls.json bundle
+#                       directly, for the new /agent/url-refresh/{token} API
+#                       fallback. RCA (2026-06-10 to 2026-06-19 fleet heartbeat
+#                       outage): urls_refresh_url.txt is ITSELF a presigned URL
+#                       with the same 7-day TTL, and nothing re-pushes a fresh
+#                       one down to the laptop once it expires — every agent
+#                       got stuck 403-ing forever with no self-recovery path.
 # =============================================================
 
 import json
@@ -178,6 +185,28 @@ class AgentStore(BaseStore):
         except Exception as e:
             log.error("write_url_bundle [%s] failed: %s", token, e)
             return False
+
+    def get_url_bundle(self, token: str, os_type: str = "windows") -> Optional[dict]:
+        """Re-mint and return the urls.json bundle for `token` directly.
+
+        Backs the /agent/url-refresh/{token} API fallback: the agent's own
+        urls_refresh_url.txt is a presigned GET with the same 7-day TTL as
+        everything else, and nothing re-pushes a fresh one to the laptop once
+        it expires (the 2026-06 fleet heartbeat outage). The token is treated
+        as the credential here, same trust model as every other HOOK_AGENTS
+        endpoint. os_type only affects installer_url/meta_url, neither of
+        which this bundle includes, so it's safe to default. Returns None for
+        an unknown token or on any failure."""
+        if not self._get(f"{HOOK_AGENTS_PREFIX}/{token}/meta.json"):
+            return None
+        if not self.write_url_bundle(token, os_type):
+            return None
+        raw = self._get(f"{HOOK_AGENTS_PREFIX}/{token}/urls.json")
+        try:
+            return json.loads(raw) if raw else None
+        except Exception as e:
+            log.error("get_url_bundle [%s] failed to parse bundle: %s", token, e)
+            return None
 
     def get_artifact_url(self, key: str) -> str:
         """Return a presigned GET URL for an arbitrary S3 key (48 h TTL)."""

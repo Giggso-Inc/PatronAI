@@ -1,14 +1,22 @@
 # =============================================================
 # FILE: api.py
-# VERSION: 2.0.0
-# UPDATED: 2026-06-18
+# VERSION: 2.1.0
+# UPDATED: 2026-07-21
 # OWNER: Giggso Inc
 # PURPOSE: Standalone REST API for querying Deploy Agents data
 #          and AI-governance posture scoring.
-#          POST /agent/status  — deployment status + whitelisted tools by email.
-#          GET  /agent/report  — User Risk Report (R3) PDF or HTML.
-#          GET  /score         — 7-component posture score for one developer.
-#          GET  /score/fleet   — Fleet roll-up: % FAIR, weakest-link, hygiene.
+#          POST /agent/status      — deployment status + whitelisted tools by email.
+#          GET  /agent/report      — User Risk Report (R3) PDF or HTML.
+#          GET  /agent/url-refresh/{token} — re-mint presigned agent URLs;
+#                                     no API key, token is the credential.
+#          GET  /score             — 7-component posture score for one developer.
+#          GET  /score/fleet       — Fleet roll-up: % FAIR, weakest-link, hygiene.
+# AUDIT LOG:
+#   v2.1.0  2026-07-21  /agent/url-refresh/{token} — fallback for the heartbeat
+#                       script when urls_refresh_url.txt (itself a presigned
+#                       URL, same 7-day TTL, no auto-renewal) expires. RCA:
+#                       2026-06-10 to 2026-06-19 fleet heartbeat outage, all
+#                       12 agents 403-ing with no self-recovery path.
 # USAGE:
 #   uvicorn api:app --host 0.0.0.0 --port 8002
 # ENV:
@@ -312,6 +320,22 @@ def get_agent_status(
         ))
 
     return StatusResponse(email=body.email, deployments=matched)
+
+
+@app.get("/agent/url-refresh/{token}")
+def url_refresh(token: str) -> dict:
+    """Re-mint and return this agent's presigned URL bundle.
+
+    Fallback for the heartbeat script when urls_refresh_url.txt (itself a
+    presigned URL with the same 7-day TTL) has expired and nothing has
+    re-pushed a fresh one down to the laptop — see the AUDIT LOG above.
+    No API key required: the token (a UUID from create_package, same trust
+    model as every other HOOK_AGENTS endpoint) is the credential."""
+    store = _get_store()
+    bundle = store.get_url_bundle(token)
+    if bundle is None:
+        raise HTTPException(status_code=404, detail="Token not found")
+    return bundle
 
 
 @app.get("/agent/report")
