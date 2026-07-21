@@ -51,6 +51,10 @@ HOOK_AGENTS_PREFIX = "config/HOOK_AGENTS"
 CATALOG_KEY        = f"{HOOK_AGENTS_PREFIX}/catalog.json"
 PRESIGN_TTL        = 172800   # 48 hours — installer + meta delivery
 HEARTBEAT_PRESIGN_TTL = 604800  # 7 days  — max AWS IAM presigned PUT TTL
+# Minimum gap between re-mints for the same token via get_url_bundle() (the
+# public /agent/url-refresh/{token} fallback) — cheap abuse throttle, not a
+# real rate limit. Legitimate heartbeat usage only calls this occasionally.
+URL_REFRESH_COOLDOWN_SECS = 60
 
 
 class AgentStore(BaseStore):
@@ -187,25 +191,51 @@ class AgentStore(BaseStore):
             return False
 
     def get_url_bundle(self, token: str, os_type: str = "windows") -> Optional[dict]:
-        """Re-mint and return the urls.json bundle for `token` directly.
+        """Return this agent's urls.json bundle, re-minting it first unless
+        one was already minted within URL_REFRESH_COOLDOWN_SECS.
 
-        Backs the /agent/url-refresh/{token} API fallback: the agent's own
-        urls_refresh_url.txt is a presigned GET with the same 7-day TTL as
-        everything else, and nothing re-pushes a fresh one to the laptop once
-        it expires (the 2026-06 fleet heartbeat outage). The token is treated
-        as the credential here, same trust model as every other HOOK_AGENTS
-        endpoint. os_type only affects installer_url/meta_url, neither of
-        which this bundle includes, so it's safe to default. Returns None for
-        an unknown token or on any failure."""
+        Backs the /agent/url-refresh/{token} API fallback (RCA: the agent's
+        own urls_refresh_url.txt is a presigned GET with the same 7-day TTL
+        as everything else, and nothing re-pushes a fresh one to the laptop
+        once it expires).
+
+        ACCEPTED TRADE-OFF (PR#10 review): the token here is checked only
+        for existence against meta.json — unlike a presigned URL, it isn't
+        cryptographically bound to an expiry, so a leaked token grants
+        indefinite re-mint access for as long as the agent stays installed.
+        That's inherent to the feature (agents must self-heal forever, not
+        just within meta.json's 48h install window). The cooldown below is
+        a cheap throttle against automated abuse, not a real rate limit —
+        every call is logged (truncated token) so abuse is at least
+        detectable. Returns None for an unknown token or on any failure.
+        os_type only affects installer_url/meta_url, neither of which this
+        bundle includes, so it's safe to default."""
+        short = token[:8]
         if not self._get(f"{HOOK_AGENTS_PREFIX}/{token}/meta.json"):
+            log.info("get_url_bundle [%s...]: unknown token", short)
             return None
+
+        existing_raw = self._get(f"{HOOK_AGENTS_PREFIX}/{token}/urls.json")
+        if existing_raw:
+            try:
+                existing = json.loads(existing_raw)
+                minted_at = datetime.fromisoformat(existing["minted_at"])
+                age = (datetime.now(timezone.utc) - minted_at).total_seconds()
+                if age < URL_REFRESH_COOLDOWN_SECS:
+                    log.info("get_url_bundle [%s...]: cooldown hit (age=%.0fs), serving cached bundle", short, age)
+                    return existing
+            except Exception:
+                pass   # cached bundle unreadable — fall through and re-mint
+
         if not self.write_url_bundle(token, os_type):
+            log.info("get_url_bundle [%s...]: re-mint failed", short)
             return None
+        log.info("get_url_bundle [%s...]: re-minted", short)
         raw = self._get(f"{HOOK_AGENTS_PREFIX}/{token}/urls.json")
         try:
             return json.loads(raw) if raw else None
         except Exception as e:
-            log.error("get_url_bundle [%s] failed to parse bundle: %s", token, e)
+            log.error("get_url_bundle [%s...] failed to parse bundle: %s", short, e)
             return None
 
     def get_artifact_url(self, key: str) -> str:

@@ -242,7 +242,13 @@ if [ -n "$REFRESH_URL" ]; then
     # refresh endpoint (no API key needed).
     TOKEN=$(python3 -c "import json;print(json.load(open('$AGENT_DIR/config.json'))['token'])" 2>/dev/null)
     if [ -n "$TOKEN" ]; then
-      BUNDLE=$(curl -fsSL --max-time 10 "https://patronai.giggso.com/agent/url-refresh/$TOKEN" 2>/dev/null || echo "")
+      # Feed the URL to curl via -K/stdin rather than the command line — a
+      # token embedded directly in argv is visible to any other local user
+      # via `ps` / `/proc/<pid>/cmdline` for the process's lifetime
+      # (PR#10 review, M1). `printf` here is bash's builtin, not an exec'd
+      # process, so the token is never a separate process's argv.
+      BUNDLE=$(printf 'url = "https://patronai.giggso.com/agent/url-refresh/%s"\n' "$TOKEN" \
+               | curl -fsSL --max-time 10 -K - 2>/dev/null || echo "")
     fi
   fi
   if [ -n "$BUNDLE" ]; then

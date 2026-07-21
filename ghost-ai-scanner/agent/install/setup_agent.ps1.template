@@ -333,6 +333,12 @@ if (Test-Path $HookScript) {
 # that style. WScript.Shell.Run with windowStyle=0 suppresses the window at
 # process-creation time instead, so nothing ever flashes on screen. Every 5
 # minutes was visibly popping a window; this is the fix.
+# ACCEPTED RISK (PR#10 review, N1): a wscript.exe + WScript.Shell.Run hidden
+# launcher is a pattern AV/EDR heuristics sometimes flag, since it's also a
+# known living-off-the-land technique — ironic for a security product. If
+# quarantined, the Scheduled Tasks silently stop firing with no error in the
+# install log. Accepted for now over the added infra of a compiled/signed
+# launcher; add an AV-exclusion note to the install runbook if this bites.
 $HiddenLauncher = Join-Path $AgentDir "run_hidden.vbs"
 @'
 Dim shell, cmd

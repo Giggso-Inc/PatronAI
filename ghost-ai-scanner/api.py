@@ -277,6 +277,14 @@ class FleetResponse(BaseModel):
     user_scores: list[FleetUserSummary]
 
 
+class UrlBundleResponse(BaseModel):
+    minted_at: str
+    expires_at: str
+    heartbeat_put_url: str
+    scan_put_url: str
+    authorized_get_url: str
+
+
 # ── Endpoints: agent ──────────────────────────────────────────
 
 @app.post("/agent/status", response_model=StatusResponse)
@@ -322,20 +330,29 @@ def get_agent_status(
     return StatusResponse(email=body.email, deployments=matched)
 
 
-@app.get("/agent/url-refresh/{token}")
-def url_refresh(token: str) -> dict:
+@app.get("/agent/url-refresh/{token}", response_model=UrlBundleResponse)
+def url_refresh(token: str) -> UrlBundleResponse:
     """Re-mint and return this agent's presigned URL bundle.
 
     Fallback for the heartbeat script when urls_refresh_url.txt (itself a
     presigned URL with the same 7-day TTL) has expired and nothing has
     re-pushed a fresh one down to the laptop — see the AUDIT LOG above.
-    No API key required: the token (a UUID from create_package, same trust
-    model as every other HOOK_AGENTS endpoint) is the credential."""
+
+    ACCEPTED TRADE-OFF (PR#10 review): no API key required — the token (a
+    UUID from create_package) is the sole credential. This is DELIBERATELY
+    weaker than the rest of HOOK_AGENTS: every other artifact there is an
+    AWS-signed presigned URL (HMAC-bound to one S3 key + a short expiry,
+    unforgeable without the AWS secret), whereas this checks only that the
+    token's meta.json still exists — no cryptographic binding, no expiry.
+    That's inherent to the fix: agents must keep self-healing indefinitely,
+    not just within meta.json's 48h install window. get_url_bundle()
+    throttles re-mints and logs every call so leaked-token abuse is at
+    least visible; it does not prevent it."""
     store = _get_store()
     bundle = store.get_url_bundle(token)
     if bundle is None:
         raise HTTPException(status_code=404, detail="Token not found")
-    return bundle
+    return UrlBundleResponse(**bundle)
 
 
 @app.get("/agent/report")
