@@ -61,6 +61,8 @@ COPY assets/    ./assets/
 COPY docs/      ./docs/
 COPY main.py    .
 COPY api.py     .
+COPY alembic.ini    .
+COPY alembic/       ./alembic/
 
 # Streamlit config — dark theme + server settings (from .streamlit/config.toml)
 RUN mkdir -p /root/.streamlit

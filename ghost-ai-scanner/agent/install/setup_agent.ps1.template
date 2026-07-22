@@ -250,7 +250,19 @@ if (Test-Path $RefreshFile) {
             if ($Bundle.heartbeat_put_url)  { $Bundle.heartbeat_put_url  | Set-Content -Path $UrlFile -Encoding UTF8 }
             if ($Bundle.scan_put_url)       { $Bundle.scan_put_url       | Set-Content -Path (Join-Path $AgentDir "scan_url.txt") -Encoding UTF8 }
             if ($Bundle.authorized_get_url) { $Bundle.authorized_get_url | Set-Content -Path (Join-Path $AgentDir "authorized_url.txt") -Encoding UTF8 }
-        } catch { <# best-effort #> }
+        } catch {
+            # urls_refresh_url.txt is itself a presigned URL with the same
+            # 7-day TTL and nothing re-pushes a fresh one to this laptop —
+            # the 2026-06 fleet heartbeat outage RCA. Fall back to the
+            # server's token-authenticated refresh endpoint (no API key).
+            try {
+                $ServerUrl = "https://patronai.giggso.com/agent/url-refresh/$($Cfg.token)"
+                $Bundle = (Invoke-WebRequest -Uri $ServerUrl -TimeoutSec 10 -UseBasicParsing).Content | ConvertFrom-Json
+                if ($Bundle.heartbeat_put_url)  { $Bundle.heartbeat_put_url  | Set-Content -Path $UrlFile -Encoding UTF8 }
+                if ($Bundle.scan_put_url)       { $Bundle.scan_put_url       | Set-Content -Path (Join-Path $AgentDir "scan_url.txt") -Encoding UTF8 }
+                if ($Bundle.authorized_get_url) { $Bundle.authorized_get_url | Set-Content -Path (Join-Path $AgentDir "authorized_url.txt") -Encoding UTF8 }
+            } catch { <# best-effort — retried next cycle #> }
+        }
     }
 }
 
@@ -314,14 +326,35 @@ if (Test-Path $HookScript) {
 }
 '@ | Set-Content -Path $HeartbeatScript -Encoding UTF8
 
+# ── Hidden-launch shim ────────────────────────────────────────
+# Task Scheduler invoking powershell.exe directly still briefly flashes a
+# console window on many Windows builds even with -WindowStyle Hidden — the
+# OS allocates a console host before PowerShell's own startup code can apply
+# that style. WScript.Shell.Run with windowStyle=0 suppresses the window at
+# process-creation time instead, so nothing ever flashes on screen. Every 5
+# minutes was visibly popping a window; this is the fix.
+# ACCEPTED RISK (PR#10 review, N1): a wscript.exe + WScript.Shell.Run hidden
+# launcher is a pattern AV/EDR heuristics sometimes flag, since it's also a
+# known living-off-the-land technique — ironic for a security product. If
+# quarantined, the Scheduled Tasks silently stop firing with no error in the
+# install log. Accepted for now over the added infra of a compiled/signed
+# launcher; add an AV-exclusion note to the install runbook if this bites.
+$HiddenLauncher = Join-Path $AgentDir "run_hidden.vbs"
+@'
+Dim shell, cmd
+Set shell = CreateObject("WScript.Shell")
+cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & WScript.Arguments(0) & Chr(34)
+shell.Run cmd, 0, False
+'@ | Set-Content -Path $HiddenLauncher -Encoding ASCII
+
 # ── Register Task Scheduler tasks ────────────────────────────
 function Register-PatronAITask($TaskName, $ScriptPath, $IntervalMinutes, $Desc) {
-    $Action   = New-ScheduledTaskAction -Execute "powershell.exe" `
-        -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`""
+    $Action   = New-ScheduledTaskAction -Execute "wscript.exe" `
+        -Argument "//B `"$HiddenLauncher`" `"$ScriptPath`""
     $Trigger  = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
         -Once -At (Get-Date)
     $Settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 2) `
-        -StartWhenAvailable -DontStopIfGoingOnBatteries -RunOnlyIfNetworkAvailable
+        -StartWhenAvailable -DontStopIfGoingOnBatteries -RunOnlyIfNetworkAvailable -Hidden
     try {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
         Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger `
@@ -336,7 +369,7 @@ Register-PatronAITask "PatronAI-Heartbeat" $HeartbeatScript 5  "PatronAI livenes
 Register-PatronAITask "PatronAI-Scan"      $ScanScript      30 "PatronAI endpoint scan (packages/processes/browser)"
 
 # Run first scan immediately in background
-Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScanScript`"" -WindowStyle Hidden
+Start-Process wscript.exe -ArgumentList "//B `"$HiddenLauncher`" `"$ScanScript`""
 
 Remove-Item -Path $TmpMeta -ErrorAction SilentlyContinue
 
