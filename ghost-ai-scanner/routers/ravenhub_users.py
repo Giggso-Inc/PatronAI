@@ -67,31 +67,60 @@ def _store():
     return UsersStore(bucket, os.environ.get("AWS_REGION", "us-east-1"))
 
 
-def _require_caller_is_org_admin(caller_email: str) -> None:
+def _require_caller_is_org_admin(caller_email: str):
     """Real policy-DB admin check (NOT ravenhub.py's relaxed
     _resolve_is_admin) — the caller must already be a recognized,
     is_org_admin=True policy-DB user. resolve_actor itself 403s with
     "isn't a policy-DB user yet" if the caller has no policy-DB row at
-    all, which is correct here too."""
+    all, which is correct here too. Returns the caller's org_id so
+    _sync_policy_db_admin can scope its write to it (PR#9 review round
+    3, C2) instead of re-resolving the caller a second time."""
     from db.engine import get_session
     with get_session() as s:
-        actor, _org_id = _resolve_actor(s, caller_email)
+        actor, org_id = _resolve_actor(s, caller_email)
         if not actor.is_org_admin:
             raise HTTPException(status_code=403, detail="Only an org admin may grant admin access or remove a user.")
+        return org_id
 
 
-def _sync_policy_db_admin(target_email: str, is_admin: bool) -> None:
+def _resolve_caller_org_id(caller_email: str):
+    """Best-effort, non-raising sibling of _require_caller_is_org_admin's
+    resolve — used on the path where no admin-state change is happening
+    (so the gate above isn't called at all) but _sync_policy_db_admin
+    still needs to know the caller's own org to scope safely. Returns
+    None if the caller isn't a policy-DB user; _sync_policy_db_admin
+    treats that as "don't sync" rather than raising here."""
+    from db.engine import get_session
+    with get_session() as s:
+        try:
+            _actor, org_id = _resolve_actor(s, caller_email)
+            return org_id
+        except HTTPException:
+            return None
+
+
+def _sync_policy_db_admin(target_email: str, is_admin: bool, caller_org_id) -> None:
     """Mirror an S3 roster is_admin change onto the matching policy-DB
-    User row, if one exists. Never creates a row (no org_id to attach a
-    brand-new one to safely) — only keeps an existing one's
-    is_org_admin in step with this store."""
+    User row — ONLY if that row belongs to the CALLER's own org
+    (caller_org_id). Postgres users.email is unique, so at most one row
+    can match target_email, but that one row could belong to ANY org;
+    without this check, an org-A admin could flip an org-B user's
+    is_org_admin flag just by knowing their email (PR#9 review round 3,
+    C2 — found in this exact helper). If caller_org_id is None (caller
+    isn't a policy-DB user themselves) or the target belongs to a
+    different org, this silently skips the sync — the S3 write already
+    succeeded either way; it just never touches another tenant's admin
+    flag. Never creates a row — no org_id to attach a brand-new one to
+    safely."""
+    if caller_org_id is None:
+        return
     from sqlalchemy import select
     from db.engine import get_session
     from db.models_identity import User
     key = target_email.strip().lower()
     with get_session() as s:
         u = s.execute(select(User).where(User.email == key)).scalar_one_or_none()
-        if u is not None and u.is_org_admin != is_admin:
+        if u is not None and u.org_id == caller_org_id and u.is_org_admin != is_admin:
             u.is_org_admin = is_admin
             s.commit()
 
@@ -142,13 +171,15 @@ def upsert_user_endpoint(body: UpsertUserRequest, email: str = Depends(verify_ra
     existing = store.get(body.email)
     existing_is_admin = bool(existing.get("is_admin")) if existing else False
     if body.is_admin != existing_is_admin:
-        _require_caller_is_org_admin(email)
+        caller_org_id = _require_caller_is_org_admin(email)
+    else:
+        caller_org_id = _resolve_caller_org_id(email)
 
     ok = store.upsert(body.email, body.role, body.is_admin, added_by=email)
     if not ok:
         raise HTTPException(status_code=400, detail="Add/update failed — check email format and role.")
 
-    _sync_policy_db_admin(body.email, body.is_admin)
+    _sync_policy_db_admin(body.email, body.is_admin, caller_org_id)
 
     from dashboard.ui.audit import write_user_action
     write_user_action(email, "upsert", body.email.strip().lower(), old_record=None,
@@ -166,7 +197,7 @@ def upsert_user_endpoint(body: UpsertUserRequest, email: str = Depends(verify_ra
 
 @router.delete("/users/{target_email}", response_model=ActionResponse)
 def remove_user_endpoint(target_email: str, email: str = Depends(verify_ravenhub_identity)) -> ActionResponse:
-    _require_caller_is_org_admin(email)
+    caller_org_id = _require_caller_is_org_admin(email)
 
     store = _store()
     users = store.read_all()
@@ -175,7 +206,7 @@ def remove_user_endpoint(target_email: str, email: str = Depends(verify_ravenhub
     if not ok:
         raise HTTPException(status_code=400, detail="Remove failed.")
 
-    _sync_policy_db_admin(target_email, False)
+    _sync_policy_db_admin(target_email, False, caller_org_id)
 
     from dashboard.ui.audit import write_user_action
     write_user_action(email, "remove", target_email.strip().lower(), old_record=old_rec, new_record=None)

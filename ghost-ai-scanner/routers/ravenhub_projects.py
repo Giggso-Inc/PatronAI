@@ -116,10 +116,19 @@ def list_project_members_endpoint(project_id: str, email: str = Depends(verify_r
     this project) — mirrors the Streamlit tab's expander + selectbox."""
     _require_db()
     from db.engine import get_session
-    from db.governance_crud import list_org_users, list_project_members
+    from db.governance_crud import PolicyAuthzError, check_target_in_org, list_org_users, list_project_members
 
     with get_session() as s:
         actor, org_id = _resolve_actor(s, email)
+        try:
+            # PR#9 review round 3, C1: project_id is client-supplied — this
+            # endpoint used to list ANY org's project membership given its
+            # id, same IDOR pattern already fixed on the governance
+            # routers. check_target_in_org also rejects a malformed
+            # (non-UUID) project_id cleanly instead of a raw DB error.
+            check_target_in_org(s, org_id=org_id, project_id=project_id)
+        except PolicyAuthzError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
         members = list_project_members(s, project_id)
         member_ids = {str(m.id) for m in members}
         users = list_org_users(s, org_id)
@@ -150,12 +159,20 @@ def create_project_endpoint(body: CreateProjectRequest, email: str = Depends(ver
 def add_project_member_endpoint(project_id: str, body: AddMemberRequest, email: str = Depends(verify_ravenhub_identity)) -> ActionResponse:
     _require_db()
     from db.engine import get_session
-    from db.governance_crud import add_project_member
+    from db.governance_crud import PolicyAuthzError, add_project_member, check_target_in_org
 
     with get_session() as s:
-        actor, _org_id = _resolve_actor(s, email)
+        actor, org_id = _resolve_actor(s, email)
         try:
+            # PR#9 review round 3, C1: project_id AND user_id are both
+            # client-supplied — without this, an org-A caller could add an
+            # org-B user to an org-B project (or any combination thereof)
+            # just by knowing both ids, same pattern already fixed on the
+            # governance write routers.
+            check_target_in_org(s, org_id=org_id, project_id=project_id, user_id=body.user_id)
             add_project_member(s, actor=_admin_shim(actor), project_id=project_id, user_id=body.user_id)
+        except PolicyAuthzError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc))
     return ActionResponse(ok=True, message="Member added.")
@@ -165,12 +182,15 @@ def add_project_member_endpoint(project_id: str, body: AddMemberRequest, email: 
 def remove_project_member_endpoint(project_id: str, user_id: str, email: str = Depends(verify_ravenhub_identity)) -> ActionResponse:
     _require_db()
     from db.engine import get_session
-    from db.governance_crud import remove_project_member
+    from db.governance_crud import PolicyAuthzError, check_target_in_org, remove_project_member
 
     with get_session() as s:
-        actor, _org_id = _resolve_actor(s, email)
+        actor, org_id = _resolve_actor(s, email)
         try:
+            check_target_in_org(s, org_id=org_id, project_id=project_id, user_id=user_id)
             remove_project_member(s, actor=_admin_shim(actor), project_id=project_id, user_id=user_id)
+        except PolicyAuthzError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc))
     return ActionResponse(ok=True, message="Member removed.")

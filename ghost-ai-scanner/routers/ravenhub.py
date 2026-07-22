@@ -240,10 +240,18 @@ def _load_events(store: BlobIndexStore, email: str, is_admin: bool) -> tuple:
     could sit a day behind "today"'s org-wide activity even when today
     has plenty of substance from other people (PR#9 review round 2, M1);
     checking the org-wide set would repeat the exact bug this function
-    was just fixed for, just one level down, for GET /user/detail."""
+    was just fixed for, just one level down, for GET /user/detail.
+
+    y_summary is the day BEFORE the actual source_date found, not a
+    hardcoded "yesterday relative to today" (PR#9 review round 3, M1) —
+    before this walk-back could skip multiple stale days, source_date
+    was virtually always today, so "yesterday" and "day before
+    source_date" were the same thing; now that the walk-back can
+    genuinely land several days back, _kpis()'s deltas need to compare
+    against the day immediately before whatever day was actually used,
+    or they silently compare non-adjacent days and mislead the exec KPI
+    cards."""
     summary = store.summary.read() or {}
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
-    y_summary = store.summary.read(yesterday) or {}
 
     events: list = []
     source_date: Optional[str] = None
@@ -266,6 +274,12 @@ def _load_events(store: BlobIndexStore, email: str, is_admin: bool) -> tuple:
             events = candidate
             source_date = check_date
             break
+
+    if source_date:
+        prev_day = (date.fromisoformat(source_date) - timedelta(days=1)).isoformat()
+        y_summary = store.summary.read(prev_day) or {}
+    else:
+        y_summary = {}
 
     return events, summary, y_summary, source_date
 
