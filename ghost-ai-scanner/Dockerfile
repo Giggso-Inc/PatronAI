@@ -61,6 +61,7 @@ COPY assets/    ./assets/
 COPY docs/      ./docs/
 COPY main.py    .
 COPY api.py     .
+COPY routers/   ./routers/
 COPY alembic.ini    .
 COPY alembic/       ./alembic/
 
