@@ -21,6 +21,19 @@
 #          any authenticated caller can read/write settings for now.
 #          TODO: once FE role routing is integrated, add a real
 #          _resolve_is_admin-style check before allowing writes.
+#
+#          ACCEPTED (PR#9 review round 4, 2026-07-22): unlike the other
+#          ravenhub_* routers' TEMP gaps, POST /settings/scanning never
+#          had ANY admin check to begin with (not even the relaxed
+#          always-True _resolve_is_admin) — any authenticated caller can
+#          modify org-wide scan_interval_secs, dedup_window_minutes,
+#          max_files_per_cycle, lookback_hours, and the hash_emails
+#          privacy toggle. Left as-is: role-based routing (who even
+#          reaches this form) is FE work already in the pipeline, not
+#          built locally yet — closing this gate here alone, ahead of
+#          that FE work landing, wouldn't change who can actually reach
+#          it today. Revisit alongside the FE role-routing rollout, not
+#          before.
 # AUDIT LOG:
 #   v1.0.0  2026-07-21  Initial — 4 endpoints (Settings + Scanning).
 #   v1.1.0  2026-07-21  Settings (Identity/Alerting) tab removed from
@@ -82,6 +95,9 @@ def get_settings_endpoint(email: str = Depends(verify_ravenhub_identity)) -> Set
 
 @router.post("/settings/scanning", response_model=ActionResponse)
 def save_scanning_endpoint(body: ScanningRequest, email: str = Depends(verify_ravenhub_identity)) -> ActionResponse:
+    # No admin gate here — see module docstring's "ACCEPTED (PR#9 review
+    # round 4)" note. Any authenticated caller can currently write org-wide
+    # scan config; closing this is deferred to when FE role routing lands.
     store = _store()
     settings = store.settings.read()
     scanner, alerts, privacy = settings.get("scanner", {}), settings.get("alerts", {}), settings.get("privacy", {})

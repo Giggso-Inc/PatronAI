@@ -647,7 +647,18 @@ def get_inventory_overview(
     `email` is the verified identity from _verify_ravenhub_identity
     (PR#9 review, C1) — no longer a client-supplied query param, so this
     admin-only gate can no longer be defeated by simply asserting an
-    admin's address."""
+    admin's address.
+
+    KNOWN GAP, ACCEPTED (PR#9 review round 4): `is_admin` below resolves
+    via _resolve_is_admin, which is itself TEMP-relaxed to always return
+    True for any recognized user (see that function's own docstring) —
+    so `if not is_admin` can never fire today and every authenticated
+    caller gets org-wide inventory data, not just admins. Accepted as-is
+    for now: real role-based routing (which persona sees this endpoint
+    at all) is FE work already in the pipeline, not built yet, and this
+    is read-only data in a single-org dev environment. Revisit once
+    that FE work lands — this docstring's "admin-only" claim is
+    aspirational until then, not currently enforced."""
     email_norm = email
     try:
         is_admin = _resolve_is_admin(email_norm)
