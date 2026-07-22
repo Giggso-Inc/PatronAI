@@ -615,7 +615,20 @@ def get_exec_overview(
     then resolved server-side from that verified email (Postgres users
     table -> S3 users.json -> env allowlist), the same chain
     dashboard/ui/auth_gate.py uses at login. The caller cannot assert
-    is_admin — a 403 is raised if the email isn't recognized anywhere."""
+    is_admin — a 403 is raised if the email isn't recognized anywhere.
+
+    KNOWN GAP, ACCEPTED (PR#9 review round 4): This endpoint's
+    intentional per-user scoping for non-admins ("admins get org-wide
+    events, non-admins scoped to their own owner/email only") is
+    non-functional: `is_admin` above resolves via _resolve_is_admin,
+    which is TEMP-relaxed to always return True (see that function's
+    docstring). So _load_events (line 623) always takes the org-wide
+    path, and every authenticated caller gets all org events, not just
+    their own. Accepted as-is for now: real role-based routing (which
+    persona sees this endpoint at all) is FE work already in the
+    pipeline, not built yet. Revisit once that FE work lands — this
+    endpoint's "scoped to non-admins" claim is aspirational until then,
+    not currently enforced."""
     store = _blob_store()
     email_norm = email
     is_admin = _resolve_is_admin(email_norm)
