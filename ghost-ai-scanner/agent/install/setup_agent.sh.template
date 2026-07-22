@@ -355,7 +355,12 @@ PLIST_EOF
   launchctl load  "$PLIST_SCAN" 2>/dev/null || true
 else
   # Linux — crontab
-  ( crontab -l 2>/dev/null | grep -v patronai
+  # `|| true` guards against a machine with no existing crontab: `crontab -l`
+  # then pipes empty input to `grep -v patronai`, which exits 1 ("no lines
+  # selected"). Under `set -euo pipefail` (top of this script) that silently
+  # killed the whole installer before it ever scheduled cron, reported
+  # "installed" status, or ran the first scan — with no error shown.
+  ( crontab -l 2>/dev/null | grep -v patronai || true
     echo "*/5  * * * * /bin/bash $HEARTBEAT_SCRIPT"
     echo "*/30 * * * * /bin/bash $SCAN_RUNNER"
   ) | crontab -
