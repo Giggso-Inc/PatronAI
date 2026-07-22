@@ -50,6 +50,9 @@ from routers.ravenhub import router as ravenhub_router
 from routers.ravenhub_governance_reads import router as ravenhub_governance_reads_router
 from routers.ravenhub_governance_writes_lists import router as ravenhub_governance_writes_lists_router
 from routers.ravenhub_governance_writes_overrides import router as ravenhub_governance_writes_overrides_router
+from routers.ravenhub_projects import router as ravenhub_projects_router
+from routers.ravenhub_users import router as ravenhub_users_router
+from routers.ravenhub_settings import router as ravenhub_settings_router
 
 _log = logging.getLogger("patronai.api")
 
@@ -117,6 +120,24 @@ app.include_router(
     ravenhub_governance_writes_overrides_router,
     prefix="/ravenhub",
     tags=["ravenhub-governance"],
+    dependencies=[Depends(_auth)],
+)
+app.include_router(
+    ravenhub_projects_router,
+    prefix="/ravenhub",
+    tags=["ravenhub-controls"],
+    dependencies=[Depends(_auth)],
+)
+app.include_router(
+    ravenhub_users_router,
+    prefix="/ravenhub",
+    tags=["ravenhub-controls"],
+    dependencies=[Depends(_auth)],
+)
+app.include_router(
+    ravenhub_settings_router,
+    prefix="/ravenhub",
+    tags=["ravenhub-controls"],
     dependencies=[Depends(_auth)],
 )
 

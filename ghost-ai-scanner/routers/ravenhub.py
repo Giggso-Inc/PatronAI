@@ -185,18 +185,25 @@ def _env_is_admin(email: str) -> bool:
 
 
 def _resolve_is_admin(email: str) -> bool:
-    """Resolve real admin status for `email` the same way the dashboard
-    login does: Postgres users table -> S3 users.json -> env allowlist.
-    Raises HTTPException(403) if the email isn't recognized anywhere —
-    the caller cannot simply assert is_admin, unlike the earlier version
-    of this endpoint."""
+    """TEMP (2026-07-21): admin/role filtering is deferred to the FE — which
+    API to call for an admin/exec/user view isn't wired up there yet. Until
+    it is, any email recognized by ANY of Postgres / S3 / env is treated as
+    admin (full org-wide data) instead of honoring its real is_admin flag.
+    JWT identity verification (_verify_ravenhub_identity) is UNCHANGED and
+    still required on every route — this only removes the admin-vs-regular
+    distinction for a caller who is already a real, provisioned PatronAI
+    user. An email recognized nowhere still gets HTTPException(403) via
+    _env_is_admin below, same as before.
+    TODO: once FE role-based routing is integrated, go back to honoring the
+    real per-source flag (`return db` / `return s3` instead of `return True`)."""
     db = _db_is_admin(email)
     if db is not None:
-        return db
+        return True
     s3 = _s3_is_admin(email)
     if s3 is not None:
-        return s3
-    return _env_is_admin(email)
+        return True
+    _env_is_admin(email)  # raises 403 if unrecognized; discard the real flag otherwise
+    return True
 
 
 def _load_events(store: BlobIndexStore, email: str, is_admin: bool) -> tuple:
