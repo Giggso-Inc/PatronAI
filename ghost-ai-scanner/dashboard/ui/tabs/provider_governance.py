@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: dashboard/ui/tabs/provider_governance.py
-# VERSION: 4.3.0
-# UPDATED: 2026-07-01
+# VERSION: 4.5.0
+# UPDATED: 2026-07-03
 # OWNER: Giggso Inc
 # PURPOSE: Provider Governance tab. DB mode has two sub-tabs:
 #   • Overview — every provider by category with its status at EVERY scope
@@ -30,6 +30,19 @@
 #                       drop the redundant Name column (tailored per model) and
 #                       gain a flip action (allow<->block); baseline flip-to-allow
 #                       routes through the guarded override (reason required).
+#   v4.4.0  2026-07-03  "Block a wider-allowed tool" control at project/user
+#                       scope — block, locally, a tool an org/project ALLOWS
+#                       (deny beats allow; scoring unchanged). Closes the gap
+#                       Newly Found (unknown-only) + flip (this-scope-only) left.
+#   v4.4.1  2026-07-03  Source that control from the DB allow-lists (eff), not
+#                       observed events — works with no recent scans and lists
+#                       exactly what the wider scope approved (DB = source of truth).
+#   v4.5.0  2026-07-03  (b) Giggso override is now DB-driven (from eff.giggso_deny,
+#                       not observed events). (a) New "Allow a tool a wider scope
+#                       BLOCKED" action (deny-override) at project/user scope —
+#                       org-admin only, capped ×0.6/×0.7, band-floored, 90-day
+#                       expiry, EXCLUDES Giggso-blocked tools (D4). security_log
+#                       2026-07-03 D1-D7.
 # =============================================================
 
 import os
@@ -52,6 +65,8 @@ _TAG = {
     "user_ack": "🟢 User approved", "giggso_override": "🟠 Giggso override (org)",
     "giggso_override_project": "🟠 Giggso override (project)",
     "giggso_override_user": "🟠 Giggso override (user)",
+    "deny_override_project": "🟠 Deny override (project)",
+    "deny_override_user": "🟠 Deny override (user)",
     "unknown": "⚪ Unknown",
 }
 _CAT_LABEL = {
@@ -126,7 +141,9 @@ def _render_db(is_admin, email, events) -> None:
                 #    followed by the guarded action that loosens it.
                 _inherited_lists(scope, providers, eff)
                 _override_section(s, actor, org_id, is_admin, scope, project_id,
-                                  user_id, providers)
+                                  user_id, eff)
+                _deny_override_section(s, actor, org_id, is_admin, scope,
+                                       project_id, user_id, eff)
                 st.divider()
                 # 2) NEWLY FOUND — triage queue for unclassified providers.
                 _newly_found(s, actor, org_id, scope, project_id, user_id,
@@ -134,6 +151,11 @@ def _render_db(is_admin, email, events) -> None:
                 st.divider()
                 # 3) THIS-SCOPE lists — editable, with allow<->block flip.
                 _current_lists(s, actor, org_id, scope, project_id, user_id)
+                # 4) Block a tool a WIDER scope allows (deny beats allow).
+                #    Sourced from the DB-resolved allow-lists (eff), NOT from
+                #    observed events — so it works regardless of the scan window.
+                _block_wider_allow(s, actor, org_id, scope, project_id,
+                                   user_id, eff)
     except Exception as exc:
         st.error(f"DB governance unavailable: {exc}")
 
@@ -412,27 +434,76 @@ def _list_block(s, actor, org_id, scope, project_id, user_id, word, model, attr)
                 st.error(str(e))
 
 
-def _override_section(s, actor, org_id, is_admin, scope, project_id, user_id, providers) -> None:
+def _block_wider_allow(s, actor, org_id, scope, project_id, user_id, eff) -> None:
+    """Block, at THIS scope, a tool a WIDER scope ALLOWS.
+
+    Candidates come from the DB-resolved allow-lists in `eff` (org_approve, and
+    project_approve for user scope) — NOT from observed events — so the control
+    works even with no recent scans and lists exactly what the wider scope has
+    approved. Fills the gap where Newly Found (unknown-only) and the flip
+    (this-scope rows only) can't reach an already-allowed tool. Pure add of a
+    scope-local deny; no scoring change — the waterfall already lets a
+    project/user deny beat a wider approve. Not offered at org scope (nothing is
+    wider than org — use the flip there)."""
+    from db.governance_crud import add_blacklisted
+    if scope == "org" or not (project_id or user_id):
+        return
+    # patterns a wider scope approves, labelled by which scope; drop any already
+    # denied at THIS scope (would be a no-op / duplicate).
+    here_deny = eff.user_deny if scope == "user" else eff.project_deny
+    wider = {p: "🟢 Org approved" for p in sorted(eff.org_approve)}
+    if scope == "user":
+        for p in sorted(eff.project_approve):
+            wider.setdefault(p, "🟢 Project approved")
+    cands = {p: lbl for p, lbl in wider.items() if p not in here_deny}
+    if not cands:
+        return
+    with st.expander(f"⛔ Block a tool this {scope} inherits as *allowed* "
+                     f"({len(cands)} available)"):
+        st.caption(f"Blocks it for this {scope} only (deny beats allow) — the "
+                   "rest of the org is unaffected.")
+        label = {f"{pat}  ·  {lbl}": pat for pat, lbl in cands.items()}
+        pick = st.selectbox("Tool to block", list(label), key=f"bwa::{scope}")
+        sev = st.selectbox("Severity", ["HIGH", "CRITICAL", "MEDIUM", "LOW"],
+                           key=f"bwasev::{scope}")
+        if st.button(f"Block at {scope} scope", key=f"bwabtn::{scope}") and pick:
+            try:
+                add_blacklisted(s, actor=actor, org_id=org_id, scope=scope,
+                                project_id=project_id, user_id=user_id,
+                                domain=label[pick], severity=sev)
+                _flash_and_rerun(f"Blocked `{label[pick]}` at {scope} scope "
+                                 "(overrides the wider allow here).")
+            except Exception as e:
+                st.error(str(e))
+
+
+def _override_section(s, actor, org_id, is_admin, scope, project_id, user_id, eff) -> None:
     """Grant a Giggso-baseline override at the CURRENT scope (org/project/user).
     Org-admin only (enforced server-side). Weight: org ×0.5 / project ×0.6 /
-    user ×0.7, band-floored ≥ MEDIUM."""
+    user ×0.7, band-floored ≥ MEDIUM.
+
+    Candidates come from the DB Giggso baseline in `eff` (not observed events),
+    minus tools already overridden at this scope — so it works with no scans."""
     import datetime as _dt
     if not is_admin:
         return
-    blocked = [p for p in providers if p["tier"] == "giggso_deny"]
+    if scope != "org" and not (project_id or user_id):
+        return
+    already = (eff.giggso_override if scope == "org" else
+               eff.giggso_override_project if scope == "project" else
+               eff.giggso_override_user)
+    blocked = sorted(eff.giggso_deny - already)
     if not blocked:
         return
     from db.governance_crud import add_approved
     weight = {"org": "×0.5", "project": "×0.6", "user": "×0.7"}.get(scope, "×0.5")
     with st.expander(f"🟠 Override Giggso baseline at {scope} scope "
-                     f"({len(blocked)} blocked) — audited, {weight}, 90-day expiry"):
-        if scope != "org" and not (project_id or user_id):
-            st.caption("Pick a project/user above first."); return
+                     f"({len(blocked)} blockable) — audited, {weight}, 90-day expiry"):
         st.caption(f"Permits a Giggso-blocked tool at **{scope}** scope. Stays visible; "
                    "can never pull a device below MEDIUM (C2). Org-admin only, audited.")
-        prov = st.selectbox("Blocked provider", [p["provider"] for p in blocked], key="ov_prov")
+        prov = st.selectbox("Giggso-blocked tool", blocked, key="ov_prov")
         reason = st.text_input("Reason (required)", key="ov_reason")
-        if st.button(f"Override ({scope})", key="ov_btn"):
+        if st.button(f"Override ({scope})", key="ov_btn") and prov:
             if not reason.strip():
                 st.error("A reason is required (C3)."); return
             try:
@@ -442,6 +513,49 @@ def _override_section(s, actor, org_id, is_admin, scope, project_id, user_id, pr
                              valid_until=_dt.date.today() + _dt.timedelta(days=90))
                 _flash_and_rerun(f"Override recorded for `{prov}` at {scope} scope "
                                  f"({weight}, expires 90d).")
+            except Exception as e:
+                st.error(str(e))
+
+
+def _deny_override_section(s, actor, org_id, is_admin, scope, project_id, user_id, eff) -> None:
+    """Permit, at project/user scope, a tool a WIDER scope DENIED — the inverse
+    of a block (security_log 2026-07-03, D1-D7). Org-admin only, audited,
+    capped (project ×0.6 / user ×0.7), band-floored ≥ MEDIUM, 90-day expiry.
+
+    Candidates = tools denied by a wider scope (org; +project at user scope),
+    from the DB context. EXCLUDES Giggso-blocked tools (D4) — those use the
+    Giggso override above, never this path."""
+    import datetime as _dt
+    if not is_admin or scope not in ("project", "user") or not (project_id or user_id):
+        return
+    wider_deny = set(eff.org_deny)
+    if scope == "user":
+        wider_deny |= set(eff.project_deny)
+    already = eff.deny_override_project | eff.deny_override_user
+    cands = sorted(wider_deny - set(eff.giggso_deny) - already)   # D4: never Giggso
+    if not cands:
+        return
+    from db.governance_crud import grant_deny_override
+    weight = {"project": "×0.6", "user": "×0.7"}[scope]
+    with st.expander(f"🟠 Allow a tool a wider scope BLOCKED — at {scope} scope "
+                     f"({len(cands)} available) — audited, {weight}, 90-day expiry"):
+        st.caption(f"Permits, for this {scope} only, a tool the org"
+                   f"{'/project' if scope == 'user' else ''} denied. Org-admin only, "
+                   "audited, band-floored ≥ MEDIUM (never CLEAN/LOW). Giggso-blocked "
+                   "tools are not here — use the Giggso override above.")
+        prov = st.selectbox("Denied tool to permit", cands, key="do_prov")
+        reason = st.text_input("Reason (required)", key="do_reason")
+        if st.button(f"Allow at {scope} scope", key="do_btn") and prov:
+            if not reason.strip():
+                st.error("A reason is required (D3)."); return
+            try:
+                grant_deny_override(
+                    s, actor=actor, org_id=org_id, scope=scope,
+                    project_id=project_id, user_id=user_id, name=prov,
+                    provider_pattern=prov, reason=reason,
+                    valid_until=_dt.date.today() + _dt.timedelta(days=90))
+                _flash_and_rerun(f"Deny-override recorded for `{prov}` at {scope} "
+                                 f"scope ({weight}, expires 90d).")
             except Exception as e:
                 st.error(str(e))
 

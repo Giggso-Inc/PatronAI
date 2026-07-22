@@ -34,6 +34,14 @@ _OVERRIDE_CK = (
     "(reason IS NOT NULL AND approved_by IS NOT NULL "
     "AND scope IN ('org','project','user'))"
 )
+# Deny-override guard (security_log 2026-07-03 D1-D7): same reason+approver
+# rule, and only at a NARROWER grant scope (project/user) — an org can't
+# "deny-override" its own org deny (that's just removing the deny).
+_DENY_OVERRIDE_CK = (
+    "overrides_deny = false OR "
+    "(reason IS NOT NULL AND approved_by IS NOT NULL "
+    "AND scope IN ('project','user'))"
+)
 
 
 class ApprovedTool(Base):
@@ -42,6 +50,7 @@ class ApprovedTool(Base):
     __table_args__ = (
         CheckConstraint(_SCOPE_CK, name="approved_scope"),
         CheckConstraint(_OVERRIDE_CK, name="giggso_override_guarded"),
+        CheckConstraint(_DENY_OVERRIDE_CK, name="deny_override_guarded"),
         Index("ix_approved_tools_org_scope", "org_id", "scope"),
         Index("ix_approved_tools_user", "user_id"),
         Index("ix_approved_tools_project", "project_id"),
@@ -74,6 +83,9 @@ class ApprovedTool(Base):
     valid_until: Mapped[date | None] = mapped_column(Date)
     # Guarded baseline override (Phase E): true → giggso_override ×0.5 tier.
     overrides_giggso: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # Guarded deny-override (2026-07-03): true → this scope-local approve
+    # permits a tool a WIDER scope denied → deny_override_{project,user} tier.
+    overrides_deny: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
 
 
 class BlacklistedTool(Base):

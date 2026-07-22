@@ -54,6 +54,13 @@ from scoring.posture_score import (
     compute_user_score,
     is_approved_provider,
 )
+from routers.ravenhub import router as ravenhub_router
+from routers.ravenhub_governance_reads import router as ravenhub_governance_reads_router
+from routers.ravenhub_governance_writes_lists import router as ravenhub_governance_writes_lists_router
+from routers.ravenhub_governance_writes_overrides import router as ravenhub_governance_writes_overrides_router
+from routers.ravenhub_projects import router as ravenhub_projects_router
+from routers.ravenhub_users import router as ravenhub_users_router
+from routers.ravenhub_settings import router as ravenhub_settings_router
 
 _log = logging.getLogger("patronai.api")
 
@@ -97,6 +104,50 @@ _CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
 def _auth(creds: HTTPAuthorizationCredentials | None = Security(_bearer)) -> None:
     if creds is None or not secrets.compare_digest(creds.credentials, _API_KEY):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+app.include_router(
+    ravenhub_router,
+    prefix="/ravenhub",
+    tags=["ravenhub"],
+    dependencies=[Depends(_auth)],
+)
+app.include_router(
+    ravenhub_governance_reads_router,
+    prefix="/ravenhub",
+    tags=["ravenhub-governance"],
+    dependencies=[Depends(_auth)],
+)
+app.include_router(
+    ravenhub_governance_writes_lists_router,
+    prefix="/ravenhub",
+    tags=["ravenhub-governance"],
+    dependencies=[Depends(_auth)],
+)
+app.include_router(
+    ravenhub_governance_writes_overrides_router,
+    prefix="/ravenhub",
+    tags=["ravenhub-governance"],
+    dependencies=[Depends(_auth)],
+)
+app.include_router(
+    ravenhub_projects_router,
+    prefix="/ravenhub",
+    tags=["ravenhub-controls"],
+    dependencies=[Depends(_auth)],
+)
+app.include_router(
+    ravenhub_users_router,
+    prefix="/ravenhub",
+    tags=["ravenhub-controls"],
+    dependencies=[Depends(_auth)],
+)
+app.include_router(
+    ravenhub_settings_router,
+    prefix="/ravenhub",
+    tags=["ravenhub-controls"],
+    dependencies=[Depends(_auth)],
+)
 
 
 def _get_store() -> AgentStore:

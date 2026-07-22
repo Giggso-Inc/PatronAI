@@ -61,6 +61,13 @@ POLICY_MULTIPLIER = {
     "giggso_override":         0.50,   # org-scope override (widest authority)
     "giggso_override_project": 0.60,   # project-scope override (narrower)
     "giggso_override_user":    0.70,   # user-scope override (narrowest / least reduction)
+    # org/project-DENY override (security_log 2026-07-03, conditions D1-D7):
+    # an org-admin permits, at a NARROWER scope, a tool a WIDER scope denied.
+    # Capped like the giggso override and band-floored >= MEDIUM (D2). Narrower
+    # grant = less reduction. The Giggso floor is never reached here (D4): a
+    # giggso_deny is resolved before org/project deny in the waterfall.
+    "deny_override_project":   0.60,   # permitted at a project despite an org deny
+    "deny_override_user":      0.70,   # permitted at a user despite an org/project deny
     "unknown":         1.0,
 }
 
