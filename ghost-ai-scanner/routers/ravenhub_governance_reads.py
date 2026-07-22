@@ -44,6 +44,16 @@ class GovernanceOverviewResponse(BaseModel):
     providers: list
 
 
+class GovernanceUserOut(BaseModel):
+    id: str
+    email: str
+    display_name: Optional[str] = None
+
+
+class GovernanceUsersResponse(BaseModel):
+    users: list[GovernanceUserOut]
+
+
 class GovernanceScopeResponse(BaseModel):
     email: str
     is_admin: bool
@@ -112,6 +122,29 @@ def get_governance_overview(email: str = Depends(verify_ravenhub_identity)) -> G
     return GovernanceOverviewResponse(email=email, providers=rows)
 
 
+@router.get("/governance/users", response_model=GovernanceUsersResponse)
+def get_governance_users(email: str = Depends(verify_ravenhub_identity)) -> GovernanceUsersResponse:
+    """Policy-DB users in the actor's own org — for the FE's scope=user
+    picker. NOT the same list as PatronAI's S3 admin roster
+    (routers/ravenhub_users.py) or the cross-product Workforce merge
+    (commonFE's identity.js) — scope=user governance rows are keyed by
+    this table's UUID `id` (ProjectMember.user_id, ApprovedTool.user_id,
+    BlacklistedTool.user_id all FK here), not by email, so the picker
+    must send this id as user_id or GET /governance/scope's
+    check_target_in_org will correctly 404/403 it as unrecognized."""
+    from db.engine import get_session
+    from db.governance_crud import list_org_users
+
+    with get_session() as s:
+        _actor, org_id = _resolve_actor(s, email)
+        users = list_org_users(s, org_id)
+
+    return GovernanceUsersResponse(users=[
+        GovernanceUserOut(id=str(u.id), email=u.email, display_name=u.display_name)
+        for u in users
+    ])
+
+
 @router.get("/governance/scope", response_model=GovernanceScopeResponse)
 def get_governance_scope(
     scope: str = Query(..., pattern="^(org|project|user)$"),
@@ -125,7 +158,7 @@ def get_governance_scope(
     are available here. Mirrors provider_governance.py's Manage tab
     read-only sections (_inherited_lists, _current_lists, _newly_found)."""
     from db.engine import get_session
-    from db.governance_crud import list_scope
+    from db.governance_crud import PolicyAuthzError, check_target_in_org, list_scope
     from db.models_policy import ApprovedTool, BlacklistedTool
     from db.policy_queries import load_policy_context, project_ids_for_user
     from scoring.provider_views import all_providers, newly_found as _newly_found_fn
@@ -138,6 +171,20 @@ def get_governance_scope(
     with get_session() as s:
         actor, org_id = _resolve_actor(s, email)
         is_admin = bool(actor.is_org_admin)
+        # PR#9 review (C2): project_id/user_id are client-supplied query
+        # params — verify they belong to this actor's org before using them
+        # to load policy context, same check the write path now enforces
+        # (governance_crud._check_scope_authz). Without this, any caller
+        # could read another org's governance scope by guessing/reusing its
+        # project_id/user_id.
+        try:
+            check_target_in_org(
+                s, org_id=org_id,
+                project_id=(project_id if scope == "project" else None),
+                user_id=(user_id if scope == "user" else None),
+            )
+        except PolicyAuthzError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
         tgt_projects = ([project_id] if scope == "project" else
                         (project_ids_for_user(s, user_id) if scope == "user" else []))
         eff = load_policy_context(s, org_id=org_id,

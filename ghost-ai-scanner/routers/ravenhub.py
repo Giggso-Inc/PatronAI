@@ -206,11 +206,41 @@ def _resolve_is_admin(email: str) -> bool:
     return True
 
 
+# A day "has data" only if it has at least one substantive finding — not
+# just any row at all. HEARTBEAT/SUPPRESS/CLEAN are non-findings (same set
+# _data_exposure() below already excludes as non-"active"); a day with only
+# those (e.g. the first few hours of a new day, before any real scan/finding
+# events have landed) must not short-circuit the walk-back past a prior
+# day's real data.
+_NON_SUBSTANTIVE_OUTCOMES = {"HEARTBEAT", "SUPPRESS", "CLEAN"}
+
+
+def _has_substantive_events(raw_events: list) -> bool:
+    return any(e.get("outcome") not in _NON_SUBSTANTIVE_OUTCOMES for e in raw_events)
+
+
 def _load_events(store: BlobIndexStore, email: str, is_admin: bool) -> tuple:
-    """Same walk-back as dashboard/ui/data.py:load_data() — first
-    non-empty day in the last 7, capped at 500 findings. Admins get the
-    full org-wide event set for that day; non-admins are scoped to
-    events owned by (or emailed to) their own address only."""
+    """Walk back up to 7 days for the first day with at least one
+    substantive finding, capped at 500 findings. Admins get the full
+    org-wide event set for that day; non-admins are scoped to events
+    owned by (or emailed to) their own address only.
+
+    Deliberately diverges from dashboard/ui/data.py:load_data() here,
+    which stops at the first day with ANY rows (including heartbeat-only
+    days) — observed live on 2026-07-22: "today" had 2 HEARTBEAT rows and
+    nothing else, so the old logic stopped there and never surfaced
+    yesterday's 466 rows (152 real ENDPOINT_FINDINGs across 8 providers),
+    making Provider Governance's Overview/Newly Found look empty despite
+    real data existing one day back. Not touching the Streamlit path
+    itself — REST-side fix only, per every ravenhub_* router's own
+    "additive only" convention.
+
+    The substantive-events check runs on the CALLER'S OWN slice for a
+    non-admin (not the org-wide raw set) — a non-admin's own findings
+    could sit a day behind "today"'s org-wide activity even when today
+    has plenty of substance from other people (PR#9 review round 2, M1);
+    checking the org-wide set would repeat the exact bug this function
+    was just fixed for, just one level down, for GET /user/detail."""
     summary = store.summary.read() or {}
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     y_summary = store.summary.read(yesterday) or {}
@@ -223,14 +253,17 @@ def _load_events(store: BlobIndexStore, email: str, is_admin: bool) -> tuple:
         if not df.is_empty():
             raw_events = df.to_dicts()
             if is_admin:
-                events = raw_events
+                candidate = raw_events
             else:
                 em = email.lower()
-                events = [
+                candidate = [
                     e for e in raw_events
                     if (e.get("owner", "") or "").lower() == em
                     or (e.get("email", "") or "").lower() == em
                 ]
+            if not _has_substantive_events(candidate):
+                continue
+            events = candidate
             source_date = check_date
             break
 

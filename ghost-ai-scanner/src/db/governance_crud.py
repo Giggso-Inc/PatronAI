@@ -56,13 +56,47 @@ def _get_by_id(session, model, row_id):
     return session.get(model, row_id)
 
 
-def _check_scope_authz(actor, scope: str, user_id, org_id=None) -> None:
+def check_target_in_org(session, *, org_id, project_id=None, user_id=None) -> None:
+    """PR#9 review (C1/C2): a client-supplied project_id/user_id must
+    actually belong to org_id, not just be well-formed. Before this, an
+    org-A admin (or any caller who could satisfy the scope check) could
+    hand in an org-B project_id/user_id and read or write org-B's
+    project/user policy lists — org_id equality alone never verified the
+    id it was paired with was real for that org. Shared by the write
+    path (_check_scope_authz below) and the read-only GET /governance/
+    scope endpoint (ravenhub_governance_reads.py), which had no
+    ownership check at all."""
+    if project_id is not None:
+        proj = _get_by_id(session, Project, project_id)
+        _require(proj is not None and proj.org_id == org_id, "project_id not found in this org")
+    if user_id is not None:
+        usr = _get_by_id(session, User, user_id)
+        _require(usr is not None and usr.org_id == org_id, "user_id not found in this org")
+
+
+def _check_scope_authz(actor, scope: str, user_id, org_id=None, *,
+                       project_id=None, session=None) -> None:
     """C8: org/project edits need org-admin; user edits only for oneself.
 
     Defence-in-depth (PR#8 review): a caller-supplied org_id must match the
     actor's own org — an org-A admin can never write into org B's lists even
     if an API path ever forwards a client-influenced org_id. Today every call
-    site derives org_id server-side, so this only closes a future hole."""
+    site derives org_id server-side, so this only closes a future hole.
+
+    `project_id`/`session` (PR#9 review, C1): when a session is supplied
+    (every real call site passes one), a write additionally verifies
+    ANY target project_id/user_id it was given belongs to org_id via
+    check_target_in_org — not just whichever one matches `scope`.
+    add_approved/add_blacklisted/grant_deny_override all accept both
+    fields from the request body and persist both onto the row
+    regardless of scope, so a scope="user" write carrying an unrelated
+    (cross-org or bogus) project_id must be rejected too, even though
+    scope="user" writes don't need a project_id at all — otherwise an
+    unvalidated id sits on the row, inert only until some future read
+    joins on the "wrong" field (PR#9 review round 2, H1). Kept optional
+    (default None) so this stays a pure-authz check for any future
+    caller that hasn't wired a session through, same as the org_id
+    check being conditional above."""
     actor_org = getattr(actor, "org_id", None)
     if org_id is not None and actor_org is not None and org_id != actor_org:
         raise PolicyAuthzError("C8: cross-org policy write refused")
@@ -78,6 +112,8 @@ def _check_scope_authz(actor, scope: str, user_id, org_id=None) -> None:
                  "C8: you may only edit your own personal list (org admins may edit any)")
     else:
         raise PolicyAuthzError(f"unknown scope {scope!r}")
+    if session is not None:
+        check_target_in_org(session, org_id=org_id, project_id=project_id, user_id=user_id)
 
 
 def add_approved(session, *, actor, org_id, scope, name, provider_pattern,
@@ -91,7 +127,7 @@ def add_approved(session, *, actor, org_id, scope, name, provider_pattern,
     existing row is a plain approve and the new call is a guarded override,
     the existing row is UPGRADED to the override in place (prevents the
     'same provider listed twice' state)."""
-    _check_scope_authz(actor, scope, user_id, org_id=org_id)
+    _check_scope_authz(actor, scope, user_id, org_id=org_id, project_id=project_id, session=session)
     if overrides_giggso:
         errs = validate_override_request(
             is_org_admin=getattr(actor, "is_org_admin", False),
@@ -139,7 +175,7 @@ def add_blacklisted(session, *, actor, org_id, scope, domain, name=None,
                     reason=None, commit=True):
     """Add a deny entry at the given scope (server-side authz enforced).
     Idempotent per (scope, owner, pattern) — no duplicate deny rows."""
-    _check_scope_authz(actor, scope, user_id, org_id=org_id)
+    _check_scope_authz(actor, scope, user_id, org_id=org_id, project_id=project_id, session=session)
     pattern = (domain or "").strip().lower()
     existing = session.execute(
         select(BlacklistedTool).where(
@@ -168,7 +204,8 @@ def remove_entry(session, *, actor, model, row_id, commit=True) -> bool:
     row = _get_by_id(session, model, row_id)
     if row is None:
         return False
-    _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None))
+    _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None),
+                       project_id=getattr(row, "project_id", None), session=session)
     session.delete(row)
     if commit:
         session.commit()
@@ -193,7 +230,8 @@ def move_to_allowed(session, *, actor, org_id, block_row_id,
     baseline override, False for a plain approve."""
     row = _get_by_id(session, BlacklistedTool, block_row_id)
     _require(row is not None, "blocked entry not found")
-    _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None))
+    _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None),
+                       project_id=getattr(row, "project_id", None), session=session)
     pattern = row.domain
     baseline = is_giggso_blocked(session, pattern)
     add_approved(
@@ -213,7 +251,8 @@ def move_to_blocked(session, *, actor, org_id, approve_row_id, severity="HIGH"):
     """Flip an approved row to the deny list at the SAME scope, atomically."""
     row = _get_by_id(session, ApprovedTool, approve_row_id)
     _require(row is not None, "approved entry not found")
-    _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None))
+    _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None),
+                       project_id=getattr(row, "project_id", None), session=session)
     add_blacklisted(
         session, actor=actor, org_id=org_id, scope=row.scope,
         project_id=row.project_id, user_id=row.user_id,
@@ -241,7 +280,15 @@ def grant_deny_override(session, *, actor, org_id, scope, provider_pattern,
         raise PolicyAuthzError("D1: deny-override is only valid at project/user scope")
     _require(getattr(actor, "is_org_admin", False),
              "D1: only an org admin may grant a deny-override")
-    _check_scope_authz(actor, scope, user_id, org_id=org_id)
+    _check_scope_authz(actor, scope, user_id, org_id=org_id, project_id=project_id, session=session)
+    # D4 (PR#9 review): the docstring above claims "the Giggso floor is
+    # untouchable... callers must not offer giggso-denied tools here", but
+    # that was only true because the Streamlit UI pre-filtered candidates —
+    # nothing here actually verified it, so calling this function directly
+    # (as the REST endpoint does) could grant a deny-override for a
+    # Giggso-baseline-blocked tool. Enforced for real now.
+    _require(not is_giggso_blocked(session, provider_pattern),
+             "D4: cannot deny-override a Giggso-baseline blocked tool")
     errs = validate_override_request(
         is_org_admin=getattr(actor, "is_org_admin", False),
         scope=scope, reason=reason, approved_by=actor.id, valid_until=valid_until,
