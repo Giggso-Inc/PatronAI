@@ -77,6 +77,15 @@ class AgentStore(BaseStore):
         except Exception:
             return False
 
+    # ── Object reads ──────────────────────────────────────────
+
+    def get_object_text(self, key: str) -> str:
+        """Read an S3 object as UTF-8 text. Used by /agent/provision to
+        return the freshly-rendered installer script inline to Raven so
+        it can be inlined into the Raven installer via a heredoc."""
+        raw = self._get(key)
+        return raw.decode("utf-8") if raw else ""
+
     # ── Package lifecycle ─────────────────────────────────────
 
     def create_package(

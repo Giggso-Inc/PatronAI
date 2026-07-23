@@ -39,6 +39,8 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+# scripts/ carries render_agent_package used by /agent/provision below.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "scripts"))
 
 from fastapi import FastAPI, HTTPException, Depends, Security, Query, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -336,6 +338,23 @@ class UrlBundleResponse(BaseModel):
     authorized_get_url: str
 
 
+class ProvisionRequest(BaseModel):
+    recipient_name:     str
+    recipient_email:    EmailStr
+    # Matches render_agent_package: mac | linux | windows. Callers using
+    # the Raven platform naming (macos) should map before calling.
+    os_type:            str
+    authorized_domains: list[str] = []
+
+
+class ProvisionResponse(BaseModel):
+    token:          str
+    installer_url:  str
+    # Rendered installer script — Raven inlines this via a quoted
+    # heredoc so the recipient downloads one self-contained file.
+    script_content: str
+
+
 # ── Endpoints: agent ──────────────────────────────────────────
 
 @app.post("/agent/status", response_model=StatusResponse)
@@ -379,6 +398,65 @@ def get_agent_status(
         ))
 
     return StatusResponse(email=body.email, deployments=matched)
+
+
+@app.post("/agent/provision", response_model=ProvisionResponse)
+def provision_agent(
+    body: ProvisionRequest,
+    _: None = Depends(_auth),
+) -> ProvisionResponse:
+    """Render a PatronAI installer package for a specific recipient.
+
+    Thin HTTP wrapper around scripts/render_agent_package.render_agent_package
+    for use by Raven Hub's invite flow. `send_email=False` — Raven owns the
+    invite email and OTP delivery. The returned `script_content` is the
+    freshly rendered installer, inlined into the Raven installer via a
+    quoted heredoc so the recipient downloads one self-contained file.
+    """
+    if body.os_type not in ("mac", "linux", "windows"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"os_type must be one of mac|linux|windows, got: {body.os_type}",
+        )
+
+    from store import agent_renderer                              # noqa: E402
+    from render_agent_package import render_agent_package         # noqa: E402
+
+    store = _get_store()
+    try:
+        result = render_agent_package(
+            recipient_name     = body.recipient_name,
+            recipient_email    = body.recipient_email,
+            os_type            = body.os_type,
+            store              = store,
+            renderer           = agent_renderer,
+            send_email         = False,
+            authorized_domains = body.authorized_domains,
+        )
+    except Exception as exc:                                      # noqa: BLE001
+        logger.error("PatronAI provision failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Provision failed: {exc}") from exc
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=502,
+            detail=result.get("error", "PatronAI provisioning failed"),
+        )
+
+    ext        = "ps1" if body.os_type == "windows" else "sh"
+    script_key = f"config/HOOK_AGENTS/{result['token']}/setup_agent.{ext}"
+    script     = store.get_object_text(script_key)
+    if not script:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Rendered installer missing at {script_key}",
+        )
+
+    return ProvisionResponse(
+        token          = result["token"],
+        installer_url  = result.get("installer_url", ""),
+        script_content = script,
+    )
 
 
 @app.get("/agent/url-refresh/{token}", response_model=UrlBundleResponse)
