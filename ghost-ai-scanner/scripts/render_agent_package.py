@@ -20,6 +20,14 @@
 #                       orchestrators; scan logic lives in fragments.
 #   v1.5.1  2026-04-25  Fix: store.agent.write_url_bundle → store.write_url_bundle.
 #   v1.6.0  2026-04-27  Render uninstall_agent.sh/.ps1 and store alongside installer.
+#   v1.6.1  2026-07-23  Fix: encode .ps1 uploads as utf-8-sig (BOM). Windows
+#                       PowerShell 5.1 has no BOM => falls back to the
+#                       system ANSI codepage, misreading the em-dashes in
+#                       Write-Info messages; one resulting byte decodes to
+#                       a Unicode smart-quote that PowerShell's tokenizer
+#                       treats as a string terminator, corrupting the rest
+#                       of the parse. .sh stays plain utf-8 — a BOM there
+#                       would break shebang detection on Linux/Mac.
 # =============================================================
 
 import json
@@ -159,11 +167,16 @@ def render_agent_package(
         sh_script  = renderer.render(str(SH_TEMPLATE),  final_ctx)
         ps1_script = renderer.render(str(PS1_TEMPLATE), final_ctx)
 
-        # Overwrite sh; upload ps1 alongside it
+        # Overwrite sh; upload ps1 alongside it.
+        # ps1 uses utf-8-sig (BOM) — Windows PowerShell 5.1 has no other way
+        # to know a script file is UTF-8, and without it the em-dashes in
+        # Write-Info messages get misread as the system ANSI codepage,
+        # corrupting the parse (see v1.6.1 changelog above). sh must stay
+        # plain utf-8 — a BOM there breaks shebang detection on Linux/Mac.
         store._put(f"{HOOK_AGENTS_PREFIX}/{token}/setup_agent.sh",
                    sh_script.encode(),  "text/plain")
         store._put(f"{HOOK_AGENTS_PREFIX}/{token}/setup_agent.ps1",
-                   ps1_script.encode(), "text/plain")
+                   ps1_script.encode("utf-8-sig"), "text/plain")
 
         # Render and store personalised uninstall scripts (token baked in)
         uninstall_ctx = {
@@ -180,7 +193,7 @@ def render_agent_package(
         if UNINSTALL_PS1_TEMPLATE.exists():
             uninstall_ps1 = renderer.render(str(UNINSTALL_PS1_TEMPLATE), uninstall_ctx)
             store._put(f"{HOOK_AGENTS_PREFIX}/{token}/uninstall_agent.ps1",
-                       uninstall_ps1.encode(), "text/plain")
+                       uninstall_ps1.encode("utf-8-sig"), "text/plain")
 
     except Exception as e:
         log.error("Package generation failed: %s", e)

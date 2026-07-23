@@ -175,7 +175,12 @@ if ($ExistingTpl -and $ExistingTpl -ne $TemplateDir) {
 # Runs every 30 min. Multi-surface: packages, processes, browsers,
 # IDE plugins, containers (image+logs), shell history. Scan logic
 # lives in agent/install/scan_*.py.frag — same Python is inlined
-# into the bash and PowerShell installers via {{INLINE_SCAN_PYTHON}}.
+# into the bash and PowerShell installers at render time (see scan_*.py.frag).
+# NOTE: never write the literal INLINE_SCAN_PYTHON placeholder token in a
+# comment — agent_renderer.py does a blind global substitution of every
+# {{...}} match in the file, so a second accidental occurrence gets the
+# entire multi-line Python source dropped into it too, unquoted, breaking
+# the parser. The one real placeholder for this is a few lines below.
 $ScanScript = Join-Path $AgentDir "scan.ps1"
 @'
 $AgentDir    = Join-Path $env:USERPROFILE ".patronai"
