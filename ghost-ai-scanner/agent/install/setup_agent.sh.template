@@ -33,39 +33,41 @@ python3 -c "import bcrypt" 2>/dev/null || {
   pip3 install --quiet "bcrypt>=4.0.0" || _die "Cannot install bcrypt."
 }
 
-# ── OTP prompt (skipped when invoked by Raven bootstrap) ─────
-# Raven's installer verifies its own OTP with the Hub before running
-# this script, and sets PATRONAI_TRUSTED=1 to signal that identity has
-# already been established. In that mode we skip PatronAI's OTP prompt
-# and bcrypt validation and go straight to config write + hook install.
-# Standalone runs still prompt + validate against meta.json as before.
+# ── OTP prompt (accepts non-interactive OTP via env var) ─────
+# Standalone installs prompt the user, exactly as before. When invoked
+# by Raven's installer, PATRONAI_OTP is set to the SAME 6-digit code
+# the user typed into Raven; Raven Hub has already mirrored that code
+# into this package's meta.json bcrypt hash (via /agent/provision
+# otp_override), so the same validation below still runs — no trust
+# flag, no bypass. Attacker with only the .sh cannot install.
 echo ""
 echo "PatronAI — {{COMPANY}} · {{RECIPIENT_NAME}}"
 echo "-------------------------------------------"
-if [ "${PATRONAI_TRUSTED:-0}" = "1" ]; then
-  _info "Identity already verified by Raven bootstrap — skipping OTP prompt."
+if [ -n "${PATRONAI_OTP:-}" ]; then
+  OTP_INPUT="$PATRONAI_OTP"
+  _info "Using OTP passed by caller (non-interactive)."
 else
   read -rp "Enter your 6-digit OTP from the email: " OTP_INPUT
-  [[ "$OTP_INPUT" =~ ^[0-9]{6}$ ]] || _die "OTP must be exactly 6 digits."
+fi
+[[ "$OTP_INPUT" =~ ^[0-9]{6}$ ]] || _die "OTP must be exactly 6 digits."
 
-  # ── Validate OTP against S3 meta ─────────────────────────────
-  _info "Validating..."
-  TMP=$(mktemp /tmp/patronai.XXXXXX.json)
-  trap 'rm -f "$TMP"' EXIT
-  curl -fsSL --max-time 30 "$META_URL" -o "$TMP" \
-    || _die "Cannot reach server. Link may have expired — request a new package."
-  OTP_HASH=$(python3 -c "import json; print(json.load(open('$TMP'))['otp_hash'])")
-  EXPIRES=$(python3  -c "import json; print(json.load(open('$TMP'))['expires_at'])")
-  python3 -c "
+# ── Validate OTP against S3 meta ─────────────────────────────
+_info "Validating..."
+TMP=$(mktemp /tmp/patronai.XXXXXX.json)
+trap 'rm -f "$TMP"' EXIT
+curl -fsSL --max-time 30 "$META_URL" -o "$TMP" \
+  || _die "Cannot reach server. Link may have expired — request a new package."
+OTP_HASH=$(python3 -c "import json; print(json.load(open('$TMP'))['otp_hash'])")
+EXPIRES=$(python3  -c "import json; print(json.load(open('$TMP'))['expires_at'])")
+python3 -c "
 from datetime import datetime,timezone
 exit(1 if datetime.now(timezone.utc)>datetime.fromisoformat('$EXPIRES') else 0)
 " || _die "Package expired. Request a new one from your administrator."
-  python3 -c "
+python3 -c "
 import bcrypt
 exit(0 if bcrypt.checkpw(b'$OTP_INPUT',b'$OTP_HASH') else 1)
 " || _die "Invalid OTP."
-  _info "OTP validated."
-fi
+_info "OTP validated."
 
 # ── Write agent config (identity baked at install time) ──────
 mkdir -p "$AGENT_DIR"
@@ -171,16 +173,16 @@ pa_install_chain_hook() {
         if [ -L "$hook_path" ] && [ "$(readlink "$hook_path")" = "$patronai_hook" ]; then
             rm -f "$hook_path"
         else
-            # Real hook from Raven / husky / user — preserve it once. If
-            # a preserved copy already exists, don't clobber it; drop the
-            # current hook so we can install our chain.
+            # Real hook from Raven / husky / user — always preserve it,
+            # overwriting any older preserved copy. If husky (or the
+            # user) reinstalls its hook after the chain is already in
+            # place, the second pass sees the fresh real hook back at
+            # $hook_path and MUST keep it — dropping it here would
+            # silently strand whatever changed in the reinstall and
+            # keep running the stale first-generation preserved copy.
             local preserved="$hooks_dir/pre-commit.pre-patronai"
-            if [ ! -e "$preserved" ]; then
-                mv "$hook_path" "$preserved" || return 1
-                chmod +x "$preserved" 2>/dev/null || true
-            else
-                rm -f "$hook_path"
-            fi
+            mv "$hook_path" "$preserved" || return 1
+            chmod +x "$preserved" 2>/dev/null || true
         fi
     fi
 

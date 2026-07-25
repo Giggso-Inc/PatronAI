@@ -345,6 +345,11 @@ class ProvisionRequest(BaseModel):
     # the Raven platform naming (macos) should map before calling.
     os_type:            str
     authorized_domains: list[str] = []
+    # When set, this 6-digit string is hashed into meta.json instead of
+    # a freshly generated OTP. Raven Hub passes its own invite OTP here
+    # so the recipient enters exactly one code that BOTH products
+    # validate — no unauthenticated trust-mode bypass on this side.
+    otp_override:       str | None = None
 
 
 class ProvisionResponse(BaseModel):
@@ -432,24 +437,35 @@ def provision_agent(
             renderer           = agent_renderer,
             send_email         = False,
             authorized_domains = body.authorized_domains,
+            otp_override       = body.otp_override,
         )
     except Exception as exc:                                      # noqa: BLE001
         logger.error("PatronAI provision failed: %s", exc, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"Provision failed: {exc}") from exc
-
-    if not result.get("success"):
+        # Generic detail — the real error is in server logs. Even
+        # authenticated callers shouldn't see raw traceback / S3 paths.
         raise HTTPException(
             status_code=502,
-            detail=result.get("error", "PatronAI provisioning failed"),
+            detail="PatronAI provisioning failed. See PatronAI hub logs for details.",
+        ) from exc
+
+    if not result.get("success"):
+        # render_agent_package returns its own message string; the endpoint
+        # deliberately does not forward it — internal render/S3 details
+        # stay on the server side, matching the exception branch above.
+        logger.error("PatronAI provision reported failure: %s", result.get("error"))
+        raise HTTPException(
+            status_code=502,
+            detail="PatronAI provisioning failed. See PatronAI hub logs for details.",
         )
 
     ext        = "ps1" if body.os_type == "windows" else "sh"
     script_key = f"config/HOOK_AGENTS/{result['token']}/setup_agent.{ext}"
     script     = store.get_object_text(script_key)
     if not script:
+        logger.error("Rendered installer missing at %s", script_key)
         raise HTTPException(
             status_code=502,
-            detail=f"Rendered installer missing at {script_key}",
+            detail="PatronAI provisioning failed. See PatronAI hub logs for details.",
         )
 
     return ProvisionResponse(

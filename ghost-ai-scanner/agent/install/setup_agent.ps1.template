@@ -37,11 +37,13 @@ if ($bcryptOk -ne "ok") {
     pip install --quiet "bcrypt>=4.0.0" | Out-Null
 }
 
-# ── Prompt for OTP (skipped when invoked by Raven bootstrap) ─
-# Raven's installer verifies its own OTP with the Hub before running
-# this script and sets $env:PATRONAI_TRUSTED = "1" to signal that
-# identity has already been established. In that mode we skip the OTP
-# prompt + bcrypt validation and go straight to agent install.
+# ── Prompt for OTP (accepts non-interactive OTP via env var) ─
+# Standalone installs prompt, exactly as before. When invoked by
+# Raven's installer, $env:PATRONAI_OTP is the SAME 6-digit code the
+# user typed into Raven; Raven Hub has already mirrored that code
+# into this package's meta.json bcrypt hash (via /agent/provision
+# otp_override), so the same validation below still runs — no trust
+# flag, no bypass. Attacker with only the .ps1 cannot install.
 Write-Host ""
 Write-Host "PatronAI Agent Installer"
 Write-Host "========================"
@@ -49,35 +51,37 @@ Write-Host "Recipient : $RecipientName"
 Write-Host "Company   : $Company"
 Write-Host ""
 
-if ($env:PATRONAI_TRUSTED -eq "1") {
-    Write-Info "Identity already verified by Raven bootstrap - skipping OTP prompt."
+if ($env:PATRONAI_OTP) {
+    $OtpInput = $env:PATRONAI_OTP
+    Write-Info "Using OTP passed by caller (non-interactive)."
 } else {
     $OtpInput = Read-Host "Enter your 6-digit installation OTP"
+}
 
-    if ($OtpInput -notmatch '^\d{6}$') {
-        Write-Fail "OTP must be exactly 6 digits."
-    }
+if ($OtpInput -notmatch '^\d{6}$') {
+    Write-Fail "OTP must be exactly 6 digits."
+}
 
-    # ── Download and validate meta ────────────────────────────────
-    Write-Info "Validating OTP..."
-    $TmpMeta = Join-Path $env:TEMP "patronai-meta-$Token.json"
-    try {
-        Invoke-WebRequest -Uri $MetaUrl -OutFile $TmpMeta -TimeoutSec 30
-    } catch {
-        Write-Fail "Cannot reach installation server. URL may have expired."
-    }
+# ── Download and validate meta ────────────────────────────────
+Write-Info "Validating OTP..."
+$TmpMeta = Join-Path $env:TEMP "patronai-meta-$Token.json"
+try {
+    Invoke-WebRequest -Uri $MetaUrl -OutFile $TmpMeta -TimeoutSec 30
+} catch {
+    Write-Fail "Cannot reach installation server. URL may have expired."
+}
 
-    $OtpHash = python -c "import json; print(json.load(open(r'$TmpMeta'))['otp_hash'])"
-    $Expires  = python -c "import json; print(json.load(open(r'$TmpMeta'))['expires_at'])"
+$OtpHash = python -c "import json; print(json.load(open(r'$TmpMeta'))['otp_hash'])"
+$Expires  = python -c "import json; print(json.load(open(r'$TmpMeta'))['expires_at'])"
 
-    $Expired = python -c @"
+$Expired = python -c @"
 from datetime import datetime, timezone
 e = datetime.fromisoformat('$Expires')
 print('yes' if datetime.now(timezone.utc) > e else 'no')
 "@
-    if ($Expired -eq "yes") { Write-Fail "Installation package has expired. Request a new one." }
+if ($Expired -eq "yes") { Write-Fail "Installation package has expired. Request a new one." }
 
-    $Valid = python -c @"
+$Valid = python -c @"
 import bcrypt
 try:
     ok = bcrypt.checkpw(b'$OtpInput', b'$OtpHash')
@@ -85,9 +89,8 @@ try:
 except Exception:
     print('no')
 "@
-    if ($Valid -ne "yes") { Write-Fail "Invalid OTP. Please check your email and try again." }
-    Write-Info "OTP validated."
-}
+if ($Valid -ne "yes") { Write-Fail "Invalid OTP. Please check your email and try again." }
+Write-Info "OTP validated."
 
 # ── Install agent files (identity baked at install) ──────────
 New-Item -ItemType Directory -Force -Path $AgentDir | Out-Null
@@ -184,13 +187,14 @@ function Install-PatronAIChainHook {
         if (($existing -replace "`r","") -eq ($legacy -replace "`r","")) {
             Remove-Item $HookPath -Force
         } else {
-            # Real hook from Raven / husky / user — preserve once and
-            # chain from it. Never overwrite an existing preserved copy.
-            if (-not (Test-Path $Preserved)) {
-                Move-Item $HookPath $Preserved -Force
-            } else {
-                Remove-Item $HookPath -Force
-            }
+            # Real hook from Raven / husky / user — always preserve it,
+            # overwriting any older preserved copy. If husky (or the
+            # user) reinstalls its hook after the chain is already in
+            # place, the second pass sees the fresh real hook back at
+            # $HookPath and MUST keep it — dropping it here would
+            # silently strand whatever changed in the reinstall and
+            # keep running the stale first-generation preserved copy.
+            Move-Item $HookPath $Preserved -Force
         }
     }
 
