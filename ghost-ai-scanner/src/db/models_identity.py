@@ -63,6 +63,13 @@ class Project(Base):
     )
     slug: Mapped[str] = mapped_column(String(64), nullable=False)
     display_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    # NULL for projects created directly in patron. Set together for projects
+    # synced in from an upstream system (e.g. "ravenhub" + its group_id) so a
+    # retried sync can look the row up instead of creating a duplicate.
+    # Partial-unique on (org_id, external_source, external_ref) — see
+    # alembic/versions/0005_project_external_ref.py.
+    external_source: Mapped[str | None] = mapped_column(String(32))
+    external_ref: Mapped[str | None] = mapped_column(String(128))
 
 
 class ProjectMember(Base):
