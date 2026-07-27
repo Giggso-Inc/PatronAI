@@ -30,9 +30,10 @@ sys.path.insert(0, str(_ROOT))
 from fastapi import HTTPException
 
 from routers._raven_actor import resolve_actor
-from routers.ravenhub_governance_reads import get_governance_scope
+from routers.ravenhub_governance_reads import get_governance_scope, list_raven_flags
 from routers.ravenhub_governance_writes_lists import (
-    ApproveRequest, RemoveRequest, approve_provider, remove_provider_entry,
+    ApproveRequest, RemoveRequest, ResolveRavenFlagRequest,
+    approve_provider, remove_provider_entry, resolve_raven_flag_endpoint,
 )
 from routers.ravenhub_governance_writes_overrides import (
     DenyOverrideRequest, OverrideRequest, deny_override_provider, override_giggso_baseline,
@@ -166,3 +167,130 @@ def test_deny_override_maps_policy_authz_error_to_403(monkeypatch):
         deny_override_provider(body, email="admin@giggso.com")
     assert exc.value.status_code == 403
     assert "D3" in exc.value.detail
+
+
+# ── GET /governance/raven-flags: project-membership scoping (review finding C1) ──
+
+class _FakeFlag:
+    def __init__(self, project_id, provider_pattern="example-mcp"):
+        self.id = f"flag-{project_id}-{provider_pattern}"
+        self.project_id = project_id
+        self.provider_pattern = provider_pattern
+        self.requested_by = "dev@giggso.com"
+        self.note = None
+        self.added_at = None
+
+
+class _FakeProject:
+    def __init__(self, id, display_name):
+        self.id = id
+        self.display_name = display_name
+
+
+class _FakeQuery:
+    def __init__(self, rows):
+        self._rows = rows
+    def filter(self, *a, **kw):
+        return self
+    def all(self):
+        return self._rows
+
+
+class _FakeSessionWithQuery(_FakeSession):
+    """Adds .query(Model).filter(...).all() on top of _FakeSession, for the
+    Project display_name lookup in list_raven_flags — set _rows on the class
+    before use (see _stub_raven_flags_deps)."""
+    _rows = []
+    def query(self, model):
+        return _FakeQuery(self._rows)
+
+
+def _stub_raven_flags_deps(monkeypatch, *, flags, projects, member_project_ids=None, check_target_raises=False):
+    import db.engine as engine_mod
+    import db.governance_crud as crud
+    import db.policy_queries as pq
+
+    monkeypatch.setattr(crud, "list_pending_raven_flags", lambda session, *, org_id, project_id=None: (
+        flags if project_id is None else [f for f in flags if f.project_id == project_id]
+    ))
+
+    def _check_target_in_org(session, *, org_id, project_id=None, user_id=None):
+        if check_target_raises:
+            raise crud.PolicyAuthzError("project_id not found in this org")
+    monkeypatch.setattr(crud, "check_target_in_org", _check_target_in_org)
+
+    monkeypatch.setattr(pq, "project_ids_for_user", lambda session, user_id: list(member_project_ids or []))
+
+    session_cls = type("_FakeSessionForTest", (_FakeSessionWithQuery,), {"_rows": projects})
+    monkeypatch.setattr(engine_mod, "get_session", lambda: session_cls())
+
+
+def test_list_raven_flags_rejects_project_id_from_another_org(monkeypatch):
+    """Review finding C1: a client-supplied project_id must be verified to
+    belong to the caller's own org before being used — same check_target_in_org
+    call the sibling GET /governance/scope already applies (PR#9, C1/C2)."""
+    actor = _FakeActor(is_org_admin=False)
+    _stub_identity(monkeypatch, actor, "org-1")
+    _stub_raven_flags_deps(monkeypatch, flags=[], projects=[], check_target_raises=True)
+    with pytest.raises(HTTPException) as exc:
+        list_raven_flags(project_id="other-orgs-project", email="dev@giggso.com")
+    assert exc.value.status_code == 403
+
+
+def test_list_raven_flags_org_wide_restricts_non_admin_to_own_projects(monkeypatch):
+    """Review finding C1: without a project_id, a non-admin must only see
+    flags for projects they're a member of — being any org member is not by
+    itself authorization to browse every other project's pending requests."""
+    actor = _FakeActor(is_org_admin=False)
+    _stub_identity(monkeypatch, actor, "org-1")
+    flags = [_FakeFlag("proj-mine"), _FakeFlag("proj-not-mine")]
+    projects = [_FakeProject("proj-mine", "Mine"), _FakeProject("proj-not-mine", "Not Mine")]
+    _stub_raven_flags_deps(monkeypatch, flags=flags, projects=projects, member_project_ids=["proj-mine"])
+    result = list_raven_flags(project_id=None, email="dev@giggso.com")
+    assert [f.project_id for f in result.flags] == ["proj-mine"]
+
+
+def test_list_raven_flags_org_wide_admin_sees_every_project(monkeypatch):
+    """Admins keep the unrestricted org-wide view — that's the point of this
+    mode for them (resolving without clicking into each project one at a
+    time), unlike the non-admin case above."""
+    actor = _FakeActor(is_org_admin=True)
+    _stub_identity(monkeypatch, actor, "org-1")
+    flags = [_FakeFlag("proj-a"), _FakeFlag("proj-b")]
+    projects = [_FakeProject("proj-a", "A"), _FakeProject("proj-b", "B")]
+    _stub_raven_flags_deps(monkeypatch, flags=flags, projects=projects, member_project_ids=[])
+    result = list_raven_flags(project_id=None, email="admin@giggso.com")
+    assert {f.project_id for f in result.flags} == {"proj-a", "proj-b"}
+    assert result.is_admin is True
+
+
+# ── POST /governance/raven-flags/{flag_id}/resolve: org-admin gate ──────
+
+def test_resolve_raven_flag_requires_org_admin(monkeypatch):
+    actor = _FakeActor(is_org_admin=False)
+    _stub_identity(monkeypatch, actor, "org-1")
+    _stub_get_session(monkeypatch, None)
+
+    import db.governance_crud as crud
+    def _fail(*a, **kw):
+        raise AssertionError("resolve_raven_flag must not be called for a non-admin")
+    monkeypatch.setattr(crud, "resolve_raven_flag", _fail)
+
+    body = ResolveRavenFlagRequest(project_id="proj-1", approve=True)
+    with pytest.raises(HTTPException) as exc:
+        resolve_raven_flag_endpoint("flag-1", body, email="dev@giggso.com")
+    assert exc.value.status_code == 403
+
+
+def test_resolve_raven_flag_returns_404_for_unmatched_flag(monkeypatch):
+    actor = _FakeActor(is_org_admin=True)
+    _stub_identity(monkeypatch, actor, "org-1")
+    _stub_get_session(monkeypatch, None)
+
+    import db.governance_crud as crud
+    monkeypatch.setattr(crud, "resolve_raven_flag", lambda *a, **kw: None)
+
+    body = ResolveRavenFlagRequest(project_id="proj-1", approve=True)
+    with pytest.raises(HTTPException) as exc:
+        resolve_raven_flag_endpoint("flag-1", body, email="admin@giggso.com")
+    assert exc.value.status_code == 404
