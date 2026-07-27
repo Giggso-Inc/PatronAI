@@ -238,3 +238,60 @@ def get_governance_scope(
         newly_found=_newly_found_fn(events, eff),
         override_candidates=override_candidates, deny_override_candidates=deny_override_candidates,
     )
+
+
+class RavenFlagOut(BaseModel):
+    id: str
+    project_id: str
+    project_name: str
+    provider_pattern: str
+    requested_by: str
+    note: Optional[str] = None
+    added_at: str
+
+
+class ListRavenFlagsResponse(BaseModel):
+    is_admin: bool
+    flags: list[RavenFlagOut]
+
+
+@router.get("/governance/raven-flags", response_model=ListRavenFlagsResponse)
+def list_raven_flags(
+    project_id: Optional[str] = Query(default=None), email: str = Depends(verify_ravenhub_identity)
+) -> ListRavenFlagsResponse:
+    """Pending MCP-governance flags forwarded from RavenHub — same list
+    dashboard/ui/tabs/provider_governance.py's _raven_flagged_tools() renders
+    in Streamlit (db.governance_crud.list_pending_raven_flags already
+    existed; this is the first HTTP-reachable caller of it). Read-only — any
+    project member can view; resolving requires org-admin, enforced in the
+    POST /governance/raven-flags/{flag_id}/resolve endpoint
+    (ravenhub_governance_writes_lists.py).
+
+    project_id is optional: omit it for the org-wide list (commonFE's
+    Provider Governance page shows this before a specific project is picked
+    in the Project-scope selector) — list_pending_raven_flags already
+    supports project_id=None for exactly this, just never had an HTTP caller
+    that omitted it before."""
+    from db.engine import get_session
+    from db.governance_crud import list_pending_raven_flags
+    from db.models_identity import Project
+
+    with get_session() as s:
+        actor, org_id = _resolve_actor(s, email)
+        flags = list_pending_raven_flags(s, org_id=org_id, project_id=project_id)
+        project_names = {
+            p.id: p.display_name
+            for p in s.query(Project).filter(Project.org_id == org_id).all()
+        }
+        return ListRavenFlagsResponse(
+            is_admin=bool(actor.is_org_admin),
+            flags=[
+                RavenFlagOut(
+                    id=str(f.id), project_id=str(f.project_id),
+                    project_name=project_names.get(f.project_id, "Unknown project"),
+                    provider_pattern=f.provider_pattern, requested_by=f.requested_by,
+                    note=f.note, added_at=f.added_at.isoformat() if f.added_at else "",
+                )
+                for f in flags
+            ],
+        )

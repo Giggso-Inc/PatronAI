@@ -179,3 +179,64 @@ def remove_provider_entry(body: RemoveRequest, email: str = Depends(verify_raven
     if not found:
         raise HTTPException(status_code=404, detail="Entry not found")
     return ActionResponse(ok=True, message="Removed.")
+
+
+class ResolveRavenFlagRequest(BaseModel):
+    project_id: str
+    approve: bool
+
+
+class ResolveRavenFlagResponse(BaseModel):
+    ok: bool
+    status: str
+    message: str
+    raven_sync_warning: Optional[str] = None
+
+
+@router.post("/governance/raven-flags/{flag_id}/resolve", response_model=ResolveRavenFlagResponse)
+def resolve_raven_flag_endpoint(
+    flag_id: str, body: ResolveRavenFlagRequest, email: str = Depends(verify_ravenhub_identity)
+) -> ResolveRavenFlagResponse:
+    """Approve/deny a RavenHub-forwarded flag — the HTTP equivalent of
+    dashboard/ui/tabs/provider_governance.py's _raven_flagged_tools() button
+    handlers. Writes the real decision into approved_tools/blacklisted_tools
+    at project scope (org-admin only, same C8 authz every governance write
+    here goes through) and marks the flag resolved. Approve additionally
+    notifies raven (Phase 5) so the same decision lands in raven's own
+    org-wide MCP policy allow-list — best effort, never blocks or reverts
+    the local approval on a raven outage."""
+    from db.engine import get_session
+    from db.governance_crud import PolicyAuthzError, resolve_raven_flag
+    from db.models_identity import Project
+    from raven_notify import notify_raven_mcp_approved
+
+    with get_session() as s:
+        actor, org_id = _resolve_actor(s, email)
+        if not actor.is_org_admin:
+            raise HTTPException(status_code=403, detail="Org-admin required to approve/deny RavenHub flags.")
+        try:
+            flag = resolve_raven_flag(
+                s, actor=actor, org_id=org_id, project_id=body.project_id,
+                flag_id=flag_id, approve=body.approve,
+            )
+        except PolicyAuthzError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        if flag is None:
+            raise HTTPException(status_code=404, detail="No matching pending flag — already resolved, or wrong project.")
+
+        sync_warning = None
+        if body.approve:
+            project = s.get(Project, body.project_id)
+            if project is not None and project.external_ref:
+                result = notify_raven_mcp_approved(
+                    external_ref=project.external_ref, mcp_name=flag.provider_pattern, resolved_by=actor.email,
+                )
+                if not result["ok"]:
+                    sync_warning = f"Approved locally, but raven sync failed: {result['error']}"
+
+        verb = "Approved" if body.approve else "Denied"
+        return ResolveRavenFlagResponse(
+            ok=True, status=flag.status,
+            message=f"{verb} `{flag.provider_pattern}` for this project (RavenHub request).",
+            raven_sync_warning=sync_warning,
+        )
