@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: scripts/build_agent_artifacts.py
-# VERSION: 1.0.0
-# UPDATED: 2026-04-20
+# VERSION: 1.0.1
+# UPDATED: 2026-07-23
 # OWNER: Giggso Inc
 # PURPOSE: EC2-side artifact builders for agent installer packages.
 #          _build_macos_dmg  — genisoimage HFS hybrid image (.dmg)
@@ -9,6 +9,11 @@
 #          Both run on Linux EC2. No macOS or Windows host needed.
 # AUDIT LOG:
 #   v1.0.0  2026-04-20  Initial
+#   v1.0.1  2026-07-23  Fix: stage setup_agent.ps1 as utf-8-sig (BOM) so
+#                       Windows PowerShell 5.1 reads it as UTF-8 instead of
+#                       falling back to the system ANSI codepage, which
+#                       misread the Write-Info em-dashes and corrupted the
+#                       parse.
 # =============================================================
 
 import logging
@@ -93,7 +98,10 @@ def _build_windows_exe(
     try:
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
-            (tmpdir / "setup_agent.ps1").write_text(ps1_script, encoding="utf-8")
+            # utf-8-sig (BOM) — see render_agent_package.py v1.6.1 changelog.
+            # Without it, Windows PowerShell 5.1 misreads this file's em-dashes
+            # as the system ANSI codepage and corrupts the parse.
+            (tmpdir / "setup_agent.ps1").write_text(ps1_script, encoding="utf-8-sig")
 
             nsi_content = (
                 f'Name "PatronAI Agent"\n'
