@@ -62,6 +62,7 @@ from routers.ravenhub_projects import router as ravenhub_projects_router
 from routers.ravenhub_users import router as ravenhub_users_router
 from routers.ravenhub_settings import router as ravenhub_settings_router
 from routers.raven_enterprise_projects import router as raven_enterprise_projects_router
+from routers.raven_enterprise_mcp_flags import router as raven_enterprise_mcp_flags_router
 
 _log = logging.getLogger("patronai.api")
 
@@ -151,6 +152,12 @@ app.include_router(
 )
 app.include_router(
     raven_enterprise_projects_router,
+    prefix="/raven-enterprise",
+    tags=["raven-enterprise"],
+    dependencies=[Depends(_auth)],
+)
+app.include_router(
+    raven_enterprise_mcp_flags_router,
     prefix="/raven-enterprise",
     tags=["raven-enterprise"],
     dependencies=[Depends(_auth)],

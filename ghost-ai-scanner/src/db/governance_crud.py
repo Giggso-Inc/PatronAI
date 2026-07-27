@@ -27,11 +27,12 @@
 # =============================================================
 
 import uuid as _uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 
 from db.models_identity import Project, ProjectMember, User
-from db.models_policy import ApprovedTool, BlacklistedTool, GiggsoBaselineDeny
+from db.models_policy import ApprovedTool, BlacklistedTool, GiggsoBaselineDeny, RavenFlaggedTool
 from db.override_authz import default_override_expiry, validate_override_request
 from scoring.policy import _matches, _norm
 
@@ -447,3 +448,172 @@ def list_project_members(session, project_id):
         select(User).join(ProjectMember, ProjectMember.user_id == User.id)
         .where(ProjectMember.project_id == project_id).order_by(User.email)
     ).scalars())
+
+
+# ── RavenHub MCP-governance flag sync (Phase 2) ─────────────────────────────
+# Used only by routers/raven_enterprise_mcp_flags.py's automatic RavenHub ->
+# patron sync — same no-actor, no is_org_admin rationale as
+# create_project_from_sync above: this is a trusted server-to-server call,
+# authenticated at the router layer, not a user-initiated action.
+
+def _raven_mcp_match_pattern(provider_pattern: str) -> str:
+    """Raven's `mcp_name` (e.g. "gmail") is the arbitrary local key from a
+    developer's `.mcp.json`/`mcpServers` config — NOT the same string patron's
+    own scanner produces for the same MCP server. Patron's endpoint scan
+    (agent_explode.py's _provider_for, for ftype == "mcp_server") reports it
+    as `mcp:<mcp_host>:<server_name>` — a compound, host-prefixed identifier.
+    `_matches()` (scoring/policy.py) is exact-or-fnmatch-glob, so an
+    ApprovedTool/BlacklistedTool row storing the bare raven name would never
+    match what patron's own scanner independently reports for that MCP server
+    on any host — the approval/deny decision would be inert. Wrapping it as
+    `mcp:*:<name>` puts it in the SAME namespace patron's scanner uses, so an
+    approval actually governs future patron-scanned occurrences of that
+    server, on whatever host they're found."""
+    return f"mcp:*:{(provider_pattern or '').strip().lower()}"
+
+def create_or_touch_raven_flag(session, *, org_id, project_id, provider_pattern,
+                               requested_by, note=None) -> RavenFlaggedTool:
+    """Idempotent per (project_id, provider_pattern) while status='pending'
+    (enforced by uq_raven_flagged_tools_pending) — a raven retry (dropped
+    response, network blip) updates requested_by/note on the existing
+    pending row instead of creating a duplicate. Once a flag has been
+    resolved (Phase 3), the SAME (project, provider) recurring is a genuinely
+    NEW pending row — a past decision must not silently swallow a fresh
+    request forever."""
+    pattern = (provider_pattern or "").strip().lower()
+    existing = session.execute(
+        select(RavenFlaggedTool).where(
+            RavenFlaggedTool.project_id == project_id,
+            RavenFlaggedTool.provider_pattern == pattern,
+            RavenFlaggedTool.status == "pending",
+        )
+    ).scalars().first()
+    if existing is not None:
+        existing.requested_by = requested_by
+        if note is not None:
+            existing.note = note
+        session.commit()
+        return existing
+
+    row = RavenFlaggedTool(
+        org_id=org_id, project_id=project_id, provider_pattern=pattern,
+        requested_by=requested_by, note=note,
+    )
+    session.add(row)
+    session.commit()
+    return row
+
+
+def list_pending_raven_flags(session, *, org_id, project_id=None) -> list[RavenFlaggedTool]:
+    """Pending flags for the Provider Governance tab (Phase 3) to render.
+    Scoped by org always; project_id further narrows to one Project."""
+    conditions = [RavenFlaggedTool.org_id == org_id, RavenFlaggedTool.status == "pending"]
+    if project_id is not None:
+        conditions.append(RavenFlaggedTool.project_id == project_id)
+    return list(session.execute(
+        select(RavenFlaggedTool).where(*conditions).order_by(RavenFlaggedTool.added_at.desc())
+    ).scalars())
+
+
+def get_provider_status_across_org(session, *, org_id, provider_pattern) -> dict:
+    """Phase 4 cross-project awareness: for a given provider, what has this
+    org already decided, anywhere? Lets raven show "Project Y already
+    approved this" when a second project's owner is reviewing the same MCP,
+    without raven needing to know patron's internal project ids — Project
+    rows carry `external_ref` (raven's own group_id) when synced, so the
+    mapping back to a raven Project is direct.
+
+    Read-only, no actor/authz required — this is informational context, not
+    a write; matches the read_posture-only gating raven uses for the
+    equivalent GET /mcp-notices.
+
+    Queries using the SAME `mcp:*:<name>` wrapped shape resolve_raven_flag
+    writes (see _raven_mcp_match_pattern) — a raven-originated approval is
+    the only source of these rows in this org, so the lookup key must match
+    what was actually written, not the bare raven name."""
+    match_pattern = _raven_mcp_match_pattern(provider_pattern)
+    org_approved = session.execute(
+        select(ApprovedTool).where(
+            ApprovedTool.org_id == org_id, ApprovedTool.scope == "org",
+            ApprovedTool.domain_pattern == match_pattern,
+        )
+    ).scalars().first() is not None
+    org_denied = session.execute(
+        select(BlacklistedTool).where(
+            BlacklistedTool.org_id == org_id, BlacklistedTool.scope == "org",
+            BlacklistedTool.domain == match_pattern,
+        )
+    ).scalars().first() is not None
+
+    project_rows = []
+    approved_projects = session.execute(
+        select(Project.external_ref).where(
+            Project.org_id == org_id, Project.external_ref.is_not(None),
+            Project.id.in_(select(ApprovedTool.project_id).where(
+                ApprovedTool.org_id == org_id, ApprovedTool.scope == "project",
+                ApprovedTool.domain_pattern == match_pattern,
+            )),
+        )
+    ).scalars().all()
+    project_rows += [{"external_ref": ref, "status": "approved"} for ref in approved_projects]
+    denied_projects = session.execute(
+        select(Project.external_ref).where(
+            Project.org_id == org_id, Project.external_ref.is_not(None),
+            Project.id.in_(select(BlacklistedTool.project_id).where(
+                BlacklistedTool.org_id == org_id, BlacklistedTool.scope == "project",
+                BlacklistedTool.domain == match_pattern,
+            )),
+        )
+    ).scalars().all()
+    project_rows += [{"external_ref": ref, "status": "denied"} for ref in denied_projects]
+
+    return {
+        "provider_pattern": (provider_pattern or "").strip().lower(),
+        "org_approved": org_approved,
+        "org_denied": org_denied,
+        "projects": project_rows,
+    }
+
+
+def resolve_raven_flag(session, *, actor, org_id, project_id, flag_id, approve: bool,
+                       reason=None) -> RavenFlaggedTool | None:
+    """Provider Governance's Approve/Deny action on a RavenHub-forwarded flag
+    (Phase 3). Writes the REAL decision into approved_tools/blacklisted_tools
+    at project scope (server-side authz enforced by add_approved/
+    add_blacklisted, same as every other governance write in this file — a
+    RavenHub-originated request is NOT a bypass of C8), then marks the flag
+    resolved, atomically (same commit=False + single session.commit()
+    composition as move_to_allowed/move_to_blocked above).
+
+    Returns None if no matching PENDING flag exists (already resolved, or
+    wrong org/project) — the caller (Streamlit) should treat this as a
+    no-op/"already handled", never a crash."""
+    flag = session.execute(
+        select(RavenFlaggedTool).where(
+            RavenFlaggedTool.id == flag_id, RavenFlaggedTool.org_id == org_id,
+            RavenFlaggedTool.project_id == project_id, RavenFlaggedTool.status == "pending",
+        )
+    ).scalars().first()
+    if flag is None:
+        return None
+
+    match_pattern = _raven_mcp_match_pattern(flag.provider_pattern)
+    if approve:
+        add_approved(
+            session, actor=actor, org_id=org_id, scope="project", project_id=project_id,
+            name=flag.provider_pattern, provider_pattern=match_pattern,
+            reason=reason or f"Requested via RavenHub by {flag.requested_by}",
+            commit=False,
+        )
+    else:
+        add_blacklisted(
+            session, actor=actor, org_id=org_id, scope="project", project_id=project_id,
+            domain=match_pattern, name=flag.provider_pattern, severity="HIGH",
+            reason=reason or f"Requested via RavenHub by {flag.requested_by}",
+            commit=False,
+        )
+    flag.status = "approved" if approve else "denied"
+    flag.resolved_by = getattr(actor, "id", None)
+    flag.resolved_at = datetime.now(timezone.utc)
+    session.commit()
+    return flag

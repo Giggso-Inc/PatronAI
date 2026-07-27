@@ -137,6 +137,7 @@ def _render_db(is_admin, email, events) -> None:
                                           user_id=(user_id if scope == "user" else None),
                                           project_ids=tgt_projects)
                 providers = all_providers(events, eff)
+                providers = _augment_with_configured_only(providers, eff)
                 # 1) INHERITED — what governs this scope from above (read-only)
                 #    followed by the guarded action that loosens it.
                 _inherited_lists(scope, providers, eff)
@@ -145,19 +146,86 @@ def _render_db(is_admin, email, events) -> None:
                 _deny_override_section(s, actor, org_id, is_admin, scope,
                                        project_id, user_id, eff)
                 st.divider()
-                # 2) NEWLY FOUND — triage queue for unclassified providers.
+                # 2) RAVENHUB FLAGGED — pending requests forwarded from RavenHub
+                #    (Phase 2/3 of the raven<->patron MCP-governance-sync
+                #    initiative). Project-scope only: a flag always carries a
+                #    resolved patron project_id.
+                _raven_flagged_tools(s, actor, org_id, scope, project_id)
+                st.divider()
+                # 3) NEWLY FOUND — triage queue for unclassified providers.
                 _newly_found(s, actor, org_id, scope, project_id, user_id,
                              newly_found(events, eff))
                 st.divider()
-                # 3) THIS-SCOPE lists — editable, with allow<->block flip.
+                # 4) THIS-SCOPE lists — editable, with allow<->block flip.
                 _current_lists(s, actor, org_id, scope, project_id, user_id)
-                # 4) Block a tool a WIDER scope allows (deny beats allow).
+                # 5) Block a tool a WIDER scope allows (deny beats allow).
                 #    Sourced from the DB-resolved allow-lists (eff), NOT from
                 #    observed events — so it works regardless of the scan window.
                 _block_wider_allow(s, actor, org_id, scope, project_id,
                                    user_id, eff)
     except Exception as exc:
         st.error(f"DB governance unavailable: {exc}")
+
+
+def _augment_with_configured_only(providers: list, ctx) -> list:
+    """Providers with a real policy-context rule (approve/deny/override, at
+    ANY tier ctx tracks) but ZERO observed findings — e.g. a RavenHub-
+    approved MCP patron hasn't independently scanned yet (2026-07-27).
+
+    Without this, _inherited_lists() — which filters strictly by `p["tier"]`
+    on the OBSERVED-only list all_providers(events, eff) returns — never
+    shows a configured-but-unobserved rule at all, even though
+    policy_tier()/scoring already correctly account for it (confirmed: the
+    same rule silently governs real scoring the instant a matching finding
+    ever appears — this only fixes what's DISPLAYED before that happens).
+    Pure function — directly unit-testable, no Streamlit/DB dependency."""
+    from scoring.policy import policy_tier, _norm
+    # ctx's pattern sets are always already-normalised (lowercase) — every
+    # writer (add_approved/add_blacklisted/_raven_mcp_match_pattern) lowercases
+    # at write time. `providers`' `provider` strings come from raw scan events
+    # (agent_explode.py's _provider_for builds "mcp:<host>:<name>" WITHOUT
+    # lowercasing host/name) and can carry mixed case. Comparing raw-vs-
+    # normalised produced a duplicate "0 findings" ghost row for the SAME
+    # already-observed provider whenever it contained uppercase (F01,
+    # 2026-07-27 review) — normalise the observed side before the diff so the
+    # same provider can never appear twice.
+    observed = {_norm(p["provider"]) for p in providers}
+    patterns = set()
+    for attr in ("giggso_deny", "org_deny", "project_deny", "user_deny",
+                "org_approve", "project_approve", "user_ack",
+                "giggso_override", "giggso_override_project", "giggso_override_user",
+                "deny_override_project", "deny_override_user"):
+        patterns |= set(getattr(ctx, attr, set()) or set())
+    new_names = patterns - observed
+    return providers + [{
+        "provider": name,
+        "category": "mcp_server" if name.startswith("mcp:") else "unknown",
+        "max_severity": "", "finding_count": 0,
+        "tier": policy_tier(name, ctx),
+    } for name in sorted(new_names)]
+
+
+def _configured_only_providers(provs: list, ap: list, dn: list) -> list:
+    """Providers with a real ApprovedTool/BlacklistedTool rule but ZERO
+    observed findings (2026-07-27) — e.g. a RavenHub-forwarded MCP a patron
+    admin already approved, before patron's own scanner ever independently
+    observed it. Without this, Overview (which is built entirely from
+    OBSERVED events — see all_providers()) shows nothing for it at all, so a
+    real governance decision reads as "nothing happened" until some future
+    scan happens to see it. Pure function — no Streamlit/DB dependency — so
+    it's directly unit-testable."""
+    from scoring.policy import _norm
+    # See _augment_with_configured_only's comment (F01, 2026-07-27 review) —
+    # same case-sensitivity fix: ap/dn patterns are always already-lowercase;
+    # `provs`' raw event provider strings are not guaranteed to be.
+    observed = {_norm(p["provider"]) for p in provs}
+    names = {r.domain_pattern for r in ap if r.domain_pattern not in observed}
+    names |= {r.domain for r in dn if r.domain not in observed}
+    return [{
+        "provider": name,
+        "category": "mcp_server" if name.startswith("mcp:") else "unknown",
+        "max_severity": "", "finding_count": 0,
+    } for name in sorted(names)]
 
 
 def _overview(s, org_id, events) -> None:
@@ -194,10 +262,12 @@ def _overview(s, org_id, events) -> None:
         return ", ".join(parts[:2]) + (f"  +{len(parts) - 2}" if len(parts) > 2 else "")
 
     provs = all_providers(events, None)
+    provs = provs + _configured_only_providers(provs, ap, dn)
     if not provs:
         st.info("No providers observed yet."); return
     st.caption("Where each provider stands across scopes — 🟢 allowed · 🔴 denied · · none. "
-               "Project/User cells name who set it (first 2, then +N).")
+               "Project/User cells name who set it (first 2, then +N). Providers with 0 "
+               "findings but a real rule (e.g. a RavenHub-approved MCP) are included too.")
     groups = defaultdict(list)
     for p in provs:
         groups[p["category"] or "unknown"].append(p)
@@ -240,6 +310,65 @@ def _flash_and_rerun(msg) -> None:
     st.session_state["gov_flash"] = msg
     st.session_state.pop("policy_ctx_org", None)
     st.rerun()
+
+
+def _raven_flagged_tools(s, actor, org_id, scope, project_id) -> None:
+    """Pending MCP-governance flags forwarded from RavenHub (Phase 2/3 of the
+    raven<->patron MCP-governance-sync initiative). Only meaningful at
+    project scope — a flag always carries a resolved patron project_id, so
+    org/user scope has nothing to show. Approve/Deny writes the real
+    decision into approved_tools/blacklisted_tools at project scope
+    (org-admin only, same C8 authz every other governance write here goes
+    through) and marks the flag resolved.
+
+    Approve additionally notifies raven (Phase 5) so the SAME decision lands
+    in raven's own org-wide MCP policy allow-list — without this, raven's
+    mcp-guard.py keeps treating the MCP as unregistered forever and would
+    keep regenerating a fresh notice on every future use. Deny stays
+    patron-local on purpose (raven never asked for a "deny" signal back).
+    Best-effort: a raven outage never blocks or reverts the local approval —
+    only surfaces as a warning toast."""
+    if scope != "project" or not project_id:
+        return
+    from db.governance_crud import list_pending_raven_flags, resolve_raven_flag
+    from db.models_identity import Project
+    from raven_notify import notify_raven_mcp_approved
+
+    flags = list_pending_raven_flags(s, org_id=org_id, project_id=project_id)
+    if not flags:
+        return
+    st.markdown(f"**RavenHub Flagged** — {len(flags)} tool(s) requested for review")
+    st.caption("Raised by a RavenHub Project Owner approving an ungoverned-MCP notice on their side.")
+    for f in flags:
+        c1, c2, c3 = st.columns([4, 1, 1])
+        note = f" — {f.note}" if f.note else ""
+        c1.write(f"`{f.provider_pattern}` · requested by {f.requested_by}{note}")
+        if not actor.is_org_admin:
+            c1.caption("Org-admin required to approve/deny.")
+            continue
+        if c2.button("Approve", key=f"rf_approve::{f.id}"):
+            try:
+                resolve_raven_flag(s, actor=actor, org_id=org_id, project_id=project_id,
+                                   flag_id=f.id, approve=True)
+                msg = f"Approved `{f.provider_pattern}` for this project (RavenHub request)."
+                project = s.get(Project, project_id)
+                if project is not None and project.external_ref:
+                    result = notify_raven_mcp_approved(
+                        external_ref=project.external_ref, mcp_name=f.provider_pattern,
+                        resolved_by=actor.email,
+                    )
+                    if not result["ok"]:
+                        msg += f" (raven sync failed: {result['error']} — approved locally regardless.)"
+                _flash_and_rerun(msg)
+            except Exception as e:
+                st.error(str(e))
+        if c3.button("Deny", key=f"rf_deny::{f.id}"):
+            try:
+                resolve_raven_flag(s, actor=actor, org_id=org_id, project_id=project_id,
+                                   flag_id=f.id, approve=False)
+                _flash_and_rerun(f"Denied `{f.provider_pattern}` for this project (RavenHub request).")
+            except Exception as e:
+                st.error(str(e))
 
 
 def _newly_found(s, actor, org_id, scope, project_id, user_id, nf) -> None:
@@ -297,14 +426,20 @@ def _newly_found(s, actor, org_id, scope, project_id, user_id, nf) -> None:
                     except Exception as e: st.error(str(e))
 
 
-# Giggso baseline sits above EVERY scope; org/project denies are inherited by
+# Giggso baseline sits above EVERY scope; org/project rules are inherited by
 # the scopes below them. These tiers are read-only in the current scope.
+# 2026-07-27: approvals (org_approve/project_approve) are now included, not
+# just denials — a project-scope approval (e.g. a RavenHub-approved MCP) is
+# just as much "set at a higher scope" as a denial, and omitting it made a
+# real, already-effective governance decision invisible to anyone viewing at
+# User scope (it was still correctly applied to scoring — see
+# load_policy_context/project_ids_for_user — just never shown here).
 _GIGGSO_TIERS = ("giggso_deny", "giggso_override",
                  "giggso_override_project", "giggso_override_user")
 _INHERITED_TIERS = {
     "org":     _GIGGSO_TIERS,
-    "project": _GIGGSO_TIERS + ("org_deny",),
-    "user":    _GIGGSO_TIERS + ("org_deny", "project_deny"),
+    "project": _GIGGSO_TIERS + ("org_deny", "org_approve"),
+    "user":    _GIGGSO_TIERS + ("org_deny", "project_deny", "org_approve", "project_approve"),
 }
 # Per-tier "State" label for the observed-inherited table.
 _STATE = {
@@ -314,6 +449,8 @@ _STATE = {
     "giggso_override_user": "Overridden · user ×0.7",
     "org_deny": "Blocked · org",
     "project_deny": "Blocked · project",
+    "org_approve": "Allowed · org",
+    "project_approve": "Allowed · project",
 }
 
 
