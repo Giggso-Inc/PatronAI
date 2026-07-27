@@ -33,11 +33,22 @@ python3 -c "import bcrypt" 2>/dev/null || {
   pip3 install --quiet "bcrypt>=4.0.0" || _die "Cannot install bcrypt."
 }
 
-# ── OTP prompt ────────────────────────────────────────────────
+# ── OTP prompt (accepts non-interactive OTP via env var) ─────
+# Standalone installs prompt the user, exactly as before. When invoked
+# by Raven's installer, PATRONAI_OTP is set to the SAME 6-digit code
+# the user typed into Raven; Raven Hub has already mirrored that code
+# into this package's meta.json bcrypt hash (via /agent/provision
+# otp_override), so the same validation below still runs — no trust
+# flag, no bypass. Attacker with only the .sh cannot install.
 echo ""
 echo "PatronAI — {{COMPANY}} · {{RECIPIENT_NAME}}"
 echo "-------------------------------------------"
-read -rp "Enter your 6-digit OTP from the email: " OTP_INPUT
+if [ -n "${PATRONAI_OTP:-}" ]; then
+  OTP_INPUT="$PATRONAI_OTP"
+  _info "Using OTP passed by caller (non-interactive)."
+else
+  read -rp "Enter your 6-digit OTP from the email: " OTP_INPUT
+fi
 [[ "$OTP_INPUT" =~ ^[0-9]{6}$ ]] || _die "OTP must be exactly 6 digits."
 
 # ── Validate OTP against S3 meta ─────────────────────────────
@@ -129,31 +140,97 @@ exit 0
 HOOK_EOF
 chmod +x "$HOOK_SCRIPT"
 
+# ── Write hook-chain library ──────────────────────────────────
+# Chain-aware installer for .git/hooks/pre-commit. Never clobbers a
+# pre-existing hook (Raven's, husky's, or user's) — preserves the old
+# hook under `pre-commit.pre-patronai` and installs a small chain
+# script that runs the preserved hook first, then PatronAI's hook.
+# Idempotent: safe to re-run from the initial walk, the heartbeat
+# backstop, and the user-invoked install_hook.sh helper.
+HOOK_CHAIN_LIB="$AGENT_DIR/hook_chain.sh"
+cat > "$HOOK_CHAIN_LIB" << 'CHAIN_LIB_EOF'
+#!/usr/bin/env bash
+# PatronAI hook-chain library. Usage:
+#   source "$HOME/.patronai/hook_chain.sh"
+#   pa_install_chain_hook "/path/to/.git/hooks"
+# Returns 0 if the chain is present after the call, non-zero on error.
+
+pa_install_chain_hook() {
+    local hooks_dir="$1"
+    local hook_path="$hooks_dir/pre-commit"
+    local patronai_hook="$HOME/.patronai/pre_commit_hook.sh"
+    local marker="PatronAI managed pre-commit chain"
+
+    [ -x "$patronai_hook" ] || return 1
+    mkdir -p "$hooks_dir" || return 1
+
+    if [ -e "$hook_path" ] || [ -L "$hook_path" ]; then
+        # Already our chain — nothing to do (idempotent).
+        if [ -f "$hook_path" ] && grep -q "$marker" "$hook_path" 2>/dev/null; then
+            return 0
+        fi
+        # Legacy PatronAI symlink from a pre-chain install — replace it.
+        if [ -L "$hook_path" ] && [ "$(readlink "$hook_path")" = "$patronai_hook" ]; then
+            rm -f "$hook_path"
+        else
+            # Real hook from Raven / husky / user — always preserve it,
+            # overwriting any older preserved copy. If husky (or the
+            # user) reinstalls its hook after the chain is already in
+            # place, the second pass sees the fresh real hook back at
+            # $hook_path and MUST keep it — dropping it here would
+            # silently strand whatever changed in the reinstall and
+            # keep running the stale first-generation preserved copy.
+            local preserved="$hooks_dir/pre-commit.pre-patronai"
+            mv "$hook_path" "$preserved" || return 1
+            chmod +x "$preserved" 2>/dev/null || true
+        fi
+    fi
+
+    cat > "$hook_path" << 'CHAIN_HOOK_EOF'
+#!/usr/bin/env bash
+# PatronAI managed pre-commit chain — DO NOT EDIT.
+# Runs the preserved pre-existing hook (if any) first, then PatronAI's
+# hook. The preserved hook's exit code aborts the commit on failure;
+# PatronAI's hook is fire-and-forget (never blocks a commit).
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -x "$HOOK_DIR/pre-commit.pre-patronai" ]; then
+    "$HOOK_DIR/pre-commit.pre-patronai" "$@" || exit $?
+fi
+"$HOME/.patronai/pre_commit_hook.sh" "$@"
+CHAIN_HOOK_EOF
+    chmod +x "$hook_path"
+    return 0
+}
+CHAIN_LIB_EOF
+chmod +x "$HOOK_CHAIN_LIB"
+
 # ── Write install_hook.sh helper ──────────────────────────────
+# User-runnable helper for repos outside the initial walk (e.g. NFS,
+# external drives, private paths). Delegates to the chain library so
+# behaviour is identical to the auto-install path.
 INSTALL_HELPER="$AGENT_DIR/install_hook.sh"
-cat > "$INSTALL_HELPER" << HELPER_EOF
+cat > "$INSTALL_HELPER" << 'HELPER_EOF'
 #!/usr/bin/env bash
 # Usage: bash ~/.patronai/install_hook.sh [/path/to/repo]
-REPO=\${1:-\$(pwd)}
-HOOKS_DIR="\$REPO/.git/hooks"
-[ -d "\$REPO/.git" ] || { echo "ERROR: Not a git repo: \$REPO"; exit 1; }
-mkdir -p "\$HOOKS_DIR"
-HOOK_PATH="\$HOOKS_DIR/pre-commit"
-[ -f "\$HOOK_PATH" ] && [ ! -L "\$HOOK_PATH" ] && cp "\$HOOK_PATH" "\${HOOK_PATH}.backup"
-ln -sf "$HOOK_SCRIPT" "\$HOOK_PATH"
-echo "[patronai] Hook installed in \$REPO"
+REPO="${1:-$(pwd)}"
+[ -d "$REPO/.git" ] || { echo "ERROR: Not a git repo: $REPO"; exit 1; }
+# shellcheck disable=SC1091
+source "$HOME/.patronai/hook_chain.sh"
+if pa_install_chain_hook "$REPO/.git/hooks"; then
+    echo "[patronai] Hook chain installed in $REPO"
+else
+    echo "[patronai] Hook chain install failed for $REPO" >&2
+    exit 1
+fi
 HELPER_EOF
 chmod +x "$INSTALL_HELPER"
 
-# ── Auto-install into git repos found under HOME ──────────────
+# ── Auto-install into git repos found under HOME (chain-aware) ─
 INSTALL_COUNT=0
+# shellcheck disable=SC1090
+source "$HOOK_CHAIN_LIB"
 while IFS= read -r -d '' GIT_DIR; do
-  HOOKS_DIR="$GIT_DIR/hooks"
-  mkdir -p "$HOOKS_DIR"
-  HOOK_PATH="$HOOKS_DIR/pre-commit"
-  [ -f "$HOOK_PATH" ] && [ ! -L "$HOOK_PATH" ] && cp "$HOOK_PATH" "${HOOK_PATH}.backup"
-  ln -sf "$HOOK_SCRIPT" "$HOOK_PATH"
-  INSTALL_COUNT=$((INSTALL_COUNT + 1))
+  pa_install_chain_hook "$GIT_DIR/hooks" && INSTALL_COUNT=$((INSTALL_COUNT + 1))
 done < <(find "$HOME" -maxdepth 6 -name ".git" -type d -print0 2>/dev/null)
 
 # ── Step 0.1 — git template dir (auto-install on every future init/clone) ──
@@ -300,18 +377,27 @@ TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 echo "{\"ts\":\"$TS\",\"type\":\"heartbeat\",\"http_status\":$HTTP}" >> "$LOG"
 
 # 4. Hook coverage backstop (Step 0.1) — every 5 min, ensure every git
-# repo under $HOME (depth 6) has our pre-commit hook. Catches repos
-# cloned before the agent was installed and any rare miss by the
-# init.templateDir path. Cheap (<1s on typical home).
+# repo under $HOME (depth 6) has our chain-installed pre-commit hook.
+# Catches repos cloned before the agent was installed and any rare
+# miss by the init.templateDir path. Idempotent via the chain
+# library — pre-existing Raven/husky/user hooks are preserved as
+# pre-commit.pre-patronai and called from our chain script.
 HOOK_SCRIPT="$AGENT_DIR/pre_commit_hook.sh"
+HOOK_CHAIN_LIB="$AGENT_DIR/hook_chain.sh"
 [ -f "$HOOK_SCRIPT" ] || exit 0
+[ -f "$HOOK_CHAIN_LIB" ] || exit 0
+# shellcheck disable=SC1090
+source "$HOOK_CHAIN_LIB"
 ADDED=0
+MARKER="PatronAI managed pre-commit chain"
 while IFS= read -r -d '' GIT_DIR; do
     HP="$GIT_DIR/hooks/pre-commit"
-    if [ ! -L "$HP" ] || [ "$(readlink "$HP" 2>/dev/null)" != "$HOOK_SCRIPT" ]; then
-        mkdir -p "$GIT_DIR/hooks"
-        [ -f "$HP" ] && [ ! -L "$HP" ] && cp "$HP" "${HP}.backup"
-        ln -sf "$HOOK_SCRIPT" "$HP"
+    # Skip the noisy majority: chain already present. Otherwise let
+    # the library decide whether to preserve, replace, or install.
+    if [ -f "$HP" ] && grep -q "$MARKER" "$HP" 2>/dev/null; then
+        continue
+    fi
+    if pa_install_chain_hook "$GIT_DIR/hooks"; then
         ADDED=$((ADDED + 1))
     fi
 done < <(find "$HOME" -maxdepth 6 -name ".git" -type d -print0 2>/dev/null)

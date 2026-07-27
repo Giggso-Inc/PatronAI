@@ -49,6 +49,7 @@ def render_agent_package(
     renderer,
     send_email: bool = True,
     authorized_domains: list | None = None,
+    otp_override: str | None = None,
 ) -> dict:
     """
     Generate a complete agent delivery package.
@@ -56,6 +57,11 @@ def render_agent_package(
     Always builds BOTH macOS DMG and Windows EXE on EC2.
     authorized_domains: per-user allowlist baked into the script.
       Scan findings matching these domains/packages are suppressed.
+    otp_override: when set, use this string as the OTP instead of
+      generating a new one — used by Raven-bundled invites so both
+      products validate against the SAME OTP the user entered in
+      Raven's installer. Standalone callers omit it and get the
+      normal fresh-random OTP path.
     Returns dict with: token, otp, installer_url, meta_url,
     status_put_url, heartbeat_put_url, scan_put_url,
     dmg_url, exe_url, success, error.
@@ -68,7 +74,17 @@ def render_agent_package(
         return {"success": False, "error": f"Template not found: {PS1_TEMPLATE}"}
 
     try:
-        otp      = store.generate_otp()
+        # otp_override lets a trusted caller (Raven Hub) mirror its own OTP
+        # into PatronAI's meta.json so the installer's bcrypt check
+        # succeeds against the SAME OTP the user typed in Raven — no
+        # weaker "trust flag" bypass required. Reject anything that
+        # doesn't look like a 6-digit code before it lands in the hash.
+        if otp_override is not None:
+            if not (isinstance(otp_override, str) and otp_override.isdigit() and len(otp_override) == 6):
+                return {"success": False, "error": "otp_override must be a 6-digit numeric string"}
+            otp = otp_override
+        else:
+            otp = store.generate_otp()
         otp_hash = store.hash_otp(otp)
     except Exception as e:
         log.error("OTP generation failed: %s", e)
