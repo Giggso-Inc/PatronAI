@@ -142,6 +142,44 @@ class GiggsoBaselineDeny(Base):
     )
 
 
+class RavenFlaggedTool(Base):
+    """Pending MCP-governance flag forwarded from RavenHub (Phase 2 of the
+    raven<->patron MCP-governance-sync initiative). NOT a third status on
+    ApprovedTool/BlacklistedTool — those two mean "already classified"; this
+    is the "raised, awaiting a patron admin's decision" queue that feeds the
+    Provider Governance UI. Resolving one (Phase 3) writes the real decision
+    into approved_tools/blacklisted_tools and marks this row resolved.
+
+    Idempotent on raven's retry: the partial unique index
+    uq_raven_flagged_tools_pending (project_id, provider_pattern) WHERE
+    status='pending' means a re-forward of the same still-pending flag can
+    only ever match/update the existing row, never duplicate it (see
+    governance_crud.create_or_touch_raven_flag)."""
+    __tablename__ = "raven_flagged_tools"
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','approved','denied')",
+                        name="ck_raven_flagged_tools_status"),
+        Index("ix_raven_flagged_tools_org", "org_id"),
+        Index("ix_raven_flagged_tools_project", "project_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), **_UUID_PK)
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    provider_pattern: Mapped[str] = mapped_column(String(256), nullable=False)
+    requested_by: Mapped[str] = mapped_column(String(320), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'pending'"))
+    source: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'ravenhub'"))
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class SchemaMigration(Base):
     """App-level migration / one-time-seed markers (e.g. the giggso seed guard).
     Distinct from Alembic's own alembic_version table."""
