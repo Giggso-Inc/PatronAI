@@ -7,6 +7,13 @@
 #          Create projects and add/remove members, backed by Postgres
 #          (projects / project_members). Drives project-scope policy. CRUD + authz
 #          live in db.governance_crud (tested); this is the render layer.
+#          DUAL CREATE PATH (2026-07-24): a team that doesn't use RavenHub
+#          still needs to create projects directly here, so this form stays
+#          live and unchanged — it's independent of, and never calls out to,
+#          RavenHub. Projects created here have external_source/external_ref
+#          = NULL, same as always. RavenHub-created projects arrive through
+#          routers/raven_enterprise_projects.py instead, a separate path
+#          that also writes into this same table.
 # DEPENDS: streamlit, db.* (requires DATABASE_URL)
 # =============================================================
 
@@ -72,12 +79,18 @@ def _render(s, actor, org_id) -> None:
                 if c2.button("Remove", key=f"rm::{project.id}::{m.id}"):
                     remove_project_member(s, actor=actor, project_id=project.id, user_id=m.id)
                     st.rerun()
-            member_ids = {m.id for m in members}
-            addable = [u for u in users if u.id not in member_ids]
-            if addable:
-                pick = st.selectbox("Add member", addable,
-                                    format_func=lambda u: u.email,
-                                    key=f"pick::{project.id}")
-                if st.button("Add", key=f"add::{project.id}") and pick is not None:
-                    add_project_member(s, actor=actor, project_id=project.id, user_id=pick.id)
-                    st.rerun()
+            if project.external_source:
+                # RavenHub is the source of truth for membership on a project it
+                # synced here (Owners / Developer Roster additions) — manual add
+                # would just be a second, drifting path to the same membership.
+                st.caption(f"Members for this project are managed in RavenHub ({project.external_source}).")
+            else:
+                member_ids = {m.id for m in members}
+                addable = [u for u in users if u.id not in member_ids]
+                if addable:
+                    pick = st.selectbox("Add member", addable,
+                                        format_func=lambda u: u.email,
+                                        key=f"pick::{project.id}")
+                    if st.button("Add", key=f"add::{project.id}") and pick is not None:
+                        add_project_member(s, actor=actor, project_id=project.id, user_id=pick.id)
+                        st.rerun()

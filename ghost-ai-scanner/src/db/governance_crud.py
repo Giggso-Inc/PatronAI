@@ -344,10 +344,74 @@ def create_project(session, *, actor, org_id, slug, display_name) -> Project:
     return t
 
 
+def create_project_from_sync(session, *, org_id, slug, display_name, external_source, external_ref) -> Project:
+    """Used only by routers/raven_enterprise_projects.py's automatic
+    RavenHub -> patron sync — deliberately takes no `actor` and does not
+    call _require(is_org_admin): this is a trusted server-to-server call,
+    authenticated at the router layer by the shared API key + X-Raven-Identity
+    JWT, not a user-initiated action needing per-user authz. Never call this
+    from a user-facing flow (Streamlit tab or ravenhub_projects.py) — those
+    use create_project() above, unchanged."""
+    t = Project(
+        org_id=org_id, slug=_norm(slug), display_name=display_name,
+        external_source=external_source, external_ref=external_ref,
+    )
+    session.add(t)
+    session.commit()
+    return t
+
+
+def get_project_by_external_ref(session, *, org_id, external_source, external_ref) -> Project | None:
+    """Idempotent lookup for a retried upstream-system sync — look up by
+    (org_id, external_source, external_ref) before ever attempting a create,
+    so a dropped response or a second sync attempt never creates a duplicate
+    project."""
+    return session.execute(
+        select(Project).where(
+            Project.org_id == org_id,
+            Project.external_source == external_source,
+            Project.external_ref == external_ref,
+        )
+    ).scalar_one_or_none()
+
+
 def add_project_member(session, *, actor, project_id, user_id, is_project_admin=False) -> None:
     _require(getattr(actor, "is_org_admin", False), "C8: only an org admin may add members")
     if session.get(ProjectMember, (project_id, user_id)) is None:
         session.add(ProjectMember(project_id=project_id, user_id=user_id, is_project_admin=is_project_admin))
+        session.commit()
+
+
+def get_or_create_user_for_sync(session, *, org_id, email) -> User:
+    """Get-or-create a User by email for the RavenHub owner-sync (see
+    routers/raven_enterprise_projects.py). Mirrors seeding.upsert_users's
+    existing member-provisioning convention (no password, is_org_admin=False)
+    — this only creates an identity/scope record for FK purposes, the same
+    as a scanned-only "member" today; it grants no new login capability.
+
+    Raises ValueError if the email already belongs to a DIFFERENT patron org
+    — User.email is globally unique, so this refuses to silently cross-link
+    someone else's identity into this org rather than misassign them."""
+    from db.seeding import _display_name
+    norm_email = _norm(email)
+    user = session.execute(select(User).where(User.email == norm_email)).scalar_one_or_none()
+    if user is not None:
+        if user.org_id != org_id:
+            raise ValueError(f"'{norm_email}' already belongs to a different patron org")
+        return user
+    user = User(org_id=org_id, email=norm_email, display_name=_display_name(norm_email), is_org_admin=False)
+    session.add(user)
+    session.flush()
+    return user
+
+
+def add_project_member_from_sync(session, *, project_id, user_id) -> None:
+    """Used only by routers/raven_enterprise_projects.py's automatic
+    RavenHub -> patron owner sync — no actor/is_org_admin check, same
+    rationale as create_project_from_sync. Idempotent: no-ops if the user is
+    already a member (mirrors add_project_member's own idempotency)."""
+    if session.get(ProjectMember, (project_id, user_id)) is None:
+        session.add(ProjectMember(project_id=project_id, user_id=user_id))
         session.commit()
 
 
