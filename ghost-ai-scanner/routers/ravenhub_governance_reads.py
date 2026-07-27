@@ -238,3 +238,85 @@ def get_governance_scope(
         newly_found=_newly_found_fn(events, eff),
         override_candidates=override_candidates, deny_override_candidates=deny_override_candidates,
     )
+
+
+class RavenFlagOut(BaseModel):
+    id: str
+    project_id: str
+    project_name: str
+    provider_pattern: str
+    requested_by: str
+    note: Optional[str] = None
+    added_at: str
+
+
+class ListRavenFlagsResponse(BaseModel):
+    is_admin: bool
+    flags: list[RavenFlagOut]
+
+
+@router.get("/governance/raven-flags", response_model=ListRavenFlagsResponse)
+def list_raven_flags(
+    project_id: Optional[str] = Query(default=None), email: str = Depends(verify_ravenhub_identity)
+) -> ListRavenFlagsResponse:
+    """Pending MCP-governance flags forwarded from RavenHub — same list
+    dashboard/ui/tabs/provider_governance.py's _raven_flagged_tools() renders
+    in Streamlit (db.governance_crud.list_pending_raven_flags already
+    existed; this is the first HTTP-reachable caller of it). Read-only —
+    org-admins see every project; a non-admin only sees flags for projects
+    they're actually a member of (project_ids_for_user), never every project
+    in the org just by being an org member. Resolving requires org-admin,
+    enforced separately in POST /governance/raven-flags/{flag_id}/resolve
+    (ravenhub_governance_writes_lists.py).
+
+    project_id is optional: omit it for the org-wide list (commonFE's
+    Provider Governance page shows this before a specific project is picked
+    in the Project-scope selector) — list_pending_raven_flags already
+    supports project_id=None for exactly this, just never had an HTTP caller
+    that omitted it before. When project_id IS supplied, check_target_in_org
+    verifies it's a real project in the caller's own org first — same check
+    the sibling GET /governance/scope (PR#9 review, C1/C2) already applies,
+    a client-supplied id must never be trusted without it."""
+    from db.engine import get_session
+    from db.governance_crud import PolicyAuthzError, check_target_in_org, list_pending_raven_flags
+    from db.models_identity import Project
+    from db.policy_queries import project_ids_for_user
+
+    with get_session() as s:
+        actor, org_id = _resolve_actor(s, email)
+        is_admin = bool(actor.is_org_admin)
+
+        if project_id is not None:
+            try:
+                check_target_in_org(s, org_id=org_id, project_id=project_id)
+            except PolicyAuthzError as exc:
+                raise HTTPException(status_code=403, detail=str(exc))
+
+        flags = list_pending_raven_flags(s, org_id=org_id, project_id=project_id)
+
+        # Org-wide (project_id=None) case: a non-admin only sees flags for
+        # projects they belong to — being any org member is not by itself
+        # authorization to browse every other project's pending requests.
+        # Admins keep the unrestricted org-wide view (that's the whole point
+        # of this mode for them — resolving without clicking into each
+        # project one at a time).
+        if project_id is None and not is_admin:
+            member_project_ids = set(project_ids_for_user(s, actor.id))
+            flags = [f for f in flags if f.project_id in member_project_ids]
+
+        project_names = {
+            p.id: p.display_name
+            for p in s.query(Project).filter(Project.org_id == org_id).all()
+        }
+        return ListRavenFlagsResponse(
+            is_admin=is_admin,
+            flags=[
+                RavenFlagOut(
+                    id=str(f.id), project_id=str(f.project_id),
+                    project_name=project_names.get(f.project_id, "Unknown project"),
+                    provider_pattern=f.provider_pattern, requested_by=f.requested_by,
+                    note=f.note, added_at=f.added_at.isoformat() if f.added_at else "",
+                )
+                for f in flags
+            ],
+        )
