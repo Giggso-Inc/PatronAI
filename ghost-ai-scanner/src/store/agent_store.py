@@ -82,9 +82,18 @@ class AgentStore(BaseStore):
     def get_object_text(self, key: str) -> str:
         """Read an S3 object as UTF-8 text. Used by /agent/provision to
         return the freshly-rendered installer script inline to Raven so
-        it can be inlined into the Raven installer via a heredoc."""
+        it can be inlined into the Raven installer via a heredoc.
+
+        Decodes with utf-8-sig, not plain utf-8 (PR#14/#15 review): .ps1
+        installer scripts are written with a UTF-8 BOM (Windows PowerShell
+        5.1 needs it to not misread em-dashes as the system ANSI codepage —
+        see render_agent_package.py v1.6.1). Plain utf-8 doesn't strip a
+        BOM on decode, so /agent/provision would return script_content with
+        a leading U+FEFF for windows packages. utf-8-sig strips it when
+        present and is a no-op when absent (e.g. .sh has no BOM), so this
+        is safe for every key this method reads."""
         raw = self._get(key)
-        return raw.decode("utf-8") if raw else ""
+        return raw.decode("utf-8-sig") if raw else ""
 
     # ── Package lifecycle ─────────────────────────────────────
 
