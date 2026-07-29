@@ -218,15 +218,16 @@ class Alerter:
             host = identity.get("hostname") or identity.get("host") or ""
             device = host or src_ip
             domain = event.get("domain") or provider or ""
-            if outcome in ("DOMAIN_ALERT", "PORT_ALERT", "PERSONAL_KEY"):
+            hub_outcome = event.get("outcome", outcome)
+            if hub_outcome in ("DOMAIN_ALERT", "PORT_ALERT", "PERSONAL_KEY"):
                 emit_denylisted(
                     org, eid, tool, user=owner, device=device,
-                    outcome=outcome, domain=domain, hostname=host,
+                    outcome=hub_outcome, domain=domain, hostname=host,
                 )
-            elif outcome in ("UNKNOWN", "CODE_ALERT"):
+            elif hub_outcome in ("UNKNOWN", "CODE_ALERT"):
                 emit_shadow_discovered(
                     org, eid + ":shadow", tool, user=owner, device=device,
-                    outcome=outcome, domain=domain, hostname=host,
+                    outcome=hub_outcome, domain=domain, hostname=host,
                 )
         except Exception as e:
             log.debug("hub emit skipped: %s", e)
