@@ -208,6 +208,30 @@ class Alerter:
         # Record dedup entry to prevent repeat alerts
         self._store.dedup.record(src_ip, provider)
 
+        # Raven Hub taxonomy V2 (best-effort; no-op without RAVEN_HUB_URL)
+        try:
+            from notify.hub_alerts import emit_denylisted, emit_shadow_discovered
+            org = self._company or "unknown"
+            eid = f"patron:{src_ip}:{provider}:{date.today().isoformat()}"
+            tool = provider or event.get("domain", "unknown")
+            owner = identity.get("owner") or identity.get("email") or ""
+            host = identity.get("hostname") or identity.get("host") or ""
+            device = host or src_ip
+            domain = event.get("domain") or provider or ""
+            hub_outcome = event.get("outcome", outcome)
+            if hub_outcome in ("DOMAIN_ALERT", "PORT_ALERT", "PERSONAL_KEY"):
+                emit_denylisted(
+                    org, eid, tool, user=owner, device=device,
+                    outcome=hub_outcome, domain=domain, hostname=host,
+                )
+            elif hub_outcome in ("UNKNOWN", "CODE_ALERT"):
+                emit_shadow_discovered(
+                    org, eid + ":shadow", tool, user=owner, device=device,
+                    outcome=hub_outcome, domain=domain, hostname=host,
+                )
+        except Exception as e:
+            log.debug("hub emit skipped: %s", e)
+
         log.warning(
             f"ALERT FIRED [{event['severity']}]: "
             f"{provider} ← {identity.get('owner', src_ip)} | "
