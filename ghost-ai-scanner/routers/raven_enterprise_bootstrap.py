@@ -1,11 +1,14 @@
 # =============================================================
 # FILE: routers/raven_enterprise_bootstrap.py
 # PURPOSE: Hub-driven first-run provisioning for PatronAI org admin.
+# Auth: X-Bootstrap-Token only (intentionally no bearer Depends(_auth)).
 # =============================================================
 
 from __future__ import annotations
 
 import os
+import secrets
+from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, EmailStr
@@ -27,18 +30,32 @@ class ProvisionAdminRequest(BaseModel):
 
 
 def _verify_bootstrap_token(token: str | None) -> None:
+    """Require X-Bootstrap-Token to match BOOTSTRAP_INTERNAL_TOKEN (constant-time)."""
     expected = os.environ.get("BOOTSTRAP_INTERNAL_TOKEN", "").strip()
     if not expected:
         raise HTTPException(status_code=503, detail="Bootstrap token not configured")
-    if not token or token != expected:
+    if not token or not secrets.compare_digest(token, expected):
         raise HTTPException(status_code=401, detail="Invalid bootstrap token")
+
+
+def _assert_org_bootstrap_open(session, org: Org) -> None:
+    """Reject when this org already has an org admin — one-time first-run control."""
+    admin = session.execute(
+        select(User).where(User.org_id == org.id, User.is_org_admin.is_(True))
+    ).scalar_one_or_none()
+    if admin is not None:
+        raise HTTPException(
+            status_code=410,
+            detail="Bootstrap already completed — org admin already exists",
+        )
 
 
 @router.post("/bootstrap/provision-admin")
 def provision_admin(
     body: ProvisionAdminRequest,
     x_bootstrap_token: str | None = Header(default=None, alias="X-Bootstrap-Token"),
-):
+) -> dict[str, Any]:
+    """Create/ensure org and first org admin. Hub-only; disabled once an admin exists for the org."""
     _verify_bootstrap_token(x_bootstrap_token)
     slug = body.org_slug.strip().lower()
     email = body.owner_email.strip().lower()
@@ -50,6 +67,8 @@ def provision_admin(
             display_name=body.display_name or slug,
             s3_bucket=body.s3_bucket or slug,
         )
+        _assert_org_bootstrap_open(session, org)
+
         user = session.execute(
             select(User).where(User.email == email)
         ).scalar_one_or_none()
