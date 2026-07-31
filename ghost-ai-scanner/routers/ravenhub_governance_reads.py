@@ -1,21 +1,21 @@
 # =============================================================
 # FILE: routers/ravenhub_governance_reads.py
-# VERSION: 1.0.0
-# UPDATED: 2026-07-21
+# VERSION: 2.0.0
+# UPDATED: 2026-07-31
 # OWNER: Giggso Inc
 # PURPOSE: Read-only export of dashboard/ui/tabs/provider_governance.py
 #          as REST — the Overview cross-scope matrix, and the Manage
 #          tab's read-only state (Inherited, Current lists, Newly
-#          Found, override candidates) for one org/project/user scope.
+#          Found) for one org/project/user scope.
 #          GET /governance/overview — every provider x its status at
-#                                      every scope (Giggso/Org/Project/
-#                                      User). Mirrors provider_governance
+#                                      every scope (Org/Project/User).
+#                                      Mirrors provider_governance
 #                                      .py:_overview().
 #          GET /governance/scope    — one scope's governance state.
 #                                      Mirrors _inherited_lists() +
 #                                      _current_lists() + _newly_found()
 #                                      (read portions only — see
-#                                      ravenhub_governance_writes_*.py
+#                                      ravenhub_governance_writes_lists.py
 #                                      for the mutating actions).
 #          Requires a policy-DB identity (db.policy_queries.get_identity)
 #          resolved from the verified X-Raven-Identity email — same
@@ -25,6 +25,11 @@
 #          path — additive only.
 # AUDIT LOG:
 #   v1.0.0  2026-07-21  Initial — /governance/overview, /governance/scope.
+#   v2.0.0  2026-07-31  ADR_2026-07-31: no more Giggso column/tier/override
+#                       candidates — scope-first waterfall, fully-open
+#                       flips. Dropped override_candidates/
+#                       deny_override_candidates from GET /governance/scope
+#                       (that action no longer exists to preview).
 # =============================================================
 
 from typing import Optional
@@ -65,8 +70,6 @@ class GovernanceScopeResponse(BaseModel):
     current_allowed: list
     current_blocked: list
     newly_found: list
-    override_candidates: Optional[list] = None
-    deny_override_candidates: Optional[list] = None
 
 
 def _org_events(email: str) -> list:
@@ -77,13 +80,14 @@ def _org_events(email: str) -> list:
 
 @router.get("/governance/overview", response_model=GovernanceOverviewResponse)
 def get_governance_overview(email: str = Depends(verify_ravenhub_identity)) -> GovernanceOverviewResponse:
-    """Every observed provider x its status at Giggso/Org/Project/User
-    scope. Project/User show WHO set each rule (name, not just state).
-    Mirrors provider_governance.py:_overview() field-for-field."""
+    """Every observed provider x its status at Org/Project/User scope.
+    Project/User show WHO set each rule (name, not just state). Mirrors
+    provider_governance.py:_overview() field-for-field (ADR_2026-07-31: no
+    Giggso column)."""
     from sqlalchemy import select
     from db.engine import get_session
     from db.models_identity import Project, User
-    from db.models_policy import ApprovedTool, BlacklistedTool, GiggsoBaselineDeny
+    from db.models_policy import ApprovedTool, BlacklistedTool
     from scoring.policy import _matches, _norm
     from scoring.provider_views import all_providers
 
@@ -93,7 +97,6 @@ def get_governance_overview(email: str = Depends(verify_ravenhub_identity)) -> G
                      s.execute(select(Project).where(Project.org_id == org_id)).scalars()}
         user_name = {u.id: (u.display_name or u.email) for u in
                      s.execute(select(User).where(User.org_id == org_id)).scalars()}
-        giggso = {_norm(d) for (d,) in s.execute(select(GiggsoBaselineDeny.domain))}
         ap = list(s.execute(select(ApprovedTool).where(ApprovedTool.org_id == org_id)).scalars())
         dn = list(s.execute(select(BlacklistedTool).where(BlacklistedTool.org_id == org_id)).scalars())
 
@@ -114,7 +117,6 @@ def get_governance_overview(email: str = Depends(verify_ravenhub_identity)) -> G
     providers = all_providers(_org_events(email), None)
     rows = [{
         "provider": p["provider"], "category": p["category"] or "unknown",
-        "giggso": _matches(p["provider"], giggso),
         "org": _org_state(p["provider"]),
         "project": _named(p["provider"], "project", proj_name, "project_id"),
         "user": _named(p["provider"], "user", user_name, "user_id"),
@@ -193,50 +195,36 @@ def get_governance_scope(
         events = _org_events(email)
         providers = all_providers(events, eff)
 
-        tiers = {"org": ("giggso_deny", "giggso_override", "giggso_override_project", "giggso_override_user"),
-                 "project": ("giggso_deny", "giggso_override", "giggso_override_project",
-                             "giggso_override_user", "org_deny"),
-                 "user": ("giggso_deny", "giggso_override", "giggso_override_project",
-                          "giggso_override_user", "org_deny", "project_deny")}[scope]
+        # ADR_2026-07-31: scope-first — a wider-scope rule only "governs"
+        # this scope when nothing at this scope (or narrower) exists for
+        # the same provider. No Giggso tier to distinguish from org anymore.
+        tiers = {"org": (),
+                 "project": ("org_deny", "org_approve"),
+                 "user": ("org_deny", "project_deny", "org_approve", "project_approve")}[scope]
         inherited_observed = [
             {"provider": p["provider"], "rule": p["tier"], "severity": p["max_severity"],
              "finding_count": p["finding_count"]}
             for p in providers if p["tier"] in tiers
         ]
-        inherited_policy = [{"blocked_by": "giggso", "pattern": g} for g in sorted(eff.giggso_deny)]
+        inherited_policy = []
         if scope in ("project", "user"):
             inherited_policy += [{"blocked_by": "org", "pattern": g} for g in sorted(eff.org_deny)]
         if scope == "user":
             inherited_policy += [{"blocked_by": "project", "pattern": g} for g in sorted(eff.project_deny)]
 
         current_allowed = [{"id": str(r.id), "pattern": r.domain_pattern,
-                            "expires": str(r.valid_until) if r.valid_until else None,
-                            "overrides_giggso": bool(r.overrides_giggso)}
+                            "expires": str(r.valid_until) if r.valid_until else None}
                            for r in list_scope(s, ApprovedTool, org_id=org_id, scope=scope,
                                               project_id=project_id, user_id=user_id)]
         current_blocked = [{"id": str(r.id), "pattern": r.domain, "severity": r.severity}
                            for r in list_scope(s, BlacklistedTool, org_id=org_id, scope=scope,
                                               project_id=project_id, user_id=user_id)]
 
-        override_candidates = None
-        deny_override_candidates = None
-        if is_admin:
-            if scope == "org" or (project_id or user_id):
-                already = (eff.giggso_override if scope == "org" else
-                          eff.giggso_override_project if scope == "project" else
-                          eff.giggso_override_user)
-                override_candidates = sorted(eff.giggso_deny - already)
-            if scope in ("project", "user"):
-                wider_deny = set(eff.org_deny) | (set(eff.project_deny) if scope == "user" else set())
-                already_do = eff.deny_override_project | eff.deny_override_user
-                deny_override_candidates = sorted(wider_deny - set(eff.giggso_deny) - already_do)
-
     return GovernanceScopeResponse(
         email=email, is_admin=is_admin, scope=scope, project_id=project_id, user_id=user_id,
         inherited_observed=inherited_observed, inherited_policy=inherited_policy,
         current_allowed=current_allowed, current_blocked=current_blocked,
         newly_found=_newly_found_fn(events, eff),
-        override_candidates=override_candidates, deny_override_candidates=deny_override_candidates,
     )
 
 

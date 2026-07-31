@@ -1,17 +1,22 @@
 # =============================================================
 # FILE: tests/integration/test_governance_crud_db.py
-# VERSION: 1.1.0
-# UPDATED: 2026-07-01
+# VERSION: 2.0.0
+# UPDATED: 2026-07-31
 # OWNER: Giggso Inc
 # PURPOSE: Live-DB tests for the Provider Governance write-path server-
-#          side authz (C8) + baseline-override guard (C1/C3/C4) + the
-#          idempotent add + allow<->block flip (v1.1.0). Requires
+#          side authz (C8) + idempotent add + fully-open allow<->block flip
+#          + the OQ-4 opposite-polarity guard (ADR_2026-07-31). Requires
 #          DATABASE_URL. Creates and tears down its own org.
+# AUDIT LOG:
+#   v1.1.0  2026-07-01  Baseline-override guard (C1/C3/C4) + deny-override
+#                       (D1-D7) checks.
+#   v2.0.0  2026-07-31  ADR_2026-07-31: removed all Giggso-baseline/
+#                       override/deny-override checks (that machinery no
+#                       longer exists). Added OQ-4 opposite-polarity checks.
 # =============================================================
 
 import os
 import sys
-from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
@@ -19,18 +24,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import Session
 
-from datetime import date, timedelta
-
-from db.models_identity import Org, Project, ProjectMember, User
-from db.models_policy import ApprovedTool, BlacklistedTool, GiggsoBaselineDeny
+from db.models_identity import Org, User
+from db.models_policy import ApprovedTool, BlacklistedTool
 from db.governance_crud import (
     PolicyAuthzError, add_approved, add_blacklisted,
-    move_to_allowed, move_to_blocked, is_giggso_blocked, grant_deny_override,
+    move_to_allowed, move_to_blocked,
 )
-from db.policy_queries import load_policy_context
-from scoring.policy import policy_tier
-
-_ZBASE = "zbaseline-flip.ai"   # isolated Giggso-baseline domain for the flip test
 
 URL = os.environ.get("DATABASE_URL", "")
 
@@ -76,30 +75,12 @@ def _run():
                              user_id=member.id, name="Claude", provider_pattern="claude.ai")
             assert r.scope == "user" and r.user_id == member.id
 
-            # 5. override with no reason → rejected by C3 guard
-            try:
-                add_approved(s, actor=admin, org_id=org.id, scope="org",
-                             name="Ollama", provider_pattern="ollama",
-                             overrides_giggso=True, reason="",
-                             valid_until=date.today() + timedelta(days=30))
-                assert False, "expected override rejection"
-            except PolicyAuthzError:
-                s.rollback()
-
-            # 6. valid override → accepted
-            ov = add_approved(s, actor=admin, org_id=org.id, scope="org",
-                              name="Ollama", provider_pattern="ollama",
-                              overrides_giggso=True,
-                              reason="approved by security",
-                              valid_until=date.today() + timedelta(days=30))
-            assert ov.overrides_giggso is True and ov.approved_by == admin.id
-
-            # 7. deny add works for admin
+            # 5. deny add works for admin — fully open, no reason required
             b = add_blacklisted(s, actor=admin, org_id=org.id, scope="org",
                                 domain="evil.com", severity="HIGH")
             assert b.id is not None
 
-            # 8. idempotent add — a duplicate approve does NOT create a 2nd row
+            # 6. idempotent add — a duplicate approve does NOT create a 2nd row
             first = add_approved(s, actor=admin, org_id=org.id, scope="org",
                                  name="Dup", provider_pattern="dup.ai")
             again = add_approved(s, actor=admin, org_id=org.id, scope="org",
@@ -110,50 +91,34 @@ def _run():
                 ApprovedTool.domain_pattern == "dup.ai")).scalars().all()
             assert len(n) == 1, "duplicate approve row created"
 
-            # 9. flip allow -> block (same scope), original approve gone
+            # 7. OQ-4 — cannot add a deny for a pattern already approved at
+            #    the SAME scope (opposite polarity conflict).
+            try:
+                add_blacklisted(s, actor=admin, org_id=org.id, scope="org",
+                                domain="dup.ai", severity="HIGH")
+                assert False, "OQ-4: opposite-polarity conflict must be refused"
+            except PolicyAuthzError:
+                s.rollback()
+
+            # 8. flip allow -> block (same scope) — fully open, no reason.
+            #    The flip deletes the approve row first so OQ-4 never
+            #    false-positives against the row being replaced.
             move_to_blocked(s, actor=admin, org_id=org.id, approve_row_id=first.id)
             assert s.get(ApprovedTool, first.id) is None
             assert s.execute(select(BlacklistedTool).where(
                 BlacklistedTool.org_id == org.id,
                 BlacklistedTool.domain == "dup.ai")).scalars().first() is not None
 
-            # 10. flip block -> allow, NON-baseline → plain approve (no override)
+            # 9. flip block -> allow — fully open, no reason/expiry required.
             nb = add_blacklisted(s, actor=admin, org_id=org.id, scope="org",
                                  domain="harmless.tool", severity="LOW")
-            was_override = move_to_allowed(s, actor=admin, org_id=org.id,
-                                           block_row_id=nb.id)
-            assert was_override is False
+            move_to_allowed(s, actor=admin, org_id=org.id, block_row_id=nb.id)
             ap = s.execute(select(ApprovedTool).where(
                 ApprovedTool.org_id == org.id,
                 ApprovedTool.domain_pattern == "harmless.tool")).scalars().first()
-            assert ap is not None and ap.overrides_giggso is False
+            assert ap is not None
 
-            # 11. flip block -> allow for a GIGGSO-BASELINE provider:
-            #     no reason → rejected by the guard; with reason → override.
-            s.add(GiggsoBaselineDeny(domain=_ZBASE, severity="HIGH")); s.commit()
-            assert is_giggso_blocked(s, _ZBASE) is True
-            bl = add_blacklisted(s, actor=admin, org_id=org.id, scope="org",
-                                 domain=_ZBASE, severity="HIGH")
-            try:
-                move_to_allowed(s, actor=admin, org_id=org.id, block_row_id=bl.id,
-                                reason=None)
-                assert False, "baseline flip without reason must be rejected (C3)"
-            except PolicyAuthzError:
-                s.rollback()
-            bl2 = s.execute(select(BlacklistedTool).where(
-                BlacklistedTool.org_id == org.id,
-                BlacklistedTool.domain == _ZBASE)).scalars().first()
-            was_override = move_to_allowed(s, actor=admin, org_id=org.id,
-                                           block_row_id=bl2.id,
-                                           reason="research use, approved")
-            assert was_override is True
-            ov2 = s.execute(select(ApprovedTool).where(
-                ApprovedTool.org_id == org.id,
-                ApprovedTool.domain_pattern == _ZBASE)).scalars().first()
-            assert ov2 is not None and ov2.overrides_giggso is True
-            assert ov2.valid_until is not None       # C4 expiry auto-applied
-
-            # 12. cross-org write refused (PR#8 defence-in-depth): an org admin
+            # 10. cross-org write refused (PR#8 defence-in-depth): an org admin
             #     cannot write into a DIFFERENT org even if org_id is forged.
             import uuid as _uuid
             try:
@@ -163,51 +128,9 @@ def _run():
             except PolicyAuthzError:
                 s.rollback()
 
-            # 13. deny-override (allow what a WIDER scope blocked) — D1-D7.
-            proj = Project(org_id=org.id, slug="zdo", display_name="ZDO")
-            s.add(proj); s.flush()
-            s.add(ProjectMember(project_id=proj.id, user_id=member.id)); s.flush()
-            add_blacklisted(s, actor=admin, org_id=org.id, scope="org",
-                            domain="wider.ai", severity="HIGH")
-            _exp = date.today() + timedelta(days=30)
-            # D1: non-admin cannot grant
-            try:
-                grant_deny_override(s, actor=member, org_id=org.id, scope="project",
-                                    project_id=proj.id, provider_pattern="wider.ai",
-                                    reason="r", valid_until=_exp)
-                assert False, "non-admin deny-override must be refused (D1)"
-            except PolicyAuthzError:
-                s.rollback()
-            # scope=org rejected (only project/user)
-            try:
-                grant_deny_override(s, actor=admin, org_id=org.id, scope="org",
-                                    provider_pattern="wider.ai", reason="r",
-                                    valid_until=_exp)
-                assert False, "org-scope deny-override must be refused"
-            except PolicyAuthzError:
-                s.rollback()
-            # D3: no reason rejected
-            try:
-                grant_deny_override(s, actor=admin, org_id=org.id, scope="project",
-                                    project_id=proj.id, provider_pattern="wider.ai",
-                                    reason="  ", valid_until=_exp)
-                assert False, "reasonless deny-override must be refused (D3)"
-            except PolicyAuthzError:
-                s.rollback()
-            # valid grant → overrides_deny row, and the waterfall resolves it
-            row = grant_deny_override(s, actor=admin, org_id=org.id, scope="project",
-                                      project_id=proj.id, provider_pattern="wider.ai",
-                                      reason="research, time-boxed", valid_until=_exp)
-            assert row.overrides_deny is True
-            ctx = load_policy_context(s, org_id=org.id, user_id=member.id,
-                                      project_ids=[proj.id])
-            assert "wider.ai" in ctx.deny_override_project
-            assert policy_tier("wider.ai", ctx) == "deny_override_project"
-
-            print("PASS test_governance_crud_authz (13 checks)")
+            print("PASS test_governance_crud_authz (10 checks)")
         finally:
             s.execute(delete(Org).where(Org.slug == "ztest-crud"))
-            s.execute(delete(GiggsoBaselineDeny).where(GiggsoBaselineDeny.domain == _ZBASE))
             s.commit()
 
 

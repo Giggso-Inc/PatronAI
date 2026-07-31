@@ -120,6 +120,12 @@ def main():
     store    = build_store()
     seed_config_files(store)          # push bundled CSVs → S3 on every startup
     self_check_rules()                # validate merged rule counts; emit self-alert if low
+
+    # Policy-DB seed (ADR_2026-07-31) — runs on every service restart, not
+    # lazily on whichever Streamlit session loads first. No-op if
+    # DATABASE_URL isn't set (CSV-only mode).
+    from db.seed_bootstrap import seed_policy_db_from_s3
+    seed_policy_db_from_s3()
     settings = load_settings(store)
     resolver = build_resolver(store, settings)
     maybe_backfill(store)

@@ -1,36 +1,29 @@
 # =============================================================
 # FILE: routers/ravenhub_governance_writes_lists.py
-# VERSION: 1.0.0
-# UPDATED: 2026-07-21
+# VERSION: 2.0.0
+# UPDATED: 2026-07-31
 # OWNER: Giggso Inc
 # PURPOSE: Write actions for Provider Governance's Newly Found triage
 #          and This-scope lists — approve, block, flip (allow<->block),
 #          remove. Mirrors provider_governance.py's _newly_found() and
-#          _list_block() action buttons.
-#          POST /governance/approve          — add_approved (plain;
-#                                               NOT the guarded Giggso
-#                                               override — see
-#                                               ravenhub_governance_
-#                                               writes_overrides.py for
-#                                               that, on purpose, so a
-#                                               stray flag here can't
-#                                               grant one).
+#          _list_block() action buttons. Fully open (ADR_2026-07-31) — no
+#          reason/approver/expiry requirement anywhere; there is no more
+#          guarded-override endpoint to route around.
+#          POST /governance/approve          — add_approved (plain).
 #          POST /governance/block            — add_blacklisted.
-#          POST /governance/move-to-allowed   — flip block->allow
-#                                               (guarded override if the
-#                                               pattern is Giggso-blocked
-#                                               — governance_crud decides).
+#          POST /governance/move-to-allowed   — flip block->allow.
 #          POST /governance/move-to-blocked   — flip allow->block.
 #          POST /governance/remove            — remove an entry.
 #          All authz is enforced by db/governance_crud.py
-#          (_check_scope_authz, validate_override_request) against the
-#          `actor` resolved from the verified X-Raven-Identity email via
-#          db.policy_queries.get_identity — never trust a client-supplied
-#          actor/org_id. PolicyAuthzError -> 403, with the same message
-#          governance_crud raises (already descriptive, e.g. "D3: no
-#          reason").
+#          (_check_scope_authz, plus the OQ-4 opposite-polarity guard)
+#          against the `actor` resolved from the verified X-Raven-Identity
+#          email via db.policy_queries.get_identity — never trust a
+#          client-supplied actor/org_id. PolicyAuthzError -> 403.
 # AUDIT LOG:
 #   v1.0.0  2026-07-21  Initial — 5 write endpoints.
+#   v2.0.0  2026-07-31  ADR_2026-07-31: dropped the guarded-override framing
+#                       and the now-removed valid_until param from
+#                       move-to-allowed (that flip is plain and reasonless).
 # =============================================================
 
 import datetime as _dt
@@ -79,7 +72,6 @@ class BlockRequest(BaseModel):
 class MoveToAllowedRequest(BaseModel):
     block_row_id: str
     reason: Optional[str] = None
-    valid_until: Optional[str] = None
 
 
 class MoveToBlockedRequest(BaseModel):
@@ -94,8 +86,7 @@ class RemoveRequest(BaseModel):
 
 @router.post("/governance/approve", response_model=ActionResponse)
 def approve_provider(body: ApproveRequest, email: str = Depends(verify_ravenhub_identity)) -> ActionResponse:
-    """Plain allow-list add — never sets overrides_giggso. To permit a
-    Giggso-blocked tool, use POST /governance/override instead."""
+    """Plain allow-list add — fully open (ADR_2026-07-31)."""
     from db.engine import get_session
     from db.governance_crud import PolicyAuthzError, add_approved
     with get_session() as s:
@@ -131,22 +122,20 @@ def block_provider(body: BlockRequest, email: str = Depends(verify_ravenhub_iden
 
 @router.post("/governance/move-to-allowed", response_model=ActionResponse)
 def move_to_allowed_provider(body: MoveToAllowedRequest, email: str = Depends(verify_ravenhub_identity)) -> ActionResponse:
-    """Flip a blocked entry to allowed. If the pattern is Giggso-baseline,
-    governance_crud routes it through the guarded override automatically
-    (reason required) — same as provider_governance.py's flip action."""
+    """Flip a blocked entry to allowed — fully open, no reason required
+    (ADR_2026-07-31)."""
     from db.engine import get_session
     from db.governance_crud import PolicyAuthzError, move_to_allowed
     with get_session() as s:
         actor, org_id = _resolve_actor(s, email)
         try:
-            was_override = move_to_allowed(
+            move_to_allowed(
                 s, actor=actor, org_id=org_id, block_row_id=body.block_row_id,
-                reason=body.reason, valid_until=_date(body.valid_until),
+                reason=body.reason,
             )
         except PolicyAuthzError as exc:
             raise HTTPException(status_code=403, detail=str(exc))
-    extra = " (guarded Giggso override)" if was_override else ""
-    return ActionResponse(ok=True, message=f"Moved to allowed{extra}.")
+    return ActionResponse(ok=True, message="Moved to allowed.")
 
 
 @router.post("/governance/move-to-blocked", response_model=ActionResponse)

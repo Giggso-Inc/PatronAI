@@ -47,14 +47,13 @@ def render_user_detail(events: list, email: str) -> None:
         st.rerun()
 
 
+# ADR_2026-07-31: no more Giggso tier/override tiers — org owns the only
+# deny list; scoring waterfall is scope-first (user > project > org).
 _TIER_LABEL = {
-    "giggso_deny": "🔴 Giggso deny", "org_deny": "🔴 Org deny",
-    "project_deny": "🔴 Project deny", "user_deny": "🔴 User deny",
-    "org_approve": "🟢 Org approved", "project_approve": "🟢 Project approved",
-    "user_ack": "🟢 User approved", "giggso_override": "🟠 Giggso override (org)",
-    "giggso_override_project": "🟠 Giggso override (project)",
-    "giggso_override_user": "🟠 Giggso override (user)",
-    "unknown": "⚪ Unknown",
+    "org_deny": "🔴 Org deny", "project_deny": "🔴 Project deny",
+    "user_deny": "🔴 User deny", "org_approve": "🟢 Org approved",
+    "project_approve": "🟢 Project approved", "user_ack": "🟢 User approved",
+    "unknown": "⚪ Unclassified — pending review",
 }
 
 # Severity dot shown on the COLLAPSED category bar (so severity reads before opening).

@@ -1,18 +1,25 @@
 # =============================================================
 # FILE: src/scoring/policy.py
-# VERSION: 1.0.0
-# UPDATED: 2026-06-29
+# VERSION: 2.0.0
+# UPDATED: 2026-07-31
 # OWNER: Giggso Inc
-# PURPOSE: Pure policy-waterfall logic (ADR_2026-06-29). Given a
-#          provider string and a resolved PolicyContext, return the tier
-#          and its score multiplier. No I/O — the context is built
-#          elsewhere (policy_resolver) from CSV today / Postgres later.
+# PURPOSE: Pure policy-waterfall logic. Given a provider string and a
+#          resolved PolicyContext, return the tier and its score
+#          multiplier. No I/O — the context is built elsewhere
+#          (policy_resolver / policy_queries).
 #
-# WATERFALL (deny beats approve; short-circuit on first match):
-#   giggso_deny ×3.0  (→ ×0.5 if org explicitly overrode it)
-#   org_deny / project_deny / user_deny ×2.0
-#   org_approve ×0.1 / project_approve ×0.15 / user_ack ×0.5
-#   unknown ×1.0
+# WATERFALL (ADR_2026-07-31 — scope-first, "most-specific-wins"):
+#   user rule (allow OR deny)    wins outright, whichever polarity it is
+#   project rule (allow OR deny) wins if no user-scope rule exists
+#   org rule (allow OR deny)     wins if no project/user-scope rule exists
+#   unknown ×1.0-equivalent      → treated as deny-weight (see
+#                                  scoring_weights.DENY_MULTIPLIER) but kept
+#                                  as a DISTINCT tier name ("unknown") so the
+#                                  UI can show it as unclassified, not denied.
+#
+# A pattern can never hold both an allow and a deny row at the SAME scope
+# (OQ-4) — enforced at the write path (db.governance_crud) and by a DB
+# trigger, so no same-scope tie-break is needed here.
 # =============================================================
 
 import fnmatch
@@ -47,25 +54,17 @@ def _matches(provider: str, patterns: set) -> bool:
 @dataclass
 class PolicyContext:
     """Resolved allow/deny pattern sets for ONE user, across scopes.
-    Every set holds normalised (lowercase) provider glob patterns."""
-    giggso_deny:     set = field(default_factory=set)
+    Every set holds normalised (lowercase) provider glob patterns.
+
+    No `giggso_*` / `*_override` / `deny_override_*` fields — removed by
+    ADR_2026-07-31 along with the Giggso baseline tier and the guarded-
+    override machinery that existed only to protect it."""
     org_deny:        set = field(default_factory=set)
-    project_deny:       set = field(default_factory=set)
+    project_deny:    set = field(default_factory=set)
     user_deny:       set = field(default_factory=set)
     org_approve:     set = field(default_factory=set)
-    project_approve:    set = field(default_factory=set)
+    project_approve: set = field(default_factory=set)
     user_ack:        set = field(default_factory=set)
-    # Providers an org admin explicitly overrode despite a Giggso block,
-    # bucketed by the scope the override was granted at (org/project/user).
-    giggso_override:         set = field(default_factory=set)   # org scope
-    giggso_override_project: set = field(default_factory=set)
-    giggso_override_user:    set = field(default_factory=set)
-    # Providers an org admin permitted at a NARROWER scope despite a WIDER
-    # org/project deny (deny-override; security_log 2026-07-03 D1-D7). Bucketed
-    # by the grant scope. NEVER touches the Giggso floor (giggso_deny resolves
-    # first in the waterfall).
-    deny_override_project:   set = field(default_factory=set)   # granted at a project
-    deny_override_user:      set = field(default_factory=set)   # granted at a user
 
     @classmethod
     def empty(cls) -> "PolicyContext":
@@ -73,40 +72,25 @@ class PolicyContext:
 
 
 def policy_tier(provider: str, ctx: PolicyContext) -> str:
-    """Return the winning waterfall tier name for a provider."""
-    # 1. Giggso baseline deny — unless explicitly overridden. Most-specific
-    #    scope wins (user > project > org); each has its own capped weight.
-    if _matches(provider, ctx.giggso_deny):
-        if _matches(provider, ctx.giggso_override_user):
-            return "giggso_override_user"
-        if _matches(provider, ctx.giggso_override_project):
-            return "giggso_override_project"
-        if _matches(provider, ctx.giggso_override):
-            return "giggso_override"
-        return "giggso_deny"
-    # 2-4. Org / project / user deny (deny always beats approve). A wider deny
-    #      may be overridden at a NARROWER grant scope (org-admin only, guarded,
-    #      band-floored) — most-specific grant wins. This never reaches a Giggso
-    #      block: giggso_deny already returned above (D4).
-    if _matches(provider, ctx.org_deny):
-        if _matches(provider, ctx.deny_override_user):
-            return "deny_override_user"
-        if _matches(provider, ctx.deny_override_project):
-            return "deny_override_project"
-        return "org_deny"
-    if _matches(provider, ctx.project_deny):
-        if _matches(provider, ctx.deny_override_user):   # only a narrower (user) grant
-            return "deny_override_user"
-        return "project_deny"
+    """Return the winning waterfall tier name for a provider.
+
+    Scope-first ("most-specific-wins", ADR_2026-07-31): a user-scope rule —
+    allow OR deny — always wins outright over project, which always wins
+    over org. Polarity (allow vs deny) only decides which of the two rules
+    AT THE SAME SCOPE applies, and OQ-4 guarantees a scope can never hold
+    both for the same pattern, so no tie-break is needed."""
     if _matches(provider, ctx.user_deny):
         return "user_deny"
-    # 5-7. Approvals, most-authoritative scope first.
-    if _matches(provider, ctx.org_approve):
-        return "org_approve"
-    if _matches(provider, ctx.project_approve):
-        return "project_approve"
     if _matches(provider, ctx.user_ack):
         return "user_ack"
+    if _matches(provider, ctx.project_deny):
+        return "project_deny"
+    if _matches(provider, ctx.project_approve):
+        return "project_approve"
+    if _matches(provider, ctx.org_deny):
+        return "org_deny"
+    if _matches(provider, ctx.org_approve):
+        return "org_approve"
     return "unknown"
 
 

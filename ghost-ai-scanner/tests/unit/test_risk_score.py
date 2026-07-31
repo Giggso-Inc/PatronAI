@@ -167,8 +167,11 @@ def test_org_denied_tool_is_upweighted():
     assert denied > plain
 
 
-def test_deny_beats_approve():
-    """If a provider is both approved and denied, deny wins."""
+def test_deny_beats_approve_at_the_same_scope():
+    """If a provider is both approved and denied AT THE SAME SCOPE, deny
+    wins the tie (OQ-4 makes this state unreachable via the real write
+    path — governance_crud rejects it — but policy_tier() itself still
+    must resolve deterministically if ever constructed directly)."""
     rows = [_prow("conflict.ai", sev="HIGH", cat="browser")]
     ctx = PolicyContext(org_approve={"conflict.ai"}, org_deny={"conflict.ai"})
     s_both = risk_score(rows, ctx)
@@ -176,42 +179,17 @@ def test_deny_beats_approve():
     assert s_both > s_approve  # deny multiplier applied, not approve
 
 
-def test_giggso_override_caps_below_baseline_deny():
-    """An overridden Giggso-deny lands at ×0.5, well below the ×3.0 floor."""
+def test_user_allow_beats_org_deny_scope_first():
+    """ADR_2026-07-31: scope-first precedence — a user-scope allow now wins
+    outright over an org-scope deny (the opposite of the old
+    polarity-first waterfall, which this replaces)."""
     rows = [_prow("ollama", sev="HIGH", cat="process")]
-    blocked = risk_score(rows, PolicyContext(giggso_deny={"ollama"}))
-    overridden = risk_score(
-        rows, PolicyContext(giggso_deny={"ollama"}, giggso_override={"ollama"})
+    org_denied = risk_score(rows, PolicyContext(org_deny={"ollama"}))
+    user_allowed = risk_score(
+        rows, PolicyContext(org_deny={"ollama"}, user_ack={"ollama"})
     )
-    assert overridden < blocked
-
-
-def test_override_enforces_medium_band_floor_c2():
-    """C2: an overridden baseline tool can't pull the device below MEDIUM."""
-    rows = [_prow("ollama", sev="HIGH", cat="browser")]
-    ctx = PolicyContext(giggso_deny={"ollama"}, giggso_override={"ollama"})
-    s = risk_score(rows, ctx)
-    assert s >= 15                       # OVERRIDE_BAND_FLOOR
-    assert risk_band(s) not in ("CLEAN", "LOW")
-
-
-def test_deny_override_enforces_medium_band_floor():
-    """A deny-override (allow what a wider scope blocked) is band-floored ≥
-    MEDIUM too (D2) — it can't render a device CLEAN/LOW."""
-    rows = [_prow("x", sev="HIGH", cat="browser")]
-    for field_name in ("deny_override_project", "deny_override_user"):
-        ctx = PolicyContext(org_deny={"x"}, **{field_name: {"x"}})
-        s = risk_score(rows, ctx)
-        assert s >= 15 and risk_band(s) not in ("CLEAN", "LOW"), field_name
-
-
-def test_scoped_override_band_floor_all_scopes():
-    """C2 band floor applies to project- and user-scope overrides too."""
-    rows = [_prow("ollama", sev="HIGH", cat="browser")]
-    for field_name in ("giggso_override_project", "giggso_override_user"):
-        ctx = PolicyContext(giggso_deny={"ollama"}, **{field_name: {"ollama"}})
-        s = risk_score(rows, ctx)
-        assert s >= 15 and risk_band(s) not in ("CLEAN", "LOW"), field_name
+    assert user_allowed < org_denied
+    assert risk_band(user_allowed) in ("CLEAN", "LOW")
 
 
 def test_glob_pattern_match_in_policy():
