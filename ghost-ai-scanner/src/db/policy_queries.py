@@ -1,15 +1,20 @@
 # =============================================================
 # FILE: src/db/policy_queries.py
-# VERSION: 1.0.0
-# UPDATED: 2026-06-29
+# VERSION: 2.0.0
+# UPDATED: 2026-07-31
 # OWNER: Giggso Inc
-# PURPOSE: DB-backed policy resolution (Phase C, ADR_2026-06-29).
-#          Builds the SAME scoring.policy.PolicyContext the CSV resolver
-#          produces — so the scoring layer is unchanged when the backend
-#          swaps. Also the ONE-TIME Giggso baseline seed (guarded by a
-#          schema_migrations marker).
+# PURPOSE: DB-backed policy resolution. Builds the SAME scoring.policy.
+#          PolicyContext the CSV resolver produces — so the scoring layer
+#          is unchanged when the backend swaps.
 #          db/ depends on scoring/ (one-way) — scoring/ never imports db/.
 # DEPENDS: sqlalchemy, scoring.policy
+# AUDIT LOG:
+#   v1.0.0  2026-06-29  Initial (Phase C) + one-time Giggso baseline seed.
+#   v2.0.0  2026-07-31  ADR_2026-07-31: removed seed_giggso_baseline() and
+#                       the Giggso baseline read in load_policy_context() —
+#                       the starter deny content is now seeded straight into
+#                       each org's own org-scope BlacklistedTool rows by
+#                       db.seeding.seed_org_lists(), not a separate table.
 # =============================================================
 
 import datetime as _dt
@@ -17,46 +22,8 @@ import datetime as _dt
 from sqlalchemy import select
 
 from db.models_identity import ProjectMember, User
-from db.models_policy import (
-    ApprovedTool, BlacklistedTool, GiggsoBaselineDeny, SchemaMigration,
-)
+from db.models_policy import ApprovedTool, BlacklistedTool
 from scoring.policy import PolicyContext, _norm
-
-GIGGSO_SEED_MARKER = "giggso_baseline_seed_v1"
-
-
-# ── One-time Giggso baseline seed ─────────────────────────────────────
-
-def seed_giggso_baseline(session, baseline_rows) -> int:
-    """Insert the Giggso baseline (from config/unauthorized.csv rows) into
-    giggso_baseline_deny. IDEMPOTENT BY DATA: dedups on `domain`, so it is
-    safe to re-run every startup without duplicating rows (no fragile marker
-    gate). Returns the count of NEW rows inserted."""
-    existing = {d for (d,) in session.execute(select(GiggsoBaselineDeny.domain))}
-    inserted = 0
-    for row in baseline_rows or []:
-        domain = _norm(row.get("domain"))
-        if not domain or domain.startswith("#") or domain in existing:
-            continue
-        existing.add(domain)
-        sev = (row.get("severity") or "").strip().upper() or None
-        if sev not in (None, "LOW", "MEDIUM", "HIGH", "CRITICAL"):
-            sev = None
-        port = row.get("port")
-        try:
-            port = int(port) if str(port).strip() not in ("", "None") else None
-        except (TypeError, ValueError):
-            port = None
-        session.add(GiggsoBaselineDeny(
-            name=(row.get("name") or None),
-            category=(row.get("category") or None),
-            domain=domain, port=port, severity=sev,
-            notes=(row.get("notes") or None),
-        ))
-        inserted += 1
-
-    session.commit()
-    return inserted
 
 
 # ── DB → PolicyContext ────────────────────────────────────────────────
@@ -73,18 +40,14 @@ def load_policy_context(session, *, org_id=None, user_id=None,
                         project_ids=()) -> PolicyContext:
     """Resolve a PolicyContext for one user from the policy DB.
 
-    Approvals/denies are filtered by scope + (for time-boxed user acks)
-    expiry. overrides_giggso rows feed the giggso_override set (capped
-    ×0.5 tier), NOT org_approve — so a baseline tool is never silently
-    cleared to ×0.1."""
+    Approvals/denies are filtered by scope + (for time-boxed entries)
+    expiry. No Giggso baseline, no override tiers (ADR_2026-07-31) — org's
+    starter deny content lives as plain org-scope BlacklistedTool rows,
+    seeded once per org by db.seeding.seed_org_lists()."""
     project_ids = set(project_ids or ())
     ctx = PolicyContext.empty()
 
-    # Giggso baseline deny — global.
-    for (dom,) in session.execute(select(GiggsoBaselineDeny.domain)):
-        ctx.giggso_deny.add(_norm(dom))
-
-    # Approvals (incl. overrides) — scoped + expiry-checked.
+    # Approvals — scoped + expiry-checked.
     for t in session.execute(
         select(ApprovedTool).where(ApprovedTool.org_id == org_id)
     ).scalars():
@@ -92,21 +55,6 @@ def load_policy_context(session, *, org_id=None, user_id=None,
             continue
         pat = _norm(t.domain_pattern)
         if not pat:
-            continue
-        if t.overrides_giggso:
-            if t.scope == "org":
-                ctx.giggso_override.add(pat)
-            elif t.scope == "project" and t.project_id in project_ids:
-                ctx.giggso_override_project.add(pat)
-            elif t.scope == "user" and t.user_id == user_id:
-                ctx.giggso_override_user.add(pat)
-            continue
-        if getattr(t, "overrides_deny", False):
-            # permits a WIDER-denied tool at this narrower grant scope
-            if t.scope == "project" and t.project_id in project_ids:
-                ctx.deny_override_project.add(pat)
-            elif t.scope == "user" and t.user_id == user_id:
-                ctx.deny_override_user.add(pat)
             continue
         if t.scope == "org":
             ctx.org_approve.add(pat)

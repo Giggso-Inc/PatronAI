@@ -1,13 +1,17 @@
 # =============================================================
 # FILE: src/scoring/policy_resolver.py
-# VERSION: 1.0.0
-# UPDATED: 2026-06-29
+# VERSION: 2.0.0
+# UPDATED: 2026-07-31
 # OWNER: Giggso Inc
 # PURPOSE: Build a PolicyContext from already-loaded list rows (PURE —
-#          callers do the S3/DB I/O). Phase A: org-scope context from the
-#          existing CSVs. Phase C will add a Postgres-backed builder that
-#          fills project/user/override scopes; the scoring layer never
-#          changes when the backend swaps (same PolicyContext out).
+#          callers do the S3/DB I/O). CSV-mode (no DATABASE_URL) org-scope
+#          context; the DB-backed builder (policy_queries.load_policy_context)
+#          fills project/user scopes for the same PolicyContext shape.
+# AUDIT LOG:
+#   v1.0.0  2026-06-29  Initial (Phase A).
+#   v2.0.0  2026-07-31  ADR_2026-07-31: no more separate `giggso_deny` —
+#                       the Giggso-authored baseline rows fold into
+#                       `org_deny` like any other org-scope deny content.
 # =============================================================
 
 from collections.abc import Iterable
@@ -32,12 +36,14 @@ def context_from_csv(
     authorized_code: Iterable[dict] = (),     # config/authorized_code.csv (org allow, code/tools)
     unauthorized_custom: Iterable[dict] = (), # config/unauthorized_custom.csv (org deny)
     unauthorized_code_custom: Iterable[dict] = (),  # org deny, code
-    giggso_baseline: Iterable[dict] = (),     # config/unauthorized.csv (Giggso baseline deny)
+    giggso_baseline: Iterable[dict] = (),     # config/unauthorized.csv — starter deny content;
+                                               # folds into org_deny, no separate tier (ADR_2026-07-31)
 ) -> PolicyContext:
-    """Org-scope PolicyContext from the existing CSV rows (Phase A).
+    """Org-scope PolicyContext from the existing CSV rows.
 
-    Project/user/override scopes stay empty here — they require the policy DB
-    (Phase C/E). The match key is a provider glob (domain OR tool id)."""
+    Project/user scopes stay empty here — they require the policy DB
+    (policy_queries.load_policy_context). The match key is a provider glob
+    (domain OR tool id)."""
     return PolicyContext(
         org_approve=(
             _patterns(authorized, "name", "domain_pattern")
@@ -46,6 +52,6 @@ def context_from_csv(
         org_deny=(
             _patterns(unauthorized_custom, "name", "domain")
             | _patterns(unauthorized_code_custom, "name", "pattern")
+            | _patterns(giggso_baseline, "domain")
         ),
-        giggso_deny=_patterns(giggso_baseline, "domain"),
     )

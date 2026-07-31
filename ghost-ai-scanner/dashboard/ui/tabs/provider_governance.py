@@ -1,14 +1,14 @@
 # =============================================================
 # FILE: dashboard/ui/tabs/provider_governance.py
-# VERSION: 4.5.0
-# UPDATED: 2026-07-03
+# VERSION: 5.0.0
+# UPDATED: 2026-07-31
 # OWNER: Giggso Inc
 # PURPOSE: Provider Governance tab. DB mode has two sub-tabs:
 #   • Overview — every provider by category with its status at EVERY scope
-#     (Giggso / Org / Project / User): 🔴 deny · 🟢 allow · · none.
+#     (Org / Project / User): 🔴 deny · 🟢 allow · · none.
 #   • Manage   — scope selector + Newly Found (grouped by category→family,
 #     family-glob one-click + multi-select bulk) + Current lists (sortable
-#     tables w/ multiselect remove) + guarded Giggso override.
+#     tables w/ multiselect remove, fully-open flip allow<->block).
 #   CSV mode (no DATABASE_URL) keeps the simple org allow/block flow.
 #   Family collapse uses scoring.provider_family (glob rules; backend already
 #   matches globs). Views/CRUD/authz are unit+integration tested.
@@ -37,12 +37,13 @@
 #   v4.4.1  2026-07-03  Source that control from the DB allow-lists (eff), not
 #                       observed events — works with no recent scans and lists
 #                       exactly what the wider scope approved (DB = source of truth).
-#   v4.5.0  2026-07-03  (b) Giggso override is now DB-driven (from eff.giggso_deny,
-#                       not observed events). (a) New "Allow a tool a wider scope
-#                       BLOCKED" action (deny-override) at project/user scope —
-#                       org-admin only, capped ×0.6/×0.7, band-floored, 90-day
-#                       expiry, EXCLUDES Giggso-blocked tools (D4). security_log
-#                       2026-07-03 D1-D7.
+#   v4.5.0  2026-07-03  (superseded) Giggso override + deny-override UI —
+#                       removed in v5.0.0.
+#   v5.0.0  2026-07-31  ADR_2026-07-31: removed the Giggso column (Overview),
+#                       _override_section/_deny_override_section (Manage),
+#                       and every giggso_*/deny_override_* tag/state. Added a
+#                       distinct "Unclassified" tag (OQ-3) so a brand-new
+#                       provider never reads the same as an explicit deny.
 # =============================================================
 
 import os
@@ -59,15 +60,12 @@ from scoring.provider_family import is_family, provider_family    # noqa: E402
 from . import provider_lists_io as _io                            # noqa: E402
 
 _TAG = {
-    "giggso_deny": "🔴 Giggso baseline", "org_deny": "🔴 Org deny",
-    "project_deny": "🔴 Project deny", "user_deny": "🔴 User deny",
-    "org_approve": "🟢 Org approved", "project_approve": "🟢 Project approved",
-    "user_ack": "🟢 User approved", "giggso_override": "🟠 Giggso override (org)",
-    "giggso_override_project": "🟠 Giggso override (project)",
-    "giggso_override_user": "🟠 Giggso override (user)",
-    "deny_override_project": "🟠 Deny override (project)",
-    "deny_override_user": "🟠 Deny override (user)",
-    "unknown": "⚪ Unknown",
+    "org_deny": "🔴 Org deny", "project_deny": "🔴 Project deny",
+    "user_deny": "🔴 User deny", "org_approve": "🟢 Org approved",
+    "project_approve": "🟢 Project approved", "user_ack": "🟢 User approved",
+    # Distinct from every deny tag above (OQ-3) — scores at deny-weight but
+    # must never be visually confused with a reviewed, explicit denial.
+    "unknown": "⚪ Unclassified — pending review",
 }
 _CAT_LABEL = {
     "ide_plugin": "IDE Plugin", "mcp_server": "MCP Server", "vector_db": "Vector DB",
@@ -83,7 +81,16 @@ _DENY_COLS = ["name", "category", "domain", "port", "severity", "notes"]
 
 
 def _cat_title(cat: str) -> str:
-    return _CAT_LABEL.get(cat, (cat or "unknown").replace("_", " ").title())
+    """Snake_case internal slugs ("shell_history") get Title-Cased; CSV
+    categories ("AI Coding Assistants", "Major LLM APIs") are already
+    human-formatted and must pass through unchanged — str.title() would
+    mangle their acronyms (LLM -> Llm, APIs -> Apis)."""
+    if cat in _CAT_LABEL:
+        return _CAT_LABEL[cat]
+    cat = cat or "unknown"
+    if "_" in cat or cat.islower():
+        return cat.replace("_", " ").title()
+    return cat
 
 
 def render(is_admin: bool, events: list, policy_context=None, email: str = "") -> None:
@@ -138,13 +145,10 @@ def _render_db(is_admin, email, events) -> None:
                                           project_ids=tgt_projects)
                 providers = all_providers(events, eff)
                 providers = _augment_with_configured_only(providers, eff)
-                # 1) INHERITED — what governs this scope from above (read-only)
-                #    followed by the guarded action that loosens it.
+                # 1) INHERITED — what governs this scope from a wider one,
+                #    unless a rule at THIS scope is added (fully open, no
+                #    guarded-override step — ADR_2026-07-31).
                 _inherited_lists(scope, providers, eff)
-                _override_section(s, actor, org_id, is_admin, scope, project_id,
-                                  user_id, eff)
-                _deny_override_section(s, actor, org_id, is_admin, scope,
-                                       project_id, user_id, eff)
                 st.divider()
                 # 2) RAVENHUB FLAGGED — pending requests forwarded from RavenHub
                 #    (Phase 2/3 of the raven<->patron MCP-governance-sync
@@ -191,10 +195,8 @@ def _augment_with_configured_only(providers: list, ctx) -> list:
     # same provider can never appear twice.
     observed = {_norm(p["provider"]) for p in providers}
     patterns = set()
-    for attr in ("giggso_deny", "org_deny", "project_deny", "user_deny",
-                "org_approve", "project_approve", "user_ack",
-                "giggso_override", "giggso_override_project", "giggso_override_user",
-                "deny_override_project", "deny_override_user"):
+    for attr in ("org_deny", "project_deny", "user_deny",
+                "org_approve", "project_approve", "user_ack"):
         patterns |= set(getattr(ctx, attr, set()) or set())
     new_names = patterns - observed
     return providers + [{
@@ -213,19 +215,30 @@ def _configured_only_providers(provs: list, ap: list, dn: list) -> list:
     OBSERVED events — see all_providers()) shows nothing for it at all, so a
     real governance decision reads as "nothing happened" until some future
     scan happens to see it. Pure function — no Streamlit/DB dependency — so
-    it's directly unit-testable."""
+    it's directly unit-testable.
+
+    Category (2026-08-XX fix): a BlacklistedTool row carries its real CSV
+    category (e.g. "AI Coding Assistants") since db.seeding started
+    persisting it — use it instead of always falling back to "unknown".
+    ApprovedTool has no category column, so approve-only patterns keep the
+    mcp_server/unknown heuristic."""
     from scoring.policy import _norm
     # See _augment_with_configured_only's comment (F01, 2026-07-27 review) —
     # same case-sensitivity fix: ap/dn patterns are always already-lowercase;
     # `provs`' raw event provider strings are not guaranteed to be.
     observed = {_norm(p["provider"]) for p in provs}
-    names = {r.domain_pattern for r in ap if r.domain_pattern not in observed}
-    names |= {r.domain for r in dn if r.domain not in observed}
+    cat_by_pattern: dict = {}
+    for r in dn:
+        if r.domain not in observed:
+            cat_by_pattern[r.domain] = getattr(r, "category", None) or None
+    for r in ap:
+        if r.domain_pattern not in observed:
+            cat_by_pattern.setdefault(r.domain_pattern, None)
     return [{
         "provider": name,
-        "category": "mcp_server" if name.startswith("mcp:") else "unknown",
+        "category": cat or ("mcp_server" if name.startswith("mcp:") else "unknown"),
         "max_severity": "", "finding_count": 0,
-    } for name in sorted(names)]
+    } for name, cat in sorted(cat_by_pattern.items())]
 
 
 def _overview(s, org_id, events) -> None:
@@ -235,13 +248,12 @@ def _overview(s, org_id, events) -> None:
     from sqlalchemy import select
     from scoring.policy import _matches, _norm
     from db.models_identity import Project, User
-    from db.models_policy import ApprovedTool, BlacklistedTool, GiggsoBaselineDeny
+    from db.models_policy import ApprovedTool, BlacklistedTool
 
     proj_name = {p.id: p.display_name for p in
                  s.execute(select(Project).where(Project.org_id == org_id)).scalars()}
     user_name = {u.id: (u.display_name or u.email) for u in
                  s.execute(select(User).where(User.org_id == org_id)).scalars()}
-    giggso = {_norm(d) for (d,) in s.execute(select(GiggsoBaselineDeny.domain))}
     ap = list(s.execute(select(ApprovedTool).where(ApprovedTool.org_id == org_id)).scalars())
     dn = list(s.execute(select(BlacklistedTool).where(BlacklistedTool.org_id == org_id)).scalars())
 
@@ -276,7 +288,6 @@ def _overview(s, org_id, events) -> None:
         with st.expander(f"{_cat_title(cat)}  ·  {len(items)} provider(s)", expanded=False):
             df = pd.DataFrame([{
                 "Provider": p["provider"][:52],
-                "Giggso": "🔴" if _matches(p["provider"], giggso) else "·",
                 "Org": _org_cell(p["provider"]),
                 "Project": _named_cell(p["provider"], "project", proj_name, "project_id"),
                 "User": _named_cell(p["provider"], "user", user_name, "user_id"),
@@ -426,47 +437,37 @@ def _newly_found(s, actor, org_id, scope, project_id, user_id, nf) -> None:
                     except Exception as e: st.error(str(e))
 
 
-# Giggso baseline sits above EVERY scope; org/project rules are inherited by
-# the scopes below them. These tiers are read-only in the current scope.
-# 2026-07-27: approvals (org_approve/project_approve) are now included, not
-# just denials — a project-scope approval (e.g. a RavenHub-approved MCP) is
-# just as much "set at a higher scope" as a denial, and omitting it made a
-# real, already-effective governance decision invisible to anyone viewing at
-# User scope (it was still correctly applied to scoring — see
-# load_policy_context/project_ids_for_user — just never shown here).
-_GIGGSO_TIERS = ("giggso_deny", "giggso_override",
-                 "giggso_override_project", "giggso_override_user")
+# ADR_2026-07-31: precedence is scope-first (user > project > org), so a
+# wider-scope rule only "governs" this scope when NOTHING at this scope (or
+# narrower) overrides it — there's no separate Giggso layer to distinguish
+# from org anymore. "Inherited" here means: the wider-scope rule set that
+# APPLIES UNLESS you add a rule of your own at this scope (adding one is not
+# a guarded action — it's the same Newly Found / Current-lists flow below).
 _INHERITED_TIERS = {
-    "org":     _GIGGSO_TIERS,
-    "project": _GIGGSO_TIERS + ("org_deny", "org_approve"),
-    "user":    _GIGGSO_TIERS + ("org_deny", "project_deny", "org_approve", "project_approve"),
+    "org":     (),
+    "project": ("org_deny", "org_approve"),
+    "user":    ("org_deny", "project_deny", "org_approve", "project_approve"),
 }
 # Per-tier "State" label for the observed-inherited table.
 _STATE = {
-    "giggso_deny": "Blocked ×3.0",
-    "giggso_override": "Overridden · org ×0.5",
-    "giggso_override_project": "Overridden · project ×0.6",
-    "giggso_override_user": "Overridden · user ×0.7",
-    "org_deny": "Blocked · org",
-    "project_deny": "Blocked · project",
-    "org_approve": "Allowed · org",
-    "project_approve": "Allowed · project",
+    "org_deny": "Blocked · org", "project_deny": "Blocked · project",
+    "org_approve": "Allowed · org", "project_approve": "Allowed · project",
 }
 
 
 def _inherited_lists(scope, providers, eff) -> None:
-    """What governs this scope but is MANAGED ABOVE it (read-only here):
-      1) observed providers that hit an inherited Giggso/org/project rule
-         (incl. ones already overridden — shown with their override state);
-      2) a collapsible view of the full inherited blocklist *policy*
-         (the Giggso baseline + any org/project deny globs), independent of
-         what's been observed. A Giggso rule is loosened only via the guarded
-         override action below; org/project denies are edited at their scope."""
+    """What governs this scope from a WIDER one, unless a rule at THIS scope
+    (or narrower) exists for the same provider:
+      1) observed providers that currently resolve to a wider-scope tier;
+      2) a collapsible view of the full wider-scope policy, independent of
+         what's been observed. Adding a same-scope rule (Newly Found /
+         Current lists below) is all it takes to take precedence — no
+         guarded-override step (ADR_2026-07-31)."""
     tiers = _INHERITED_TIERS.get(scope, ())
     observed = [p for p in providers if p.get("tier") in tiers]
-    st.markdown("**Inherited — applies here, managed above**")
-    st.caption(f"Governs this {scope} but is set at a higher scope — read-only here. "
-               "A Giggso rule is loosened only via the override action below.")
+    st.markdown("**Inherited — applies here unless you set a rule at this scope**")
+    st.caption(f"Governs this {scope} from a wider scope. Add your own allow/deny at "
+               f"{scope} scope (below) to take precedence — no separate override step.")
     if observed:
         st.dataframe(pd.DataFrame([{
             "Provider": p["provider"][:52],
@@ -477,26 +478,28 @@ def _inherited_lists(scope, providers, eff) -> None:
         } for p in sorted(observed, key=lambda x: -(x.get("finding_count") or 0))]),
             use_container_width=True, hide_index=True)
     else:
-        st.caption("No *observed* provider currently hits an inherited block.")
+        st.caption("No *observed* provider currently resolves to a wider-scope rule.")
 
-    # Full inherited blocklist policy (rules, not observations).
-    policy_rows = [("🔴 Giggso baseline", g) for g in sorted(eff.giggso_deny)]
+    # Full inherited policy (rules, not observations).
+    policy_rows = []
     if scope in ("project", "user"):
         policy_rows += [("🔴 Org deny", g) for g in sorted(eff.org_deny)]
+        policy_rows += [("🟢 Org approve", g) for g in sorted(eff.org_approve)]
     if scope == "user":
         policy_rows += [("🔴 Project deny", g) for g in sorted(eff.project_deny)]
+        policy_rows += [("🟢 Project approve", g) for g in sorted(eff.project_approve)]
     if policy_rows:
-        with st.expander(f"Full inherited blocklist policy ({len(policy_rows)} rule(s))",
+        with st.expander(f"Full wider-scope policy ({len(policy_rows)} rule(s))",
                          expanded=False):
             st.dataframe(pd.DataFrame(
-                [{"Blocked by": src, "Pattern": pat} for src, pat in policy_rows]),
+                [{"Set by": src, "Pattern": pat} for src, pat in policy_rows]),
                 use_container_width=True, hide_index=True)
 
 
 def _current_lists(s, actor, org_id, scope, project_id, user_id) -> None:
     """The editable this-scope lists. Each entry can be removed OR flipped to
-    the other list (allow<->block). Flipping a Giggso-baseline provider to
-    allowed is routed through the guarded override (needs a reason)."""
+    the other list (allow<->block) — fully open, no reason/approver/expiry
+    (ADR_2026-07-31)."""
     from db.models_policy import ApprovedTool, BlacklistedTool
     st.markdown(f"**This `{scope}` list** — allow / block set here")
     _list_block(s, actor, org_id, scope, project_id, user_id, "allowed",
@@ -520,7 +523,6 @@ def _list_block(s, actor, org_id, scope, project_id, user_id, word, model, attr)
         df = pd.DataFrame([{
             "Pattern": r.domain_pattern,
             "Expires": str(getattr(r, "valid_until", None) or ""),
-            "Overrides Giggso": bool(getattr(r, "overrides_giggso", False)),
         } for r in rows])
     else:
         df = pd.DataFrame([{
@@ -535,30 +537,19 @@ def _list_block(s, actor, org_id, scope, project_id, user_id, word, model, attr)
     picked = st.multiselect(f"Select {word} entries", list(id_by_label),
                             key=f"sel::{scope}::{key}")
     flip_label = "→ Block selected" if is_allow else "→ Allow selected"
-    reason = ""
-    if not is_allow:
-        reason = st.text_input(
-            "Reason (required only for Giggso-baseline providers)",
-            key=f"mvreason::{scope}::{key}",
-            help="Flipping a Giggso-baseline tool to allowed is an audited "
-                 "override — it needs a reason and gets a 90-day expiry.")
     c1, c2 = st.columns(2)
     with c1:
         if st.button(flip_label, key=f"flip::{scope}::{key}") and picked:
             try:
-                n_over = 0
                 for lbl in picked:
                     if is_allow:
                         move_to_blocked(s, actor=actor, org_id=org_id,
                                         approve_row_id=id_by_label[lbl])
                     else:
-                        if move_to_allowed(s, actor=actor, org_id=org_id,
-                                            block_row_id=id_by_label[lbl],
-                                            reason=reason.strip() or None):
-                            n_over += 1
-                extra = f" ({n_over} via guarded override)" if n_over else ""
+                        move_to_allowed(s, actor=actor, org_id=org_id,
+                                        block_row_id=id_by_label[lbl])
                 dest = "blocked" if is_allow else "allowed"
-                _flash_and_rerun(f"Moved {len(picked)} entry(s) to {dest}{extra}.")
+                _flash_and_rerun(f"Moved {len(picked)} entry(s) to {dest}.")
             except Exception as e:
                 st.error(str(e))
     with c2:
@@ -610,89 +601,6 @@ def _block_wider_allow(s, actor, org_id, scope, project_id, user_id, eff) -> Non
                                 domain=label[pick], severity=sev)
                 _flash_and_rerun(f"Blocked `{label[pick]}` at {scope} scope "
                                  "(overrides the wider allow here).")
-            except Exception as e:
-                st.error(str(e))
-
-
-def _override_section(s, actor, org_id, is_admin, scope, project_id, user_id, eff) -> None:
-    """Grant a Giggso-baseline override at the CURRENT scope (org/project/user).
-    Org-admin only (enforced server-side). Weight: org ×0.5 / project ×0.6 /
-    user ×0.7, band-floored ≥ MEDIUM.
-
-    Candidates come from the DB Giggso baseline in `eff` (not observed events),
-    minus tools already overridden at this scope — so it works with no scans."""
-    import datetime as _dt
-    if not is_admin:
-        return
-    if scope != "org" and not (project_id or user_id):
-        return
-    already = (eff.giggso_override if scope == "org" else
-               eff.giggso_override_project if scope == "project" else
-               eff.giggso_override_user)
-    blocked = sorted(eff.giggso_deny - already)
-    if not blocked:
-        return
-    from db.governance_crud import add_approved
-    weight = {"org": "×0.5", "project": "×0.6", "user": "×0.7"}.get(scope, "×0.5")
-    with st.expander(f"🟠 Override Giggso baseline at {scope} scope "
-                     f"({len(blocked)} blockable) — audited, {weight}, 90-day expiry"):
-        st.caption(f"Permits a Giggso-blocked tool at **{scope}** scope. Stays visible; "
-                   "can never pull a device below MEDIUM (C2). Org-admin only, audited.")
-        prov = st.selectbox("Giggso-blocked tool", blocked, key="ov_prov")
-        reason = st.text_input("Reason (required)", key="ov_reason")
-        if st.button(f"Override ({scope})", key="ov_btn") and prov:
-            if not reason.strip():
-                st.error("A reason is required (C3)."); return
-            try:
-                add_approved(s, actor=actor, org_id=org_id, scope=scope,
-                             project_id=project_id, user_id=user_id, name=prov,
-                             provider_pattern=prov, overrides_giggso=True, reason=reason,
-                             valid_until=_dt.date.today() + _dt.timedelta(days=90))
-                _flash_and_rerun(f"Override recorded for `{prov}` at {scope} scope "
-                                 f"({weight}, expires 90d).")
-            except Exception as e:
-                st.error(str(e))
-
-
-def _deny_override_section(s, actor, org_id, is_admin, scope, project_id, user_id, eff) -> None:
-    """Permit, at project/user scope, a tool a WIDER scope DENIED — the inverse
-    of a block (security_log 2026-07-03, D1-D7). Org-admin only, audited,
-    capped (project ×0.6 / user ×0.7), band-floored ≥ MEDIUM, 90-day expiry.
-
-    Candidates = tools denied by a wider scope (org; +project at user scope),
-    from the DB context. EXCLUDES Giggso-blocked tools (D4) — those use the
-    Giggso override above, never this path."""
-    import datetime as _dt
-    if not is_admin or scope not in ("project", "user") or not (project_id or user_id):
-        return
-    wider_deny = set(eff.org_deny)
-    if scope == "user":
-        wider_deny |= set(eff.project_deny)
-    already = eff.deny_override_project | eff.deny_override_user
-    cands = sorted(wider_deny - set(eff.giggso_deny) - already)   # D4: never Giggso
-    if not cands:
-        return
-    from db.governance_crud import grant_deny_override
-    weight = {"project": "×0.6", "user": "×0.7"}[scope]
-    with st.expander(f"🟠 Allow a tool a wider scope BLOCKED — at {scope} scope "
-                     f"({len(cands)} available) — audited, {weight}, 90-day expiry"):
-        st.caption(f"Permits, for this {scope} only, a tool the org"
-                   f"{'/project' if scope == 'user' else ''} denied. Org-admin only, "
-                   "audited, band-floored ≥ MEDIUM (never CLEAN/LOW). Giggso-blocked "
-                   "tools are not here — use the Giggso override above.")
-        prov = st.selectbox("Denied tool to permit", cands, key="do_prov")
-        reason = st.text_input("Reason (required)", key="do_reason")
-        if st.button(f"Allow at {scope} scope", key="do_btn") and prov:
-            if not reason.strip():
-                st.error("A reason is required (D3)."); return
-            try:
-                grant_deny_override(
-                    s, actor=actor, org_id=org_id, scope=scope,
-                    project_id=project_id, user_id=user_id, name=prov,
-                    provider_pattern=prov, reason=reason,
-                    valid_until=_dt.date.today() + _dt.timedelta(days=90))
-                _flash_and_rerun(f"Deny-override recorded for `{prov}` at {scope} "
-                                 f"scope ({weight}, expires 90d).")
             except Exception as e:
                 st.error(str(e))
 

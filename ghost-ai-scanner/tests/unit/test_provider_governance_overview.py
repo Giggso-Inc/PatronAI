@@ -102,14 +102,14 @@ class TestAugmentWithConfiguredOnly:
         result = _augment_with_configured_only([], ctx)
         assert result[0]["tier"] == "org_approve"
 
-    def test_deny_beats_approve_in_computed_tier(self):
+    def test_user_rule_beats_project_in_computed_tier(self):
         """Sanity check that we reuse the real waterfall (policy_tier), not
-        a naive first-match — a giggso_deny must win even if the same
-        pattern is also in project_approve."""
-        ctx = PolicyContext(giggso_deny={"evil.example.com"},
+        a naive first-match — ADR_2026-07-31 scope-first precedence means
+        the more-specific (user) rule wins even over a project approve."""
+        ctx = PolicyContext(user_deny={"evil.example.com"},
                             project_approve={"evil.example.com"})
         result = _augment_with_configured_only([], ctx)
-        assert result[0]["tier"] == "giggso_deny"
+        assert result[0]["tier"] == "user_deny"
 
     def test_already_observed_provider_is_not_duplicated_and_keeps_its_row(self):
         providers = [{"provider": "mcp:*:gmail", "category": "mcp_server",

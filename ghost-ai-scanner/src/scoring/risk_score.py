@@ -60,7 +60,6 @@ def risk_score(rows: Iterable[dict], policy_context: Optional[PolicyContext] = N
     # 1. Per-provider weight = max weighted finding for that provider
     #    (dedup so one tool spanning many categories isn't double-counted).
     per_provider: dict = defaultdict(float)
-    has_override = False   # any provider on a guarded Giggso override (C2)
     for i, r in enumerate(rows):
         base = _base_weight(r)
         if base <= 0:
@@ -70,9 +69,7 @@ def risk_score(rows: Iterable[dict], policy_context: Optional[PolicyContext] = N
             mult = 1.0
         else:
             tier = policy_tier(provider, policy_context)
-            mult = W.POLICY_MULTIPLIER.get(tier, 1.0)   # unknown tier → neutral
-            if "override" in tier:   # giggso OR deny override, any scope → band floor (C2/D2)
-                has_override = True
+            mult = W.POLICY_MULTIPLIER.get(tier, 1.0)   # unmapped tier → neutral
         weighted = base * mult
         key = _provider_key(r, i)
         if weighted > per_provider[key]:
@@ -94,13 +91,7 @@ def risk_score(rows: Iterable[dict], policy_context: Optional[PolicyContext] = N
     breadth = 1 - 1 / (1 + n_risky)       # 0 when alone; →1 saturating
 
     score = worst_floor + (W.SCORE_CAP - worst_floor) * breadth * W.BREADTH_GAIN
-    score = int(min(W.SCORE_CAP, round(score)))
-
-    # Condition C2: a permitted Giggso-baseline tool can't drag the device
-    # below MEDIUM — never launder a baseline block to CLEAN/LOW.
-    if has_override:
-        score = max(score, W.OVERRIDE_BAND_FLOOR)
-    return score
+    return int(min(W.SCORE_CAP, round(score)))
 
 
 def risk_band(score: int) -> str:

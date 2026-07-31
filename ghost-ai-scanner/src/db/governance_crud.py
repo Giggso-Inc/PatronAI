@@ -1,29 +1,34 @@
 # =============================================================
 # FILE: src/db/governance_crud.py
-# VERSION: 1.3.0
-# UPDATED: 2026-07-03
+# VERSION: 2.0.0
+# UPDATED: 2026-07-31
 # OWNER: Giggso Inc
-# PURPOSE: Write-path for the Provider Governance tab (Phase D) with
-#          SERVER-SIDE authorisation (condition C8 — never trust a client
-#          flag). Add/remove approved & blacklisted entries at org/project/
-#          user scope; baseline overrides additionally pass the C1/C3/C4
-#          guard (override_authz) AND the DB CHECK constraint.
-# DEPENDS: sqlalchemy, db.models_policy, db.override_authz
+# PURPOSE: Write-path for the Provider Governance tab with SERVER-SIDE
+#          authorisation (condition C8 — never trust a client flag).
+#          Add/remove approved & blacklisted entries at org/project/user
+#          scope. Per ADR_2026-07-31: no more Giggso baseline, no more
+#          guarded overrides — flipping any entry is fully open (org-admin
+#          for org/project scope, self-service for user scope, same as
+#          every other write here). The one hard rule left is OQ-4: a
+#          pattern can never hold both an approve and a deny row at the
+#          SAME scope — enforced here at write time.
+# DEPENDS: sqlalchemy, db.models_policy
 # AUDIT LOG:
 #   v1.0.0  2026-06-29  Initial add/remove/list + project mgmt.
 #   v1.1.0  2026-07-01  add_* now idempotent per (scope,owner,pattern) — no
-#                       duplicate list rows; plain approve UPGRADES to override
-#                       in place. New move_to_allowed / move_to_blocked flip an
-#                       entry between lists atomically; a baseline provider's
-#                       flip-to-allow is forced through the guarded override
-#                       path (reason+approver+expiry). commit= param added so
-#                       the flips compose in a single transaction.
+#                       duplicate list rows. New move_to_allowed / move_to_blocked
+#                       flip an entry between lists atomically. commit= param
+#                       added so the flips compose in a single transaction.
 #   v1.2.0  2026-07-03  _check_scope_authz also refuses a cross-org write
 #                       (org_id must equal actor.org_id) — defence-in-depth
 #                       for any future API path (PR#8 review).
-#   v1.3.0  2026-07-03  grant_deny_override: permit a wider-denied tool at a
-#                       narrower scope (org-admin only, reason+approver+≤90d,
-#                       project/user only). security_log 2026-07-03 D1-D7.
+#   v1.3.0  2026-07-03  (superseded) grant_deny_override — removed in v2.0.0.
+#   v2.0.0  2026-07-31  ADR_2026-07-31: removed the Giggso baseline tier and
+#                       all guarded-override machinery (is_giggso_blocked,
+#                       grant_deny_override, the baseline branch in
+#                       move_to_allowed, overrides_giggso/overrides_deny).
+#                       Added _check_no_opposite_polarity (OQ-4) to
+#                       add_approved/add_blacklisted.
 # =============================================================
 
 import uuid as _uuid
@@ -32,9 +37,8 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 
 from db.models_identity import Project, ProjectMember, User
-from db.models_policy import ApprovedTool, BlacklistedTool, GiggsoBaselineDeny, RavenFlaggedTool
-from db.override_authz import default_override_expiry, validate_override_request
-from scoring.policy import _matches, _norm
+from db.models_policy import ApprovedTool, BlacklistedTool, RavenFlaggedTool
+from scoring.policy import _norm
 
 
 class PolicyAuthzError(Exception):
@@ -88,7 +92,7 @@ def _check_scope_authz(actor, scope: str, user_id, org_id=None, *,
     (every real call site passes one), a write additionally verifies
     ANY target project_id/user_id it was given belongs to org_id via
     check_target_in_org — not just whichever one matches `scope`.
-    add_approved/add_blacklisted/grant_deny_override all accept both
+    add_approved/add_blacklisted both accept both
     fields from the request body and persist both onto the row
     regardless of scope, so a scope="user" write carrying an unrelated
     (cross-org or bogus) project_id must be rejected too, even though
@@ -117,26 +121,38 @@ def _check_scope_authz(actor, scope: str, user_id, org_id=None, *,
         check_target_in_org(session, org_id=org_id, project_id=project_id, user_id=user_id)
 
 
+def _check_no_opposite_polarity(session, *, org_id, scope, project_id, user_id,
+                                pattern, incoming: str) -> None:
+    """OQ-4 (ADR_2026-07-31): the same (org_id, scope, project_id, user_id,
+    pattern) may never hold both an approve and a deny row. `incoming` is
+    the polarity about to be written ("approve" or "deny") — reject if the
+    OPPOSITE polarity already has a live row for the identical key. Callers
+    that want to flip must remove the opposite row first (see
+    move_to_allowed/move_to_blocked, which do exactly that atomically)."""
+    other_model = BlacklistedTool if incoming == "approve" else ApprovedTool
+    other_pattern_col = other_model.domain if incoming == "approve" else other_model.domain_pattern
+    conflict = session.execute(
+        select(other_model).where(
+            other_model.org_id == org_id, other_model.scope == scope,
+            other_model.project_id == project_id, other_model.user_id == user_id,
+            other_pattern_col == pattern,
+        )
+    ).scalars().first()
+    _require(conflict is None,
+             f"OQ-4: '{pattern}' is already "
+             f"{'blocked' if incoming == 'approve' else 'approved'} at {scope} scope — "
+             "remove that entry before adding the opposite one")
+
+
 def add_approved(session, *, actor, org_id, scope, name, provider_pattern,
                  project_id=None, user_id=None, reason=None, valid_until=None,
-                 overrides_giggso=False, commit=True):
-    """Add a whitelist entry. Baseline override requires the full C1/C3/C4
-    guard to pass before the row is written.
+                 commit=True):
+    """Add a whitelist entry (server-side authz enforced; fully open per
+    ADR_2026-07-31 — no reason/approver/expiry requirement).
 
     Idempotent per (scope, owner, pattern): a second call for a pattern that
-    is already approved at that scope does NOT create a duplicate. If the
-    existing row is a plain approve and the new call is a guarded override,
-    the existing row is UPGRADED to the override in place (prevents the
-    'same provider listed twice' state)."""
+    is already approved at that scope does NOT create a duplicate."""
     _check_scope_authz(actor, scope, user_id, org_id=org_id, project_id=project_id, session=session)
-    if overrides_giggso:
-        errs = validate_override_request(
-            is_org_admin=getattr(actor, "is_org_admin", False),
-            scope=scope, reason=reason, approved_by=actor.id,
-            valid_until=valid_until,
-        )
-        _require(not errs, "Override rejected — " + "; ".join(errs))
-
     pattern = (provider_pattern or "").strip().lower()
     existing = session.execute(
         select(ApprovedTool).where(
@@ -147,23 +163,16 @@ def add_approved(session, *, actor, org_id, scope, name, provider_pattern,
         )
     ).scalars().first()
     if existing is not None:
-        # Upgrade a plain approve to a guarded override; otherwise no-op.
-        if overrides_giggso and not existing.overrides_giggso:
-            existing.overrides_giggso = True
-            existing.reason = reason
-            existing.valid_until = valid_until
-            existing.approved_by = actor.id
-            if commit:
-                session.commit()
         return existing
+    _check_no_opposite_polarity(session, org_id=org_id, scope=scope,
+                                project_id=project_id, user_id=user_id,
+                                pattern=pattern, incoming="approve")
 
     row = ApprovedTool(
         org_id=org_id, scope=scope, name=name,
         domain_pattern=pattern,
         project_id=project_id, user_id=user_id, reason=reason,
-        added_by=actor.id,
-        approved_by=(actor.id if overrides_giggso else None),
-        valid_until=valid_until, overrides_giggso=overrides_giggso,
+        added_by=actor.id, approved_by=actor.id, valid_until=valid_until,
     )
     session.add(row)
     if commit:
@@ -188,6 +197,10 @@ def add_blacklisted(session, *, actor, org_id, scope, domain, name=None,
     ).scalars().first()
     if existing is not None:
         return existing
+    _check_no_opposite_polarity(session, org_id=org_id, scope=scope,
+                                project_id=project_id, user_id=user_id,
+                                pattern=pattern, incoming="deny")
+
     row = BlacklistedTool(
         org_id=org_id, scope=scope, name=name,
         domain=pattern, severity=severity,
@@ -214,38 +227,29 @@ def remove_entry(session, *, actor, model, row_id, commit=True) -> bool:
 
 
 # ── Reclassify: flip an entry between the allow and deny lists ───────────
+# Fully open per ADR_2026-07-31 — no reason/approver/expiry, no Giggso
+# baseline to guard against. Both flips delete the source row FIRST (and
+# flush) so add_approved/add_blacklisted's OQ-4 conflict check never sees
+# the row being replaced as a false-positive conflict with itself.
 
-def is_giggso_blocked(session, pattern) -> bool:
-    """True when a provider pattern is covered by the Giggso baseline.
-    Allowing such a provider must go through the guarded override path."""
-    globs = {_norm(d) for (d,) in session.execute(select(GiggsoBaselineDeny.domain))}
-    return _matches(pattern, globs)
-
-
-def move_to_allowed(session, *, actor, org_id, block_row_id,
-                    reason=None, valid_until=None):
-    """Flip a blacklisted row to the allow list at the SAME scope, atomically.
-    If the provider is on the Giggso baseline the approve is written as a
-    guarded OVERRIDE (reason + approver + ≤90-day expiry, band-floored); the
-    guard rejects the move if those are missing. Returns True if it was a
-    baseline override, False for a plain approve."""
+def move_to_allowed(session, *, actor, org_id, block_row_id, reason=None):
+    """Flip a blacklisted row to the allow list at the SAME scope, atomically."""
     row = _get_by_id(session, BlacklistedTool, block_row_id)
     _require(row is not None, "blocked entry not found")
     _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None),
                        project_id=getattr(row, "project_id", None), session=session)
-    pattern = row.domain
-    baseline = is_giggso_blocked(session, pattern)
+    scope, project_id, user_id, pattern, name = (
+        row.scope, row.project_id, row.user_id, row.domain, row.name,
+    )
+    session.delete(row)
+    session.flush()
     add_approved(
-        session, actor=actor, org_id=org_id, scope=row.scope,
-        project_id=row.project_id, user_id=row.user_id,
-        name=(row.name or pattern), provider_pattern=pattern,
-        overrides_giggso=baseline, reason=(reason if baseline else None),
-        valid_until=((valid_until or default_override_expiry()) if baseline else None),
+        session, actor=actor, org_id=org_id, scope=scope,
+        project_id=project_id, user_id=user_id,
+        name=(name or pattern), provider_pattern=pattern, reason=reason,
         commit=False,
     )
-    session.delete(row)          # same transaction as the add above
     session.commit()
-    return baseline
 
 
 def move_to_blocked(session, *, actor, org_id, approve_row_id, severity="HIGH"):
@@ -254,75 +258,18 @@ def move_to_blocked(session, *, actor, org_id, approve_row_id, severity="HIGH"):
     _require(row is not None, "approved entry not found")
     _check_scope_authz(actor, row.scope, getattr(row, "user_id", None), org_id=getattr(row, "org_id", None),
                        project_id=getattr(row, "project_id", None), session=session)
-    add_blacklisted(
-        session, actor=actor, org_id=org_id, scope=row.scope,
-        project_id=row.project_id, user_id=row.user_id,
-        domain=row.domain_pattern, name=row.name, severity=severity,
-        commit=False,
+    scope, project_id, user_id, pattern, name = (
+        row.scope, row.project_id, row.user_id, row.domain_pattern, row.name,
     )
     session.delete(row)
+    session.flush()
+    add_blacklisted(
+        session, actor=actor, org_id=org_id, scope=scope,
+        project_id=project_id, user_id=user_id,
+        domain=pattern, name=name, severity=severity,
+        commit=False,
+    )
     session.commit()
-    return True
-
-
-def grant_deny_override(session, *, actor, org_id, scope, provider_pattern,
-                        project_id=None, user_id=None, reason=None,
-                        valid_until=None, name=None, commit=True):
-    """Permit, at a NARROWER scope, a tool a WIDER scope DENIED (security_log
-    2026-07-03, D1-D7). Writes an ApprovedTool with overrides_deny=True.
-
-    Guards: org-admin ONLY (D1 — never the project member / user themselves);
-    reason + approver + ≤90-day expiry (D3, via validate_override_request);
-    scope must be project/user (an org can't deny-override its own org deny).
-    The Giggso floor is untouchable (D4) — a giggso-blocked tool is resolved
-    before org/project deny in the waterfall, so this never reaches it; callers
-    must not offer giggso-denied tools here. Idempotent per (scope,owner,pattern)."""
-    if scope not in ("project", "user"):
-        raise PolicyAuthzError("D1: deny-override is only valid at project/user scope")
-    _require(getattr(actor, "is_org_admin", False),
-             "D1: only an org admin may grant a deny-override")
-    _check_scope_authz(actor, scope, user_id, org_id=org_id, project_id=project_id, session=session)
-    # D4 (PR#9 review): the docstring above claims "the Giggso floor is
-    # untouchable... callers must not offer giggso-denied tools here", but
-    # that was only true because the Streamlit UI pre-filtered candidates —
-    # nothing here actually verified it, so calling this function directly
-    # (as the REST endpoint does) could grant a deny-override for a
-    # Giggso-baseline-blocked tool. Enforced for real now.
-    _require(not is_giggso_blocked(session, provider_pattern),
-             "D4: cannot deny-override a Giggso-baseline blocked tool")
-    errs = validate_override_request(
-        is_org_admin=getattr(actor, "is_org_admin", False),
-        scope=scope, reason=reason, approved_by=actor.id, valid_until=valid_until,
-    )
-    _require(not errs, "Deny-override rejected — " + "; ".join(errs))
-
-    pat = (provider_pattern or "").strip().lower()
-    existing = session.execute(
-        select(ApprovedTool).where(
-            ApprovedTool.org_id == org_id, ApprovedTool.scope == scope,
-            ApprovedTool.project_id == project_id,
-            ApprovedTool.user_id == user_id,
-            ApprovedTool.domain_pattern == pat,
-        )
-    ).scalars().first()
-    if existing is not None:
-        existing.overrides_deny = True
-        existing.reason = reason
-        existing.valid_until = valid_until
-        existing.approved_by = actor.id
-        if commit:
-            session.commit()
-        return existing
-    row = ApprovedTool(
-        org_id=org_id, scope=scope, name=(name or pat), domain_pattern=pat,
-        project_id=project_id, user_id=user_id, reason=reason,
-        added_by=actor.id, approved_by=actor.id, valid_until=valid_until,
-        overrides_deny=True,
-    )
-    session.add(row)
-    if commit:
-        session.commit()
-    return row
 
 
 def list_scope(session, model, *, org_id, scope, project_id=None, user_id=None):

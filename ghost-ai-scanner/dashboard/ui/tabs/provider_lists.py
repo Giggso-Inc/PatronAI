@@ -48,13 +48,19 @@ def render(is_admin: bool, email: str = "") -> None:
     if os.environ.get("DATABASE_URL"):
         # Transient toast (auto-dismisses) — only the SCORING multiplier moved to the DB.
         st.toast(
-            "DB mode: only the SCORE's policy multiplier (×0.1 approve / ×2–3 deny) now "
-            "comes from the database. These CSV lists still drive INGESTION "
-            "(what gets detected / suppressed). To change scoring, use Provider Governance.",
+            "DB mode: only the SCORE's policy multiplier (deny vs approve, one "
+            "value each — see Provider Governance) now comes from the database. "
+            "These CSV lists still drive INGESTION (what gets detected / "
+            "suppressed). To change scoring, use Provider Governance.",
             icon="ℹ️")
     _io.render_status_banner(STATUS_KEY)
 
-    st.markdown("**Network denylist — Baseline (Giggso-managed)**")
+    # NOTE (ADR_2026-07-31): this baseline CSV drives INGESTION-time
+    # suppress/alert matching ONLY (src/matcher/loader.py) — it is a
+    # different system from the scoring-layer policy DB. It no longer feeds
+    # a separate "Giggso baseline" scoring tier; that content was folded into
+    # each org's own org-deny list at DB-seed time (src/db/seeding.py).
+    st.markdown("**Network denylist — Ingestion baseline**")
     with st.expander("Show baseline rules", expanded=False):
         _io.render_readonly_csv(DENY_KEY)
     st.divider()

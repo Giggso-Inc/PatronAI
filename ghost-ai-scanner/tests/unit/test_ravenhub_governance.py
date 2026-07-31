@@ -1,14 +1,13 @@
 # =============================================================
 # FILE: tests/unit/test_ravenhub_governance.py
-# VERSION: 1.0.0
-# UPDATED: 2026-07-21
+# VERSION: 2.0.0
+# UPDATED: 2026-07-31
 # OWNER: Giggso Inc
 # PURPOSE: Lock the RavenHub governance API layer (routers/
-#          ravenhub_governance_reads.py, _writes_lists.py,
-#          _writes_overrides.py) — request validation, actor
-#          resolution (403 when the verified email isn't a policy-DB
-#          user), and PolicyAuthzError -> 403 mapping. Does NOT
-#          re-test db/governance_crud.py's own authz internals —
+#          ravenhub_governance_reads.py, _writes_lists.py) — request
+#          validation, actor resolution (403 when the verified email
+#          isn't a policy-DB user), and PolicyAuthzError -> 403 mapping.
+#          Does NOT re-test db/governance_crud.py's own authz internals —
 #          test_governance_crud_db.py already owns that; this file
 #          only locks the API layer built on top of it.
 #          Pure; no real DB — get_session/get_identity are stubbed.
@@ -16,6 +15,10 @@
 #   v1.0.0  2026-07-21  Initial — actor-resolution 403, scope/query
 #                       validation, PolicyAuthzError mapping for
 #                       approve/block/move/remove/override/deny-override.
+#   v2.0.0  2026-07-31  ADR_2026-07-31: routers/ravenhub_governance_writes_
+#                       overrides.py (override/deny-override endpoints) is
+#                       deleted — that guarded machinery no longer exists.
+#                       Removed the two tests exercising it.
 # =============================================================
 
 import sys
@@ -34,9 +37,6 @@ from routers.ravenhub_governance_reads import get_governance_scope, list_raven_f
 from routers.ravenhub_governance_writes_lists import (
     ApproveRequest, RemoveRequest, ResolveRavenFlagRequest,
     approve_provider, remove_provider_entry, resolve_raven_flag_endpoint,
-)
-from routers.ravenhub_governance_writes_overrides import (
-    DenyOverrideRequest, OverrideRequest, deny_override_provider, override_giggso_baseline,
 )
 
 
@@ -133,9 +133,9 @@ def test_remove_rejects_unknown_model_value(monkeypatch):
     assert exc.value.status_code == 422
 
 
-# ── PolicyAuthzError -> 403 mapping (override/deny-override) ────────────
+# ── PolicyAuthzError -> 403 mapping (approve) ────────────────────────────
 
-def test_override_maps_policy_authz_error_to_403(monkeypatch):
+def test_approve_maps_policy_authz_error_to_403(monkeypatch):
     actor = _FakeActor(is_org_admin=False)
     _stub_identity(monkeypatch, actor, "org-1")
     _stub_get_session(monkeypatch, None)
@@ -145,28 +145,11 @@ def test_override_maps_policy_authz_error_to_403(monkeypatch):
         raise crud.PolicyAuthzError("C8: org/project policy edits require an org admin")
     monkeypatch.setattr(crud, "add_approved", _deny)
 
-    body = OverrideRequest(scope="org", provider_pattern="*.openai.com", reason="testing")
+    body = ApproveRequest(scope="org", provider_pattern="*.openai.com")
     with pytest.raises(HTTPException) as exc:
-        override_giggso_baseline(body, email="dev@giggso.com")
+        approve_provider(body, email="dev@giggso.com")
     assert exc.value.status_code == 403
     assert "org admin" in exc.value.detail
-
-
-def test_deny_override_maps_policy_authz_error_to_403(monkeypatch):
-    actor = _FakeActor(is_org_admin=True)
-    _stub_identity(monkeypatch, actor, "org-1")
-    _stub_get_session(monkeypatch, None)
-
-    import db.governance_crud as crud
-    def _deny(*a, **kw):
-        raise crud.PolicyAuthzError("D3: no reason")
-    monkeypatch.setattr(crud, "grant_deny_override", _deny)
-
-    body = DenyOverrideRequest(scope="project", provider_pattern="wider.ai", reason="  ", project_id="proj-1")
-    with pytest.raises(HTTPException) as exc:
-        deny_override_provider(body, email="admin@giggso.com")
-    assert exc.value.status_code == 403
-    assert "D3" in exc.value.detail
 
 
 # ── GET /governance/raven-flags: project-membership scoping (review finding C1) ──

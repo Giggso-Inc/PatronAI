@@ -27,11 +27,12 @@ def test_builds_org_scopes_from_csv_rows():
     assert "langchain" in ctx.org_approve
     assert "sketchy.ai" in ctx.org_deny
     assert "autogen" in ctx.org_deny
-    assert "*.openai.com" in ctx.giggso_deny
-    # Phase A leaves project/user/override empty (DB-only scopes).
+    # ADR_2026-07-31: no separate giggso_deny tier — starter/baseline deny
+    # content folds straight into org_deny like any other org-deny source.
+    assert "*.openai.com" in ctx.org_deny
+    # Project/user scopes stay empty here (DB-only scopes).
     assert ctx.project_approve == set()
     assert ctx.user_ack == set()
-    assert ctx.giggso_override == set()
 
 
 def test_comment_rows_and_blanks_are_skipped():

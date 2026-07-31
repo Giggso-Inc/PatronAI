@@ -46,29 +46,25 @@ CATEGORY_MULTIPLIER = {
 OCC_DAMP_PER = 0.05
 OCC_DAMP_MAX = 0.5
 
-# ── Policy waterfall multipliers (ADR_2026-06-29) ────────────────────
-# Applied PER PROVIDER. Deny beats approve; short-circuit on first match.
-# giggso_override is the guarded, capped exception (Phase E) — an org
-# explicitly permitting a Giggso-blocked tool lands at 0.5, NOT 0.1.
+# ── Policy waterfall multipliers (ADR_2026-07-31) ────────────────────
+# Scope no longer changes HOW MUCH a rule is trusted — only WHICH rule wins
+# (policy.policy_tier() is scope-first: user > project > org). So there is
+# exactly one multiplier per polarity, not one per scope. Values kept at the
+# prior org-scope numbers (least risky choice — a known-tuned pair); tune
+# here if real data suggests otherwise.
+DENY_MULTIPLIER = 2.0      # any winning deny rule, at any scope
+APPROVE_MULTIPLIER = 0.10  # any winning approve rule, at any scope
+# unknown = no rule at ANY scope. Scores at deny-weight by design (default to
+# blocked until reviewed) but keeps a DISTINCT tier name from org_deny/etc so
+# the UI can render it as "unclassified", never as an explicit denial.
 POLICY_MULTIPLIER = {
-    "giggso_deny":     3.0,
-    "org_deny":        2.0,
-    "project_deny":       2.0,
-    "user_deny":       2.0,
-    "org_approve":     0.10,
-    "project_approve":    0.15,
-    "user_ack":        0.50,
-    "giggso_override":         0.50,   # org-scope override (widest authority)
-    "giggso_override_project": 0.60,   # project-scope override (narrower)
-    "giggso_override_user":    0.70,   # user-scope override (narrowest / least reduction)
-    # org/project-DENY override (security_log 2026-07-03, conditions D1-D7):
-    # an org-admin permits, at a NARROWER scope, a tool a WIDER scope denied.
-    # Capped like the giggso override and band-floored >= MEDIUM (D2). Narrower
-    # grant = less reduction. The Giggso floor is never reached here (D4): a
-    # giggso_deny is resolved before org/project deny in the waterfall.
-    "deny_override_project":   0.60,   # permitted at a project despite an org deny
-    "deny_override_user":      0.70,   # permitted at a user despite an org/project deny
-    "unknown":         1.0,
+    "org_deny":        DENY_MULTIPLIER,
+    "project_deny":    DENY_MULTIPLIER,
+    "user_deny":       DENY_MULTIPLIER,
+    "org_approve":     APPROVE_MULTIPLIER,
+    "project_approve": APPROVE_MULTIPLIER,
+    "user_ack":        APPROVE_MULTIPLIER,
+    "unknown":         DENY_MULTIPLIER,
 }
 
 # ── Aggregation (normalize + worst-case) — replaces the old raw sum ──
@@ -86,9 +82,3 @@ BREADTH_GAIN = 0.5       # how much breadth can add on top of the worst-case flo
 CRITICAL_AT = 75
 HIGH_AT     = 40
 MEDIUM_AT   = 15
-
-# ── Security condition C2 (Phase E, security_log 2026-06-29) ─────────
-# A device with an overridden Giggso-baseline provider can never read
-# below this band — a baseline-blocked tool the org chose to permit must
-# never be laundered to CLEAN/LOW.
-OVERRIDE_BAND_FLOOR = MEDIUM_AT

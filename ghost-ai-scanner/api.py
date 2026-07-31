@@ -59,7 +59,6 @@ from scoring.posture_score import (
 from routers.ravenhub import router as ravenhub_router
 from routers.ravenhub_governance_reads import router as ravenhub_governance_reads_router
 from routers.ravenhub_governance_writes_lists import router as ravenhub_governance_writes_lists_router
-from routers.ravenhub_governance_writes_overrides import router as ravenhub_governance_writes_overrides_router
 from routers.ravenhub_projects import router as ravenhub_projects_router
 from routers.ravenhub_users import router as ravenhub_users_router
 from routers.ravenhub_settings import router as ravenhub_settings_router
@@ -72,16 +71,20 @@ _log = logging.getLogger("patronai.api")
 
 @contextlib.asynccontextmanager
 async def _lifespan(app: "FastAPI"):
-    """On startup, bring the policy DB schema to head (auto-migrate).
-    No-op when DATABASE_URL is unset (CSV-backed path). Best-effort: a
-    failure is logged, not fatal — a later query surfaces the real error."""
+    """On startup, bring the policy DB schema to head (auto-migrate) and
+    seed it from S3 (ADR_2026-07-31 — every service restart re-syncs, not
+    just main.py's container entrypoint). No-op when DATABASE_URL is unset
+    (CSV-backed path). Best-effort: a failure is logged, not fatal — a
+    later query surfaces the real error. This is the local-dev path's
+    actual "service restart" when only `run_be.ps1` (uvicorn) is used
+    without main.py — without this, a standalone API run never seeds."""
     if os.environ.get("DATABASE_URL"):
         try:
-            from db.engine import run_migrations
-            run_migrations()
-            _log.info("[startup] policy DB migrations applied (head)")
+            from db.seed_bootstrap import seed_policy_db_from_s3
+            result = seed_policy_db_from_s3()
+            _log.info("[startup] policy DB migrated + seeded: %s", result)
         except Exception as exc:                     # noqa: BLE001 — best effort
-            _log.warning("[startup] policy DB migration skipped/failed: %s", exc)
+            _log.warning("[startup] policy DB migration/seed skipped/failed: %s", exc)
     yield
 
 
@@ -125,12 +128,6 @@ app.include_router(
 )
 app.include_router(
     ravenhub_governance_writes_lists_router,
-    prefix="/ravenhub",
-    tags=["ravenhub-governance"],
-    dependencies=[Depends(_auth)],
-)
-app.include_router(
-    ravenhub_governance_writes_overrides_router,
     prefix="/ravenhub",
     tags=["ravenhub-governance"],
     dependencies=[Depends(_auth)],

@@ -11,12 +11,10 @@
 from db.base import Base
 from db.engine import get_engine, get_session, database_url, reset_engine
 from db.models_identity import Org, User, Project, ProjectMember
-from db.models_policy import (
-    ApprovedTool, BlacklistedTool, GiggsoBaselineDeny, SchemaMigration,
-)
+from db.models_policy import ApprovedTool, BlacklistedTool, SchemaMigration
 
 __all__ = [
     "Base", "get_engine", "get_session", "database_url", "reset_engine",
     "Org", "User", "Project", "ProjectMember",
-    "ApprovedTool", "BlacklistedTool", "GiggsoBaselineDeny", "SchemaMigration",
+    "ApprovedTool", "BlacklistedTool", "SchemaMigration",
 ]

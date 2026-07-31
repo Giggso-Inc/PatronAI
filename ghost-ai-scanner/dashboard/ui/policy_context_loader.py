@@ -1,21 +1,33 @@
 # =============================================================
 # FILE: dashboard/ui/policy_context_loader.py
-# VERSION: 2.0.0
-# UPDATED: 2026-06-30
+# VERSION: 4.0.0
+# UPDATED: 2026-07-31
 # OWNER: Giggso Inc
 # PURPOSE: Resolve a PolicyContext for the AI-Posture score.
-#          - DB mode (DATABASE_URL set): auto-seed the policy DB from S3
-#            once, then read org-scope policy from Postgres (ADR_2026-06-29).
-#          - CSV mode (no DB): read the S3 CSV lists directly (Phase A).
+#          - DB mode (DATABASE_URL set): read org-scope policy from
+#            Postgres. The seed itself now runs at process startup
+#            (main.py -> db.seed_bootstrap.seed_policy_db_from_s3(), on
+#            every service restart) — this module only keeps a thin,
+#            session-gated FALLBACK seed call for standalone Streamlit-only
+#            dev runs that skip main.py entirely (RB_local-setup.md).
+#          - CSV mode (no DB): read the S3 CSV lists directly.
 #          Degrades gracefully to CSV / None on any failure (R3) — a policy
 #          read must never crash the dashboard.
+#          ADR_2026-07-31: no more Giggso-baseline S3 read here — the
+#          starter deny content is seeded per-org from a LOCAL bundled file
+#          by db.seeding.seed_all() (see src/db/seeding.py), not fetched
+#          from S3 by this loader.
 # DEPENDS: streamlit, scoring.*, db.* (when DATABASE_URL set), provider_lists_io
 # AUDIT LOG:
 #   v1.0.0  2026-06-29  CSV-backed org context (Phase A).
 #   v2.0.0  2026-06-30  DB-backed org context + one-time S3->DB seed (F1/F3).
+#   v3.0.0  2026-07-31  Drop the Giggso-baseline S3 read (ADR_2026-07-31).
+#   v4.0.0  2026-07-31  Seed trigger moved to process startup (main.py) —
+#                       this module's _ensure_seeded is now only a dev-mode
+#                       fallback, delegating to db.seed_bootstrap so the
+#                       S3-read logic lives in exactly one place.
 # =============================================================
 
-import json
 import logging
 import os
 import sys
@@ -33,12 +45,14 @@ log = logging.getLogger("patronai.ui.policy_context_loader")
 _CACHE = "policy_ctx_org"
 _SEEDED = "db_seeded"
 
-# S3 config keys -> expected columns.
+# S3 config keys -> expected columns. No `_BASELINE` entry — the Giggso
+# baseline CSV is no longer read from S3 for scoring purposes
+# (ADR_2026-07-31); see src/db/seeding.py::_starter_deny_rows for the local,
+# per-org seed path.
 _ALLOW       = ("config/authorized.csv", ["name", "domain_pattern", "notes"])
 _ALLOW_CODE  = ("config/authorized_code.csv", ["name", "type", "pattern", "dept_scope", "notes"])
 _DENY_CUSTOM = ("config/unauthorized_custom.csv", ["name", "category", "domain", "port", "severity", "notes"])
 _DENY_CODE   = ("config/unauthorized_code_custom.csv", ["name", "type", "pattern", "severity", "notes"])
-_BASELINE    = ("config/unauthorized.csv", ["name", "category", "domain", "port", "severity", "notes"])
 
 
 def _rows(key_cols):
@@ -54,38 +68,19 @@ def _csv_context():
         authorized=_rows(_ALLOW), authorized_code=_rows(_ALLOW_CODE),
         unauthorized_custom=_rows(_DENY_CUSTOM),
         unauthorized_code_custom=_rows(_DENY_CODE),
-        giggso_baseline=_rows(_BASELINE),
     )
 
 
-def _read_users_json() -> dict:
-    """Read users/users.json from S3 (for the one-time seed)."""
-    try:
-        import boto3
-        bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
-        region = os.environ.get("AWS_REGION", "us-east-1")
-        body = boto3.client("s3", region_name=region).get_object(
-            Bucket=bucket, Key="users/users.json")["Body"].read().decode()
-        return json.loads(body)
-    except Exception:
-        return {}
-
-
-def _ensure_seeded(session) -> None:
-    """One-time S3 -> DB seed (idempotent; guarded by session_state + DB marker)."""
+def _ensure_seeded() -> None:
+    """Dev-mode FALLBACK seed only — the real trigger is main.py's startup
+    call to db.seed_bootstrap.seed_policy_db_from_s3() on every service
+    restart. This just covers a standalone `streamlit run` that never went
+    through main.py. Idempotent (session_state gate + seed_all's own dedup),
+    so calling it here even when main.py already seeded is harmless."""
     if st.session_state.get(_SEEDED):
         return
-    from db.seeding import seed_all
-    seed_all(
-        session,
-        org_slug=os.environ.get("COMPANY_SLUG", "dev"),
-        org_name=os.environ.get("COMPANY_NAME", "PatronAI"),
-        bucket=os.environ.get("MARAUDER_SCAN_BUCKET", ""),
-        users_map=_read_users_json(),
-        giggso_rows=_rows(_BASELINE),
-        allow_rows=_rows(_ALLOW), allow_code_rows=_rows(_ALLOW_CODE),
-        deny_rows=_rows(_DENY_CUSTOM), deny_code_rows=_rows(_DENY_CODE),
-    )
+    from db.seed_bootstrap import seed_policy_db_from_s3
+    seed_policy_db_from_s3()
     st.session_state[_SEEDED] = True
 
 
@@ -96,8 +91,8 @@ def _db_context():
     from db.models_identity import Org
     from db.policy_queries import load_policy_context
     slug = os.environ.get("COMPANY_SLUG", "dev")
+    _ensure_seeded()
     with get_session() as s:
-        _ensure_seeded(s)
         org = (s.execute(select(Org).where(Org.slug == slug)).scalar_one_or_none()
                or s.execute(select(Org)).scalars().first())
         if org is None:
