@@ -26,12 +26,49 @@ _die()  { echo "ERROR: $*" >&2; exit 1; }
 _info() { echo "[patronai] $*"; }
 
 # ── Dependencies ──────────────────────────────────────────────
-command -v curl    >/dev/null 2>&1 || _die "curl is required."
-command -v python3 >/dev/null 2>&1 || _die "python3 is required."
-python3 -c "import bcrypt" 2>/dev/null || {
+# Checked up front, all at once. These were previously discovered by dying
+# part-way through: git at the init.templateDir step (~line 250) and crontab at
+# the scheduling step (~line 450), both AFTER the code had been validated and
+# config written, leaving a half-installed agent behind.
+_MISSING=""
+command -v curl    >/dev/null 2>&1 || _MISSING="$_MISSING\n  - curl"
+command -v python3 >/dev/null 2>&1 || _MISSING="$_MISSING\n  - python3"
+command -v git     >/dev/null 2>&1 || _MISSING="$_MISSING\n  - git      (the pre-commit hook is installed via git config init.templateDir)"
+if [ -n "$_MISSING" ]; then
+  echo "ERROR: PatronAI needs the following, which are missing:" >&2
+  printf '%b\n' "$_MISSING" >&2
+  echo "Install them and re-run this installer." >&2
+  exit 1
+fi
+# crontab is checked but NOT fatal - it only schedules the heartbeat and periodic
+# scan. Losing those is worth a warning, not a failed install with the agent and
+# git hook already in place.
+_HAVE_CRON=1
+command -v crontab >/dev/null 2>&1 || _HAVE_CRON=0
+
+# $PY is the interpreter that can import bcrypt, used for the code check below.
+# Unchanged fast path: when the system python3 already has bcrypt, PY stays
+# python3 and this block does nothing at all.
+PY=python3
+if ! $PY -c "import bcrypt" 2>/dev/null; then
   _info "Installing bcrypt..."
-  pip3 install --quiet "bcrypt>=4.0.0" || _die "Cannot install bcrypt."
-}
+  if pip3 install --quiet "bcrypt>=4.0.0" 2>/dev/null && $PY -c "import bcrypt" 2>/dev/null; then
+    :
+  else
+    # PEP 668: Debian 12+, Ubuntu 23.04+ and Fedora 38+ refuse system-wide pip
+    # installs into the OS interpreter ("externally managed environment"), so the
+    # old unconditional `pip3 install || _die` aborted the installer on every
+    # current distro. A private venv keeps the host interpreter untouched, which
+    # is what PEP 668 is protecting - preferable to --break-system-packages.
+    _info "System-wide install refused (PEP 668) - using a private virtualenv instead."
+    mkdir -p "$AGENT_DIR"
+    python3 -m venv "$AGENT_DIR/.venv" >/dev/null 2>&1 \
+      || _die "Cannot create a virtualenv at $AGENT_DIR/.venv. On Debian/Ubuntu: sudo apt-get install -y python3-venv"
+    "$AGENT_DIR/.venv/bin/pip" install --quiet "bcrypt>=4.0.0" \
+      || _die "Cannot install bcrypt into $AGENT_DIR/.venv."
+    PY="$AGENT_DIR/.venv/bin/python"
+  fi
+fi
 
 # ── OTP prompt (accepts non-interactive OTP via env var) ─────
 # Standalone installs prompt the user, exactly as before. When invoked
@@ -63,7 +100,10 @@ python3 -c "
 from datetime import datetime,timezone
 exit(1 if datetime.now(timezone.utc)>datetime.fromisoformat('$EXPIRES') else 0)
 " || _die "Package expired. Request a new one from your administrator."
-python3 -c "
+# $PY, not python3 - this is the one call in the script that needs a THIRD-PARTY
+# module, so it has to run in whichever interpreter the dependency block above
+# actually put bcrypt into. The stdlib-only calls above are fine on python3.
+$PY -c "
 import bcrypt
 exit(0 if bcrypt.checkpw(b'$OTP_INPUT',b'$OTP_HASH') else 1)
 " || _die "Invalid OTP."
@@ -439,6 +479,16 @@ PLIST_EOF
 PLIST_EOF
   launchctl unload "$PLIST_SCAN" 2>/dev/null || true
   launchctl load  "$PLIST_SCAN" 2>/dev/null || true
+elif [ "$_HAVE_CRON" -eq 0 ]; then
+  # No cron on this machine (common in slim container images and minimal server
+  # installs). The agent, config and git hook are all in place by now, so the
+  # scan-on-commit path works - only the periodic scan and heartbeat are lost.
+  # Warning, not _die: dying here used to abandon a fully working install.
+  _info "WARNING: crontab not found - skipping the heartbeat and periodic scan."
+  _info "         Commit-time scanning still works. To enable them: sudo apt-get install -y cron"
+  _info "         then re-run this installer, or add these two lines by hand:"
+  _info "           */5  * * * * /bin/bash $HEARTBEAT_SCRIPT"
+  _info "           */30 * * * * /bin/bash $SCAN_RUNNER"
 else
   # Linux — crontab
   # `|| true` guards against a machine with no existing crontab: `crontab -l`
