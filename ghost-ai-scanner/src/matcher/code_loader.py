@@ -16,7 +16,7 @@
 import logging
 from typing import List, Tuple
 
-import boto3
+from store.object_store import boto3_s3_client
 
 from .rule_model import parse_csv_text, dedupe, validate_code_rule
 
@@ -77,9 +77,9 @@ def load_unauthorized_code_full(bucket: str, key: str = UNAUTH_CODE_KEY) -> Tupl
 
 
 def _fetch(bucket: str, key: str) -> str:
-    """Fetch a CSV from S3 and return as string. Empty on miss/error."""
+    """Fetch a CSV from object store and return as string. Empty on miss/error."""
     try:
-        s3 = boto3.client("s3")
+        s3 = boto3_s3_client()
         return s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8")
     except Exception as e:
         log.debug("Fetch %s failed (treated as absent): %s", key, e)

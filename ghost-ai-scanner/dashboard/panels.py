@@ -14,6 +14,7 @@
 
 import os
 import boto3
+from store.object_store import boto3_s3_client
 import streamlit as st
 from datetime import datetime, timezone
 
@@ -102,7 +103,7 @@ def csv_editor() -> None:
     with st.expander("Edit Allow list", expanded=False):
         st.caption("Pattern format: *.openai.com  or  api.openai.com")
         try:
-            s3  = boto3.client("s3", region_name=REGION)
+            s3  = boto3_s3_client()
             raw = s3.get_object(
                 Bucket=BUCKET, Key="config/authorized.csv"
             )["Body"].read().decode()
@@ -112,7 +113,7 @@ def csv_editor() -> None:
         edited = st.text_area("Allow list", value=raw, height=200)
         if st.button("Save Allow list"):
             try:
-                s3 = boto3.client("s3", region_name=REGION)
+                s3 = boto3_s3_client()
                 s3.put_object(Bucket=BUCKET, Key="config/authorized.csv",
                               Body=edited.encode(), ContentType="text/csv")
                 st.success("Saved to tenant storage.")

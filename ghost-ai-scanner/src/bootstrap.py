@@ -37,6 +37,16 @@ STRICT_MIN_RULES   = int(os.environ.get("STRICT_MIN_RULES",    "50"))
 
 def validate_env():
     """Fail fast if required environment variables are missing."""
+    # Restore storage mode/bucket from Hub provision file before bucket check.
+    try:
+        from store.object_store import load_persisted_storage_config, default_bucket
+        load_persisted_storage_config()
+        global BUCKET
+        if default_bucket():
+            BUCKET = default_bucket()
+            os.environ.setdefault("MARAUDER_SCAN_BUCKET", BUCKET)
+    except Exception as exc:
+        log.debug("storage config load skipped: %s", exc)
     if not BUCKET:
         log.critical("MARAUDER_SCAN_BUCKET not set — cannot start")
         sys.exit(1)
@@ -82,32 +92,33 @@ def build_resolver(store, settings: dict):
 
 def seed_config_files(store) -> None:
     """
-    Push bundled config files from Docker image to S3 on every startup.
+    Push bundled config files from Docker image to object store on every startup.
 
     Rules:
       unauthorized.csv — ALWAYS overwrite. Giggso maintains this list.
-          Every new image deploy automatically updates S3. No manual aws s3 cp needed.
+          Every new image deploy automatically updates object store. No manual cp needed.
       authorized.csv   — seed only if missing. Customer owns their approved list.
       settings.json    — seed only if missing. Customer configures via UI.
     """
-    import boto3
+    from store.object_store import boto3_s3_client, default_bucket
 
-    s3 = boto3.client("s3", region_name=REGION)
+    s3 = boto3_s3_client()
+    bucket = default_bucket() or BUCKET
 
     def _exists(key: str) -> bool:
         """Return True if key exists in the bucket."""
         try:
-            s3.head_object(Bucket=BUCKET, Key=key)
+            s3.head_object(Bucket=bucket, Key=key)
             return True
         except Exception:
             return False
 
     def _push(local_path: Path, key: str) -> None:
-        """Upload a local file to S3."""
+        """Upload a local file to the object store."""
         try:
-            s3.upload_file(str(local_path), BUCKET, key,
+            s3.upload_file(str(local_path), bucket, key,
                            ExtraArgs={"ContentType": "text/csv"})
-            log.info(f"Seeded {key} → s3://{BUCKET}/{key}  ({local_path.stat().st_size} bytes)")
+            log.info(f"Seeded {key} → {bucket}/{key}  ({local_path.stat().st_size} bytes)")
         except Exception as e:
             log.error(f"Failed to seed {key}: {e}")
 

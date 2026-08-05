@@ -63,7 +63,8 @@ rank-bm25>=0.2.2,<1.0.0        # Apache 2.0 — pure-Python BM25 over the
 fastapi>=0.115.0,<1.0.0       # MIT — integration REST API (integration_app.py)
 uvicorn[standard]>=0.32.0,<1.0.0  # BSD — ASGI server for integration_app.py
 email-validator>=2.0.0,<3.0.0  # MIT — EmailStr validation for FastAPI
-python-dotenv>=1.0.0         # Apache 2.0 — load .env into os.environ for local runs
+azure-storage-blob>=12.19.0,<13
+google-cloud-storage>=2.14.0,<3
 
 # ── Policy & identity DB (Postgres) — ADR_2026-06-29 ──────────
 # CVE-cleared 2026-06-29 via OSV.dev (no CVSS>7 affecting these pins).

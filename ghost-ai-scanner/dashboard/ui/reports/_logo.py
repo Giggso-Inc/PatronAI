@@ -30,7 +30,8 @@ def fetch_logo_b64(bucket: str, region: str = "us-east-1") -> str:
         return ""
     try:
         import boto3
-        obj = boto3.client("s3", region_name=region).get_object(
+from store.object_store import boto3_s3_client
+        obj = boto3_s3_client().get_object(
             Bucket=bucket, Key=_LOGO_KEY,
         )
         raw = obj["Body"].read()
@@ -50,7 +51,7 @@ def upload_logo(data: bytes, bucket: str,
         return False
     try:
         import boto3
-        boto3.client("s3", region_name=region).put_object(
+        boto3_s3_client().put_object(
             Bucket=bucket,
             Key=_LOGO_KEY,
             Body=data,

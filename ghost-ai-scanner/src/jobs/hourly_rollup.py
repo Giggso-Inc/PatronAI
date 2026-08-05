@@ -31,17 +31,18 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
-import boto3
-
 # Make sibling src modules importable when run as a script.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))
 
+from store.object_store import boto3_s3_client, default_bucket  # noqa: E402
 from normalizer.provider_names import normalize_provider, is_known  # noqa: E402
 
 log = logging.getLogger("marauder-scan.jobs.hourly_rollup")
 
-_BUCKET = os.environ.get("MARAUDER_SCAN_BUCKET", "")
+def _bucket() -> str:
+    return default_bucket() or os.environ.get("MARAUDER_SCAN_BUCKET", "")
+
 _REGION = os.environ.get("AWS_REGION", "us-east-1")
 _SEVERITIES = ["critical", "high", "medium", "unknown"]
 _DIMENSIONS = ["provider", "user", "severity", "device", "category"]
@@ -210,12 +211,12 @@ class _ScopeAgg:
 
 
 def _s3():
-    return boto3.client("s3", region_name=_REGION)
+    return boto3_s3_client()
 
 
 def _put_gz(s3, key: str, payload: dict) -> None:
     body = gzip.compress(json.dumps(payload, default=str).encode("utf-8"))
-    s3.put_object(Bucket=_BUCKET, Key=key, Body=body,
+    s3.put_object(Bucket=_bucket(), Key=key, Body=body,
                   ContentType="application/json",
                   ContentEncoding="gzip")
 
@@ -247,7 +248,7 @@ def _select_rows_for_window(s3, key: str, window_start: datetime,
            f"WHERE s.timestamp >= '{iso_start}' AND s.timestamp < '{iso_end}'")
     try:
         resp = s3.select_object_content(
-            Bucket=_BUCKET, Key=key, ExpressionType="SQL", Expression=sql,
+            Bucket=_bucket(), Key=key, ExpressionType="SQL", Expression=sql,
             InputSerialization={"JSON": {"Type": "LINES"}, "CompressionType": "NONE"},
             OutputSerialization={"JSON": {"RecordDelimiter": "\n"}},
         )
@@ -268,7 +269,7 @@ def _select_rows_for_window(s3, key: str, window_start: datetime,
     except Exception as exc:
         log.warning("S3 Select failed on %s: %s — falling back to GetObject", key, exc)
         try:
-            obj = s3.get_object(Bucket=_BUCKET, Key=key)
+            obj = s3.get_object(Bucket=_bucket(), Key=key)
             for line in obj["Body"].iter_lines():
                 if not line:
                     continue
@@ -292,7 +293,7 @@ def compute_hourly_rollup(window_start: datetime,
                           window_end: Optional[datetime] = None) -> dict:
     """Aggregate the hour [window_start, window_end) and write rollup files.
     Default end is window_start + 1 hour. Idempotent."""
-    if not _BUCKET:
+    if not _bucket():
         log.warning("compute_hourly_rollup: MARAUDER_SCAN_BUCKET not set; skipping")
         return {"skipped": True}
 
@@ -397,7 +398,7 @@ def _append_unknown_providers(s3, unknowns: set[tuple[str, str]]) -> None:
     key = "rollup-meta/unknown_providers.jsonl"
     try:
         try:
-            existing = s3.get_object(Bucket=_BUCKET, Key=key)["Body"].read().decode()
+            existing = s3.get_object(Bucket=_bucket(), Key=key)["Body"].read().decode()
         except s3.exceptions.NoSuchKey:
             existing = ""
         ts = datetime.now(timezone.utc).isoformat()
@@ -406,7 +407,7 @@ def _append_unknown_providers(s3, unknowns: set[tuple[str, str]]) -> None:
             for c, p in sorted(unknowns)
         )
         body = (existing.rstrip("\n") + "\n" + new_lines).lstrip("\n").encode()
-        s3.put_object(Bucket=_BUCKET, Key=key, Body=body,
+        s3.put_object(Bucket=_bucket(), Key=key, Body=body,
                       ContentType="application/x-ndjson")
     except Exception as exc:
         log.debug("unknown_providers append failed (non-fatal): %s", exc)
@@ -426,7 +427,7 @@ def _latest_completed_hour(s3) -> Optional[datetime]:
     try:
         paginator = s3.get_paginator("list_objects_v2")
         latest: Optional[datetime] = None
-        for page in paginator.paginate(Bucket=_BUCKET, Prefix="tenants/"):
+        for page in paginator.paginate(Bucket=_bucket(), Prefix="tenants/"):
             for obj in page.get("Contents", []):
                 k = obj["Key"]
                 if not k.endswith("/_meta.json"):
@@ -455,7 +456,7 @@ def catch_up_rollups(max_hours: int = 720) -> int:
     chat would see empty rollups for any historical window and the LLM
     would (correctly) report no data, even when raw findings exist.
     Returns count of hours processed."""
-    if not _BUCKET:
+    if not _bucket():
         return 0
     s3 = _s3()
     target_end = _hour_floor(datetime.now(timezone.utc))  # exclusive
@@ -505,7 +506,7 @@ def scheduler_loop(stop_event, offset_minutes: int = 5) -> None:
     """Run forever. At HH:offset every hour, compute the hour that just ended.
     Fires catch_up_rollups once on startup so missing hours are filled.
     Safe to run as a daemon thread alongside scanner_loop."""
-    if not _BUCKET:
+    if not _bucket():
         log.warning("scheduler_loop: bucket not set — exiting")
         return
 

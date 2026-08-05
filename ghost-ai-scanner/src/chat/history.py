@@ -22,14 +22,17 @@ import logging
 import os
 from datetime import date
 
-import boto3
 from botocore.exceptions import ClientError
+
+from store.object_store import boto3_s3_client, default_bucket
 
 log = logging.getLogger("patronai.chat.history")
 
-_BUCKET  = os.environ.get("MARAUDER_SCAN_BUCKET", "")
-_REGION  = os.environ.get("AWS_REGION", "us-east-1")
 _WINDOW  = 20  # max messages loaded on widget open
+
+
+def _bucket() -> str:
+    return default_bucket() or os.environ.get("MARAUDER_SCAN_BUCKET", "")
 
 
 # ── Path helpers ──────────────────────────────────────────────
@@ -52,11 +55,11 @@ def _prefix(email: str, view: str) -> str:
 def load_history(email: str, view: str) -> list:
     """Return up to _WINDOW most-recent messages for user+view.
     Scans up to 3 daily files newest-first. Returns [] on any error."""
-    bkt = _BUCKET
+    bkt = _bucket()
     if not bkt:
         return []
     try:
-        s3   = boto3.client("s3", region_name=_REGION)
+        s3   = boto3_s3_client()
         resp = s3.list_objects_v2(Bucket=bkt, Prefix=_prefix(email, view))
         keys = sorted([o["Key"] for o in resp.get("Contents", [])],
                       reverse=True)
@@ -82,15 +85,15 @@ def load_history(email: str, view: str) -> list:
 def append_history(email: str, view: str, messages: list) -> None:
     """Append messages to today's JSONL file. Silent on error.
     Each message is a dict with keys: role, content, ts."""
-    bkt = _BUCKET
+    bkt = _bucket()
     if not bkt or not messages:
         return
     try:
-        s3  = boto3.client("s3", region_name=_REGION)
+        s3  = boto3_s3_client()
         key = _key_today(email, view)
         try:
             existing = s3.get_object(Bucket=bkt, Key=key)["Body"].read().decode()
-        except ClientError:
+        except (ClientError, Exception):
             existing = ""
         new_lines = "\n".join(json.dumps(m) for m in messages)
         body = (existing.rstrip("\n") + "\n" + new_lines).lstrip("\n")
@@ -104,16 +107,16 @@ def clear_history(email: str, view: str) -> tuple[bool, int]:
     """Delete every chat-history key under chat/{hash16}/{view}/.
     Returns (success, deleted_count). Other users' data untouched.
     Silent-but-reported on failure — caller (widget) surfaces a toast."""
-    bkt = _BUCKET
+    bkt = _bucket()
     if not bkt:
         return (False, 0)
     try:
-        s3 = boto3.client("s3", region_name=_REGION)
+        s3 = boto3_s3_client()
         prefix = _prefix(email, view)
         deleted = 0
         paginator = s3.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=bkt, Prefix=prefix):
-            keys = [{"Key": o["Key"]} for o in page.get("Contents", [])]
+            keys = [{"Key": o["Key"]} for o in page.get("Contents", []) or [] if o.get("Key")]
             if not keys:
                 continue
             # delete_objects caps at 1000 per call.
@@ -138,11 +141,19 @@ def ensure_lifecycle_policy(retention_days: int = 30) -> bool:
     them. Idempotent: safe to call on every startup.
 
     Returns True on success (or unchanged), False on failure."""
-    bkt = _BUCKET
+    bkt = _bucket()
     if not bkt:
         return False
+    # Lifecycle rules only apply on native AWS-compatible buckets; skip other modes.
     try:
-        s3 = boto3.client("s3", region_name=_REGION)
+        from store.object_store import storage_mode
+        if storage_mode() in ("azure", "gcp"):
+            log.info("chat lifecycle skipped for storage mode=%s", storage_mode())
+            return True
+    except Exception:
+        pass
+    try:
+        s3 = boto3_s3_client()
         try:
             cur = s3.get_bucket_lifecycle_configuration(Bucket=bkt)
             existing_rules = cur.get("Rules", [])

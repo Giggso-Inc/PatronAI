@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import boto3
+from store.object_store import boto3_s3_client
 
 log    = logging.getLogger("patronai.ui.audit")
 BUCKET = os.environ.get("MARAUDER_SCAN_BUCKET", "")
@@ -44,7 +45,7 @@ def write(email: str, field: str, old: Any, new: Any) -> None:
             "new_value": _safe(new),
             "timestamp": now.isoformat(),
         }).encode()
-        boto3.client("s3", region_name=REGION).put_object(
+        boto3_s3_client().put_object(
             Bucket=BUCKET, Key=key, Body=body, ContentType="application/json",
         )
         log.info("Audit: %s changed %s", email, field)

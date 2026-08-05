@@ -30,13 +30,12 @@ _DENY_CODE   = ("config/unauthorized_code_custom.csv", ["name", "type", "pattern
 
 
 def _s3_csv_rows(key: str, cols: list) -> list:
-    """Read a CSV from S3 into a list of dict rows. Empty list on any miss —
+    """Read a CSV from object store into a list of dict rows. Empty list on any miss —
     seeding must never crash the boot sequence over a missing/absent file."""
     try:
-        import boto3
-        bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
-        region = os.environ.get("AWS_REGION", "us-east-1")
-        raw = boto3.client("s3", region_name=region).get_object(
+        from store.object_store import boto3_s3_client, default_bucket
+        bucket = default_bucket() or os.environ.get("MARAUDER_SCAN_BUCKET", "")
+        raw = boto3_s3_client().get_object(
             Bucket=bucket, Key=key)["Body"].read().decode()
         body = "\n".join(ln for ln in raw.splitlines() if not ln.strip().startswith("#"))
         return list(csv.DictReader(io.StringIO(body))) if body.strip() else []
@@ -47,10 +46,9 @@ def _s3_csv_rows(key: str, cols: list) -> list:
 
 def _s3_users_json() -> dict:
     try:
-        import boto3
-        bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
-        region = os.environ.get("AWS_REGION", "us-east-1")
-        body = boto3.client("s3", region_name=region).get_object(
+        from store.object_store import boto3_s3_client, default_bucket
+        bucket = default_bucket() or os.environ.get("MARAUDER_SCAN_BUCKET", "")
+        body = boto3_s3_client().get_object(
             Bucket=bucket, Key="users/users.json")["Body"].read().decode()
         return json.loads(body)
     except Exception:
