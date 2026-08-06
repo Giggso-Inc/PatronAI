@@ -23,7 +23,6 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import boto3
 import yaml
 
 from store.object_store import boto3_s3_client

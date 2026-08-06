@@ -9,7 +9,7 @@
 import os
 import logging
 
-from .object_store import get_object_store, storage_mode
+from .object_store import S3ObjectStore, get_object_store, storage_mode
 
 log = logging.getLogger("marauder-scan.store")
 
@@ -35,16 +35,22 @@ class BaseStore:
         self.region = region
         self._store = get_object_store()
         self.local_mode = self._store.mode in ("local",) or is_s3_compatible_local()
-        # Back-compat: some modules expect self.s3 (boto3 client) for Select
-        self.s3 = getattr(self._store, "client", None)
+        # Only expose raw boto3 client for S3/MinIO. Azure/GCS use a facade
+        # when callers need put/get via boto3-shaped APIs (never a GCS Client).
+        if isinstance(self._store, S3ObjectStore):
+            self.s3 = self._store.client
+        else:
+            from .object_store import ObjectStoreS3Facade
+            self.s3 = ObjectStoreS3Facade(self._store)
 
     def _get(self, key: str) -> bytes:
         """Fetch raw bytes. Returns empty bytes if key not found."""
         try:
-            if not self._store.exists(self.bucket, key):
-                return b""
             return self._store.get(self.bucket, key)
         except Exception as e:
+            msg = str(e).lower()
+            if any(t in msg for t in ("nosuchkey", "not found", "404", "blobnotfound", "404")):
+                return b""
             log.error(f"object get failed [{key}]: {e}")
             return b""
 

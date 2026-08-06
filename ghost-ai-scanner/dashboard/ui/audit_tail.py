@@ -16,7 +16,6 @@ import logging
 import os
 from datetime import datetime
 
-import boto3
 from store.object_store import boto3_s3_client
 import streamlit as st
 

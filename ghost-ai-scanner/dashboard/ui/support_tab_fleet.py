@@ -66,8 +66,7 @@ def render_fleet(email: str = "") -> None:
         return
 
     try:
-        import boto3
-from store.object_store import boto3_s3_client
+        from store.object_store import boto3_s3_client
         s3      = boto3_s3_client()
         entries = build_fleet_entries(s3, bucket)
     except Exception as e:

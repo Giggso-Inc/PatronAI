@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
@@ -19,6 +20,7 @@ from db.models_identity import Org, User
 from db.seeding import _display_name, ensure_org
 
 router = APIRouter()
+_log = logging.getLogger("patronai.bootstrap")
 
 
 class ProvisionAdminRequest(BaseModel):
@@ -69,7 +71,9 @@ def provision_admin(
             from store.object_store import apply_storage_config_from_provision
             apply_storage_config_from_provision(body.storage_mode or "s3", body.storage or {})
         except Exception as exc:
-            storage_err = str(exc)
+            # Never echo raw exception (may include connection strings / keys).
+            storage_err = type(exc).__name__
+            _log.warning("storage provision apply failed: %s", type(exc).__name__)
 
     with get_session() as session:
         org = ensure_org(

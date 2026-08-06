@@ -20,7 +20,6 @@ import os
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-import boto3
 from store.object_store import boto3_s3_client
 import pandas as pd
 import streamlit as st

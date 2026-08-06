@@ -18,7 +18,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-import boto3
 from store.object_store import boto3_s3_client
 
 log    = logging.getLogger("patronai.ui.audit")
