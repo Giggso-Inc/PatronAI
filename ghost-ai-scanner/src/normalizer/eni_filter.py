@@ -23,8 +23,9 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import boto3
 import yaml
+
+from store.object_store import boto3_s3_client
 
 log = logging.getLogger("marauder-scan.normalizer.eni_filter")
 
@@ -64,7 +65,7 @@ def load_eni_cache(bucket: str, region: str = "us-east-1") -> None:
     """
     global _eni_cache, _cache_loaded_at
     try:
-        s3   = boto3.client("s3", region_name=region)
+        s3   = boto3_s3_client(region_name=region)
         resp = s3.get_object(Bucket=bucket, Key=_CACHE_S3_KEY)
         data = json.loads(resp["Body"].read().decode("utf-8"))
         _eni_cache       = data.get("enis", {})

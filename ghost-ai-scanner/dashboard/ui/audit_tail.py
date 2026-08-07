@@ -16,7 +16,7 @@ import logging
 import os
 from datetime import datetime
 
-import boto3
+from store.object_store import boto3_s3_client
 import streamlit as st
 
 log    = logging.getLogger("patronai.ui.audit_tail")
@@ -47,7 +47,7 @@ def render(field_prefix: str = "", limit: int = 5) -> None:
 
 def _fetch_recent(field_prefix: str, limit: int) -> list:
     """List recent audit JSON objects, filter by field prefix, return latest N."""
-    s3 = boto3.client("s3", region_name=REGION)
+    s3 = boto3_s3_client()
     today = datetime.utcnow()
     prefix = f"ocsf/audit/{today.year}/{today.month:02d}/"
     paginator = s3.get_paginator("list_objects_v2")

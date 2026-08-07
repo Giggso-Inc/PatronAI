@@ -20,7 +20,7 @@ import os
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-import boto3
+from store.object_store import boto3_s3_client
 import pandas as pd
 import streamlit as st
 
@@ -65,7 +65,7 @@ def render(is_admin: bool, email: str = "") -> None:
 
 def _aggregate_unknowns() -> list:
     """Walk last-7-days findings; return [{domain, events, last_seen, sample_device}]."""
-    s3 = boto3.client("s3", region_name=REGION)
+    s3 = boto3_s3_client()
     counters: Counter = Counter()
     last_seen: dict   = {}
     sample_dev: dict  = {}
@@ -110,7 +110,7 @@ def _ingest_finding(s3, key: str, counters: Counter,
 def _load_dismissed() -> set:
     """Read the persisted dismissed-domain set; empty on miss."""
     try:
-        s3 = boto3.client("s3", region_name=REGION)
+        s3 = boto3_s3_client()
         body = s3.get_object(Bucket=BUCKET, Key=DISMISSED_KEY)["Body"].read().decode()
         return {ln.strip() for ln in body.splitlines() if ln.strip() and not ln.startswith("#")}
     except Exception:
@@ -121,7 +121,7 @@ def _persist_dismissed(domains: set, email: str, before_count: int) -> None:
     """Overwrite the dismissed file in S3 + write an audit row."""
     body = "# Dismissed by admin via Provider Lists tab\n" + "\n".join(sorted(domains)) + "\n"
     try:
-        boto3.client("s3", region_name=REGION).put_object(
+        boto3_s3_client().put_object(
             Bucket=BUCKET, Key=DISMISSED_KEY, Body=body.encode(), ContentType="text/plain",
         )
         _audit.write(email, "discovered.dismissed", str(before_count), str(len(domains)))
@@ -131,7 +131,7 @@ def _persist_dismissed(domains: set, email: str, before_count: int) -> None:
 
 def _promote_to_deny(domains: list, email: str) -> None:
     """Append picked domains as deny rows in the custom CSV."""
-    s3 = boto3.client("s3", region_name=REGION)
+    s3 = boto3_s3_client()
     try:
         existing = s3.get_object(Bucket=BUCKET, Key=DENY_CUSTOM_KEY)["Body"].read().decode()
     except Exception:

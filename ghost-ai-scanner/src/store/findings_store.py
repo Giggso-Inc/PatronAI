@@ -126,31 +126,48 @@ class FindingsStore(BaseStore):
             expr = f"SELECT * FROM s3object s {where} LIMIT {int(limit)}"  # nosec B608
 
             try:
-                resp = self.s3.select_object_content(
-                    Bucket=self.bucket,
-                    Key=key,
-                    ExpressionType="SQL",
-                    Expression=expr,
-                    InputSerialization={
-                        "JSON": {"Type": "LINES"},
-                        "CompressionType": "NONE",
-                    },
-                    OutputSerialization={"JSON": {"RecordDelimiter": "\n"}},
+                # Only real AWS S3 supports Select reliably; MinIO/Azure/GCS → GetObject.
+                use_select = (
+                    self.s3 is not None
+                    and not getattr(self, "local_mode", False)
+                    and getattr(self._store, "mode", "s3") == "s3"
                 )
-                for event in resp["Payload"]:
-                    if "Records" in event:
-                        chunk = event["Records"]["Payload"].decode()
-                        for line in chunk.strip().split("\n"):
-                            if line:
-                                try:
-                                    all_rows.append(json.loads(line))
-                                except json.JSONDecodeError:
-                                    pass
+                if use_select:
+                    try:
+                        from .base_store import is_s3_compatible_local
+                        use_select = not is_s3_compatible_local()
+                    except Exception:
+                        pass
+                if use_select:
+                    resp = self.s3.select_object_content(
+                        Bucket=self.bucket,
+                        Key=key,
+                        ExpressionType="SQL",
+                        Expression=expr,
+                        InputSerialization={
+                            "JSON": {"Type": "LINES"},
+                            "CompressionType": "NONE",
+                        },
+                        OutputSerialization={"JSON": {"RecordDelimiter": "\n"}},
+                    )
+                    for event in resp["Payload"]:
+                        if "Records" in event:
+                            chunk = event["Records"]["Payload"].decode()
+                            for line in chunk.strip().split("\n"):
+                                if line:
+                                    try:
+                                        all_rows.append(json.loads(line))
+                                    except json.JSONDecodeError:
+                                        pass
+                    continue
+                raise RuntimeError("select_skipped_non_s3")
             except Exception as e:
                 log.warning(f"S3 Select failed for {key}: {e}")
-                # Fallback: plain GetObject read
+                # Fallback: plain GetObject (MinIO / Azure / GCS / Select error)
                 try:
                     raw = self._get(key)
+                    if not raw and hasattr(self, "dual_get"):
+                        raw = self.dual_get(key)
                     if raw:
                         rows = [json.loads(l) for l in raw.decode().splitlines() if l.strip()]
                         # Apply in-memory filters

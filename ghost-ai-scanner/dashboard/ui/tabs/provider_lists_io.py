@@ -19,7 +19,7 @@ import json
 import logging
 import os
 
-import boto3
+from store.object_store import boto3_s3_client
 import pandas as pd
 import streamlit as st
 
@@ -34,7 +34,7 @@ REGION = os.environ.get("AWS_REGION", "us-east-1")
 def render_status_banner(status_key: str) -> None:
     """Show a red banner when the latest rule load is degraded."""
     try:
-        s3 = boto3.client("s3", region_name=REGION)
+        s3 = boto3_s3_client()
         body = s3.get_object(Bucket=BUCKET, Key=status_key)["Body"].read()
         status = json.loads(body)
     except Exception:
@@ -50,7 +50,7 @@ def render_status_banner(status_key: str) -> None:
 def render_readonly_csv(key: str) -> None:
     """Render a CSV at `key` as a read-only dataframe; comment lines stripped."""
     try:
-        s3 = boto3.client("s3", region_name=REGION)
+        s3 = boto3_s3_client()
         raw = s3.get_object(Bucket=BUCKET, Key=key)["Body"].read().decode()
         body = "\n".join(ln for ln in raw.splitlines() if not ln.strip().startswith("#"))
         df = pd.read_csv(io.StringIO(body))
@@ -73,7 +73,7 @@ def read_csv_df(key: str, cols: list) -> pd.DataFrame:
 def _fetch_csv_df(key: str, cols: list) -> pd.DataFrame:
     """Fetch a CSV from S3 into a DataFrame; empty-with-cols on miss."""
     try:
-        s3 = boto3.client("s3", region_name=REGION)
+        s3 = boto3_s3_client()
         raw = s3.get_object(Bucket=BUCKET, Key=key)["Body"].read().decode()
         body = "\n".join(ln for ln in raw.splitlines() if not ln.strip().startswith("#"))
         return pd.read_csv(io.StringIO(body)) if body.strip() else pd.DataFrame(columns=cols)
@@ -89,7 +89,7 @@ def clear_cache(key: str, cols: list) -> None:
 def read_validated(key: str, validator) -> list:
     """Read a CSV at `key` and return validated rows only (errors discarded)."""
     try:
-        s3 = boto3.client("s3", region_name=REGION)
+        s3 = boto3_s3_client()
         raw = s3.get_object(Bucket=BUCKET, Key=key)["Body"].read().decode()
     except Exception:
         return []
@@ -101,7 +101,7 @@ def put_csv(key: str, body: str, email: str, audit_field: str,
             before: int, after: int, override: bool) -> None:
     """Write a CSV body to S3, refresh the cache, append an audit row, toast."""
     try:
-        boto3.client("s3", region_name=REGION).put_object(
+        boto3_s3_client().put_object(
             Bucket=BUCKET, Key=key, Body=body.encode(), ContentType="text/csv",
         )
         # Refresh cache to the saved value so subsequent renders match S3

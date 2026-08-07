@@ -18,7 +18,7 @@
 import logging
 from typing import List, Tuple
 
-import boto3
+from store.object_store import boto3_s3_client
 
 from .rule_model import (
     parse_csv_text, dedupe,
@@ -98,9 +98,9 @@ def load_unauthorized_full(bucket: str, key: str = UNAUTH_KEY) -> Tuple[List[dic
 
 
 def _fetch(bucket: str, key: str) -> str:
-    """Fetch a CSV from S3 and return as string. Empty string on miss/error."""
+    """Fetch a CSV from object store and return as string. Empty string on miss/error."""
     try:
-        s3 = boto3.client("s3")
+        s3 = boto3_s3_client()
         resp = s3.get_object(Bucket=bucket, Key=key)
         return resp["Body"].read().decode("utf-8")
     except Exception as e:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
@@ -19,6 +20,7 @@ from db.models_identity import Org, User
 from db.seeding import _display_name, ensure_org
 
 router = APIRouter()
+_log = logging.getLogger("patronai.bootstrap")
 
 
 class ProvisionAdminRequest(BaseModel):
@@ -27,6 +29,9 @@ class ProvisionAdminRequest(BaseModel):
     s3_bucket: str
     owner_email: EmailStr
     owner_name: str = ""
+    # Multi-cloud primary store from Hub bootstrap (s3|local|azure|gcp)
+    storage_mode: str = "s3"
+    storage: dict = {}
 
 
 def _verify_bootstrap_token(token: str | None) -> None:
@@ -60,6 +65,16 @@ def provision_admin(
     slug = body.org_slug.strip().lower()
     email = body.owner_email.strip().lower()
 
+    storage_err = ""
+    if body.storage_mode or body.storage:
+        try:
+            from store.object_store import apply_storage_config_from_provision
+            apply_storage_config_from_provision(body.storage_mode or "s3", body.storage or {})
+        except Exception as exc:
+            # Never echo raw exception (may include connection strings / keys).
+            storage_err = type(exc).__name__
+            _log.warning("storage provision apply failed: %s", type(exc).__name__)
+
     with get_session() as session:
         org = ensure_org(
             session,
@@ -90,4 +105,13 @@ def provision_admin(
             if body.owner_name:
                 user.display_name = body.owner_name
         session.commit()
-        return {"ok": True, "org_id": str(org.id), "user_id": str(user.id), "email": email}
+        out: dict[str, Any] = {
+            "ok": True,
+            "org_id": str(org.id),
+            "user_id": str(user.id),
+            "email": email,
+            "storage_mode": body.storage_mode or "s3",
+        }
+        if storage_err:
+            out["storage_warning"] = storage_err
+        return out

@@ -60,6 +60,20 @@ services:
       #
       # PATRONAI_BUCKET is preferred; MARAUDER_SCAN_BUCKET accepted as legacy alias.
       - MARAUDER_SCAN_BUCKET=${PATRONAI_BUCKET:-${MARAUDER_SCAN_BUCKET:-}}
+      # Multi-cloud object store (Hub bootstrap also persists via PATRON_STORAGE_CONFIG_PATH)
+      - STORAGE_MODE=${STORAGE_MODE:-s3}
+      - OBJECT_BUCKET=${OBJECT_BUCKET:-}
+      - LOCAL_STORAGE_ENDPOINT=${LOCAL_STORAGE_ENDPOINT:-}
+      - LOCAL_STORAGE_ACCESS_KEY=${LOCAL_STORAGE_ACCESS_KEY:-}
+      - LOCAL_STORAGE_SECRET_KEY=${LOCAL_STORAGE_SECRET_KEY:-}
+      - AWS_ENDPOINT_URL=${AWS_ENDPOINT_URL:-}
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING:-}
+      - AZURE_STORAGE_ACCOUNT=${AZURE_STORAGE_ACCOUNT:-}
+      - AZURE_STORAGE_KEY=${AZURE_STORAGE_KEY:-}
+      - AZURE_STORAGE_SAS_TOKEN=${AZURE_STORAGE_SAS_TOKEN:-}
+      - GCP_SERVICE_ACCOUNT_JSON=${GCP_SERVICE_ACCOUNT_JSON:-}
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-}
+      - PATRON_STORAGE_CONFIG_PATH=${PATRON_STORAGE_CONFIG_PATH:-/data/patron_storage.json}
       # Policy/identity DB (PR#8) — `postgres` is the compose service name,
       # resolved via the `marauder-scan` bridge network's built-in DNS.
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-patronai}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-patronai_policy}
@@ -131,6 +145,7 @@ services:
       - INTEGRATION_API_PORT=${INTEGRATION_API_PORT:-8002}
     volumes:
       - patronai-models:/models
+      - patronai-data:/data
     ports:
       - "8501:8501"
       - "8002:8002"
@@ -243,6 +258,8 @@ volumes:
   grafana-data:
     driver: local
   patronai-models:
+    driver: local
+  patronai-data:
     driver: local
   postgres-data:
     driver: local

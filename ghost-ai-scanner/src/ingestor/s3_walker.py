@@ -26,7 +26,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Generator, List, Optional, Tuple
 
-import boto3
+from store.object_store import boto3_s3_client
 
 log = logging.getLogger("marauder-scan.ingestor.s3_walker")
 
@@ -34,11 +34,11 @@ _VALID_SUFFIXES = (".json", ".json.gz", ".jsonl", ".jsonl.gz", ".log.gz", ".log"
 
 
 class S3Walker:
-    """Walk S3 ocsf/ prefix; return objects modified after a cursor timestamp."""
+    """Walk object store ocsf/ prefix; return objects modified after a cursor timestamp."""
 
     def __init__(self, bucket: str, region: str = "us-east-1"):
         self.bucket = bucket
-        self.s3     = boto3.client("s3", region_name=region)
+        self.s3     = boto3_s3_client(region_name=region)
 
     def list_new_files(
         self,

@@ -20,7 +20,7 @@ import os
 import time
 from datetime import datetime, timezone
 
-import boto3
+from store.object_store import boto3_s3_client, default_bucket
 
 from matcher import (
     load_unauthorized_full, load_authorized_full,
@@ -77,10 +77,11 @@ def self_check_rules() -> dict:
 
 
 def _persist(status: dict) -> None:
-    """Write the load_status payload to S3 for the UI banner. Non-fatal on failure."""
+    """Write the load_status payload to object store for the UI banner. Non-fatal on failure."""
     try:
-        boto3.client("s3", region_name=REGION).put_object(
-            Bucket=BUCKET, Key=LOAD_STATUS_KEY,
+        bucket = default_bucket() or BUCKET
+        boto3_s3_client().put_object(
+            Bucket=bucket, Key=LOAD_STATUS_KEY,
             Body=json.dumps(status, default=str).encode(),
             ContentType="application/json",
         )
@@ -106,8 +107,9 @@ def _emit_self_alert(status: dict) -> None:
         "timestamp": now.isoformat(),
     }, default=str).encode()
     try:
-        boto3.client("s3", region_name=REGION).put_object(
-            Bucket=BUCKET, Key=key, Body=body, ContentType="application/json",
+        bucket = default_bucket() or BUCKET
+        boto3_s3_client().put_object(
+            Bucket=bucket, Key=key, Body=body, ContentType="application/json",
         )
         log.warning("Self-alert finding written: %s", key)
     except Exception as e:

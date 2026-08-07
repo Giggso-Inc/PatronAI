@@ -66,8 +66,8 @@ def render_fleet(email: str = "") -> None:
         return
 
     try:
-        import boto3
-        s3      = boto3.client("s3", region_name=region)
+        from store.object_store import boto3_s3_client
+        s3      = boto3_s3_client()
         entries = build_fleet_entries(s3, bucket)
     except Exception as e:
         st.error(f"Cannot connect to S3: {e}")

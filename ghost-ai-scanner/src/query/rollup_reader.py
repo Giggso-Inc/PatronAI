@@ -25,12 +25,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import boto3
+from store.object_store import boto3_s3_client, default_bucket
 
 log = logging.getLogger("marauder-scan.query.rollup_reader")
-
-_BUCKET = os.environ.get("MARAUDER_SCAN_BUCKET", "")
-_REGION = os.environ.get("AWS_REGION", "us-east-1")
 
 _VALID_DIMS = {"provider", "user", "severity", "device", "category"}
 _VALID_SCOPES = {"user", "tenant"}
@@ -89,12 +86,16 @@ def reset_cache() -> None:
 
 
 def _s3():
-    return boto3.client("s3", region_name=_REGION)
+    return boto3_s3_client()
+
+
+def _bucket() -> str:
+    return default_bucket() or os.environ.get("MARAUDER_SCAN_BUCKET", "")
 
 
 def _fetch_one(s3, key: str) -> dict:
     try:
-        obj = s3.get_object(Bucket=_BUCKET, Key=key)
+        obj = s3.get_object(Bucket=_bucket(), Key=key)
         body = obj["Body"].read()
         if obj.get("ContentEncoding") == "gzip" or key.endswith(".gz"):
             body = gzip.decompress(body)
@@ -107,9 +108,12 @@ def _fetch_one(s3, key: str) -> dict:
             except (OSError, gzip.BadGzipFile):
                 pass
         return json.loads(body.decode("utf-8"))
-    except s3.exceptions.NoSuchKey:
-        return {}
     except Exception as exc:
+        if type(exc).__name__ == "NoSuchKey" or "NoSuchKey" in type(exc).__name__:
+            return {}
+        nosuch = getattr(getattr(s3, "exceptions", None), "NoSuchKey", None)
+        if nosuch and isinstance(exc, nosuch):
+            return {}
         log.debug("rollup fetch failed [%s]: %s", key, exc)
         return {}
 
@@ -260,7 +264,7 @@ def read_dimension_range(scope: str, scope_id: str, dimension: str,
         raise ValueError(f"invalid scope {scope!r}")
     if dimension not in _VALID_DIMS:
         raise ValueError(f"invalid dimension {dimension!r}")
-    if not _BUCKET:
+    if not _bucket():
         log.warning("read_dimension_range: bucket not set")
         return {}
 

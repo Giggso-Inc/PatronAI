@@ -38,6 +38,11 @@ reports/regression-*.html
 # ── Logs ─────────────────────────────────────────────────────
 *.log
 
+# ── Persisted multi-cloud storage secrets (provision) ────────
+.patron_storage.json
+.patron/
+**/patron_storage.json
+
 # ── macOS ────────────────────────────────────────────────────
 .DS_Store
 
