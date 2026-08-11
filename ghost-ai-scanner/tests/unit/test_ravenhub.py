@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: tests/unit/test_ravenhub.py
-# VERSION: 1.4.0
-# UPDATED: 2026-07-21
+# VERSION: 1.5.0
+# UPDATED: 2026-08-12
 # OWNER: Giggso Inc
 # PURPOSE: Lock routers/ravenhub.py — the pure aggregation functions
 #          (KPIs, Data Exposure, Risk Heatmap, AI Landscape, AI Posture,
@@ -27,6 +27,11 @@
 #   v1.4.0  2026-07-21  Moved _verify_ravenhub_identity coverage to
 #                       test_raven_identity.py (function extracted to
 #                       routers/_raven_identity.py in ravenhub.py v1.5.0).
+#   v1.5.0  2026-08-12  test_kpis_counts_and_deltas updated for
+#                       ravenhub.py v1.6.0's two _kpis() bug fixes
+#                       (alerts_fired no longer duplicates ai_findings;
+#                       ai_findings' delta compares findings-vs-findings
+#                       instead of findings-vs-total_events).
 # =============================================================
 
 import sys
@@ -68,14 +73,28 @@ def test_kpis_counts_and_deltas():
     events = [
         _ev(outcome="ENDPOINT_FINDING", severity="HIGH", provider="claude.ai", category="browser"),
         _ev(outcome="ENDPOINT_FINDING", severity="MEDIUM", provider="chatgpt.com", category="package"),
+        _ev(outcome="DOMAIN_ALERT", severity="HIGH", provider="claude.ai", category="browser"),
+        _ev(outcome="PORT_ALERT", severity="MEDIUM", provider="claude.ai", category=""),
         _ev(outcome="HEARTBEAT", severity="CLEAN", provider="", category=""),
     ]
-    kpis = _kpis(events, y_summary={"total_events": 1, "by_severity": {"HIGH": 0}, "unique_providers": 1})
-    assert kpis["ai_findings"] == {"value": 2, "delta": 1}
-    assert kpis["high_severity"] == {"value": 1, "delta": 1}
+    kpis = _kpis(events, y_summary={
+        "total_events": 1, "by_severity": {"HIGH": 0},
+        "by_outcome": {"ENDPOINT_FINDING": 5, "DOMAIN_ALERT": 2, "PORT_ALERT": 1},
+        "unique_providers": 1, "alerts_fired": 0,
+    })
+    # delta compares today's ENDPOINT_FINDING count against yesterday's
+    # ENDPOINT_FINDING count (by_outcome), not yesterday's total_events —
+    # total_events (1) would give a different, wrong delta if this regresses.
+    assert kpis["ai_findings"] == {"value": 2, "delta": -3}
+    assert kpis["high_severity"] == {"value": 2, "delta": 2}
     assert kpis["ai_providers_detected"] == {"value": 2, "delta": 1}
     assert kpis["categories_found"] == {"value": 2}
-    assert kpis["alerts_fired"] == {"value": 2, "delta": 1}
+    # alerts_fired counts ENDPOINT_FINDING/DOMAIN_ALERT/PORT_ALERT (matches
+    # ingestor._stats()'s definition) — endpoint-only tenants with no
+    # DOMAIN_ALERT/PORT_ALERT source would otherwise always read 0.
+    # value: 2 ENDPOINT_FINDING + 1 DOMAIN_ALERT + 1 PORT_ALERT = 4
+    # reference: 5 + 2 + 1 = 8 -> delta -4
+    assert kpis["alerts_fired"] == {"value": 4, "delta": -4}
 
 
 def test_kpis_empty_events():
