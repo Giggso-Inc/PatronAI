@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: routers/ravenhub.py
-# VERSION: 1.5.0
-# UPDATED: 2026-07-21
+# VERSION: 1.6.0
+# UPDATED: 2026-08-12
 # OWNER: Giggso Inc
 # PURPOSE: RavenHub router — serves dashboard content as REST APIs so
 #          RavenHub can consume it without the FE reading S3 directly.
@@ -65,6 +65,16 @@
 #                       routers/_raven_identity.py so the new
 #                       ravenhub_governance_* routers can share it
 #                       instead of duplicating it (no behavior change).
+#   v1.6.0  2026-08-12  _kpis() bug fixes: (1) alerts_fired was a
+#                       copy-paste of ai_findings (same value/delta) —
+#                       now counts ENDPOINT_FINDING/DOMAIN_ALERT/
+#                       PORT_ALERT outcomes. (2) ai_findings' delta
+#                       compared today's findings against yesterday's
+#                       total_events (all outcomes) instead of
+#                       yesterday's findings-only count — now uses
+#                       y_summary["by_outcome"] symmetrically. Both
+#                       are real behavior changes to values returned
+#                       by /exec/overview.
 # =============================================================
 
 import logging
@@ -286,19 +296,29 @@ def _load_events(store: BlobIndexStore, email: str, is_admin: bool) -> tuple:
 
 def _kpis(events: list, y_summary: dict) -> dict:
     ysev = y_summary.get("by_severity", {})
+    yout = y_summary.get("by_outcome", {})
     findings = [e for e in events if e.get("outcome") == "ENDPOINT_FINDING"]
     high_sev = [e for e in events if e.get("severity") == "HIGH"]
     n_findings = len(findings)
     n_high = len(high_sev)
     n_provs = len(set(e.get("provider", "") for e in events if e.get("provider")))
     n_cats = len(set(e.get("category", "") for e in findings if e.get("category")))
+    # Same outcome set as ingestor._stats()'s "alerts_fired" (includes
+    # ENDPOINT_FINDING, unlike aggregator.aggregate()'s narrower version) —
+    # endpoint-only tenants (no DOMAIN_ALERT/PORT_ALERT source configured)
+    # would otherwise always read 0 here. Reference side uses the same
+    # outcome set from yesterday's by_outcome breakdown, not y_summary's
+    # own "alerts_fired" field, since that field is the narrower definition.
+    alert_outcomes = ("ENDPOINT_FINDING", "DOMAIN_ALERT", "PORT_ALERT")
+    n_alerts = len([e for e in events if e.get("outcome") in alert_outcomes])
+    y_alerts = sum(yout.get(o, 0) for o in alert_outcomes)
 
     return {
-        "ai_findings": {"value": n_findings, "delta": n_findings - y_summary.get("total_events", 0)},
+        "ai_findings": {"value": n_findings, "delta": n_findings - yout.get("ENDPOINT_FINDING", 0)},
         "high_severity": {"value": n_high, "delta": n_high - ysev.get("HIGH", 0)},
         "ai_providers_detected": {"value": n_provs, "delta": n_provs - y_summary.get("unique_providers", 0)},
         "categories_found": {"value": n_cats},
-        "alerts_fired": {"value": n_findings, "delta": n_findings - y_summary.get("total_events", 0)},
+        "alerts_fired": {"value": n_alerts, "delta": n_alerts - y_alerts},
     }
 
 
