@@ -44,9 +44,9 @@ services:
     container_name: patronai
     restart: unless-stopped
     env_file: .env
-    depends_on:
-      postgres:
-        condition: service_healthy
+    #depends_on:
+    #  postgres:
+    #    condition: service_healthy
     environment:
       # ── DO NOT interpolate AWS_* here ──────────────────────────────
       # `env_file: .env` injects AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
@@ -76,7 +76,7 @@ services:
       - PATRON_STORAGE_CONFIG_PATH=${PATRON_STORAGE_CONFIG_PATH:-/data/patron_storage.json}
       # Policy/identity DB (PR#8) — `postgres` is the compose service name,
       # resolved via the `marauder-scan` bridge network's built-in DNS.
-      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-patronai}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-patronai_policy}
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-patronai}:${POSTGRES_PASSWORD}@raven-db:5432/${POSTGRES_DB:-patronai_policy}
       - COMPANY_NAME=${COMPANY_NAME}
       - COMPANY_SLUG=${COMPANY_SLUG}
       - ALLOWED_EMAILS=${ALLOWED_EMAILS}
@@ -94,6 +94,7 @@ services:
       - CROWDSTRIKE_ENABLED=${CROWDSTRIKE_ENABLED:-false}
       - CLOUD_PROVIDER=${CLOUD_PROVIDER:-aws}
       - STREAMLIT_PORT=8501
+      - STREAMLIT_SERVER_BASE_URL_PATH=patronai
       # PUBLIC_HOST = EC2 public IP or DNS, e.g. 3.91.73.197
       # GRAFANA_URL = full Grafana base URL, e.g. http://3.91.73.197/grafana
       # If GRAFANA_URL is set it takes precedence over PUBLIC_HOST
@@ -143,16 +144,34 @@ services:
       - INTEGRATION_API_ENABLED=${INTEGRATION_API_ENABLED:-1}
       - API_KEY=${API_KEY:-mOBakBb4ECT1exikCkkc6QDb}
       - INTEGRATION_API_PORT=${INTEGRATION_API_PORT:-8002}
+      - RAVEN_HUB_URL=https://gsd.giggso.com
+      - RAVEN_AGENT_KEY=6f08da50538e54f6382dc5b073cb044a223a063b
+      - COMPANY_SLUG=giggso
+      - STORAGE_MODE=${STORAGE_MODE}
+      - PATRONAI_BUCKET=${PATRONAI_BUCKET}
+      - OBJECT_BUCKET=${OBJECT_BUCKET}
+      - PATRON_STORAGE_CONFIG_PATH=${PATRON_STORAGE_CONFIG_PATH}
+      - LOCAL_STORAGE_ENDPOINT=${LOCAL_STORAGE_ENDPOINT}
+      - LOCAL_STORAGE_ACCESS_KEY=${LOCAL_STORAGE_ACCESS_KEY}
+      - LOCAL_STORAGE_SECRET_KEY=${LOCAL_STORAGE_SECRET_KEY}
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}
+      - AZURE_STORAGE_ACCOUNT=${AZURE_STORAGE_ACCOUNT}
+      - AZURE_STORAGE_KEY=${AZURE_STORAGE_KEY}
+      - AZURE_STORAGE_SAS_TOKEN=${AZURE_STORAGE_SAS_TOKEN}
+      - GCP_SERVICE_ACCOUNT_JSON=${GCP_SERVICE_ACCOUNT_JSON}
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+
     volumes:
       - patronai-models:/models
       - patronai-data:/data
     ports:
-      - "8501:8501"
-      - "8002:8002"
+      - "8502:8501"
+      - "8003:8002"
     networks:
       - marauder-scan
+      - db-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8501/patronai/_stcore/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -161,31 +180,6 @@ services:
       driver: json-file
       options:
         max-size: "50m"
-        max-file: "3"
-
-  # ── Postgres (policy/identity DB, PR#8) ──────────────────────
-  postgres:
-    image: postgres:16-alpine
-    container_name: marauder-scan-postgres
-    restart: unless-stopped
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-patronai}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
-      - POSTGRES_DB=${POSTGRES_DB:-patronai_policy}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    networks:
-      - marauder-scan
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-patronai} -d ${POSTGRES_DB:-patronai_policy}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    logging:
-      driver: json-file
-      options:
-        max-size: "20m"
         max-file: "3"
 
   # ── Grafana ─────────────────────────────────────────────────
@@ -211,9 +205,10 @@ services:
       - GF_SERVER_ROOT_URL=https://patronai.giggso.com/grafana
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
     ports:
-      - "3000:3000"
+      - "3010:3000"
     networks:
       - marauder-scan
+      - db-net
     volumes:
       - grafana-data:/var/lib/grafana
     healthcheck:
@@ -228,31 +223,12 @@ services:
         max-size: "20m"
         max-file: "3"
 
-  # ── Nginx reverse proxy ──────────────────────────────────────
-  nginx:
-    image: nginx:1.25-alpine
-    container_name: marauder-scan-nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/domaincert:/etc/nginx/certs
-    networks:
-      - marauder-scan
-    depends_on:
-      - scanner
-      - grafana
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
 
 networks:
   marauder-scan:
     driver: bridge
+  db-net:
+    external: true
 
 volumes:
   grafana-data:
@@ -261,5 +237,5 @@ volumes:
     driver: local
   patronai-data:
     driver: local
-  postgres-data:
-    driver: local
+  #postgres-data:
+  #  driver: local
