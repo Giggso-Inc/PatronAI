@@ -67,7 +67,8 @@ def upsert_users(session, org_id, users_map: dict = None, scanned_emails=()) -> 
                 u.display_name = _display_name(e)
             continue
         session.add(User(org_id=org_id, email=e, display_name=_display_name(e),
-                         is_org_admin=is_admin))
+                         is_org_admin=is_admin,
+                         role="ORG_ADMIN" if is_admin else "VIEWER"))
         n += 1
     session.flush()
     return n
