@@ -63,6 +63,7 @@ from routers.ravenhub_projects import router as ravenhub_projects_router
 from routers.ravenhub_users import router as ravenhub_users_router
 from routers.ravenhub_settings import router as ravenhub_settings_router
 from routers.raven_enterprise_projects import router as raven_enterprise_projects_router
+from routers.raven_enterprise_users import router as raven_enterprise_users_router
 from routers.raven_enterprise_mcp_flags import router as raven_enterprise_mcp_flags_router
 from routers.raven_enterprise_bootstrap import router as raven_enterprise_bootstrap_router
 
@@ -152,6 +153,15 @@ app.include_router(
 )
 app.include_router(
     raven_enterprise_projects_router,
+    prefix="/raven-enterprise",
+    tags=["raven-enterprise"],
+    dependencies=[Depends(_auth)],
+)
+app.include_router(
+    # Mounted WITH _auth, matching the projects router above — not the bootstrap
+    # router below, which is the sole /raven-enterprise router deliberately
+    # mounted without it.
+    raven_enterprise_users_router,
     prefix="/raven-enterprise",
     tags=["raven-enterprise"],
     dependencies=[Depends(_auth)],
