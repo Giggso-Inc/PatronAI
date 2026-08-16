@@ -323,6 +323,29 @@ def get_project_by_external_ref(session, *, org_id, external_source, external_re
     ).scalar_one_or_none()
 
 
+def delete_project_by_external_ref(session, *, org_id, external_source, external_ref) -> bool:
+    """Used only by routers/raven_enterprise_projects.py's automatic
+    RavenHub -> patron delete-sync — same trust model as
+    create_project_from_sync (no `actor`, no is_org_admin check: a trusted
+    server-to-server call already authenticated at the router layer).
+
+    Returns False if no matching project exists (never synced, or already
+    deleted) — the router turns that into a 404, which the raven-side caller
+    treats as a no-op, not a failure. Child rows (project_members,
+    raven_flagged_tools, etc.) all have ondelete="CASCADE" FKs onto
+    projects.id, so deleting the row is enough — no manual child cleanup
+    needed here, unlike raven's own component_group_lifecycle.py which has
+    no DB-level cascade and must delete each child table by hand."""
+    project = get_project_by_external_ref(
+        session, org_id=org_id, external_source=external_source, external_ref=external_ref,
+    )
+    if project is None:
+        return False
+    session.delete(project)
+    session.commit()
+    return True
+
+
 def add_project_member(session, *, actor, project_id, user_id, is_project_admin=False) -> None:
     _require(getattr(actor, "is_org_admin", False), "C8: only an org admin may add members")
     if session.get(ProjectMember, (project_id, user_id)) is None:
