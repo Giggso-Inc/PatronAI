@@ -1,17 +1,19 @@
 # =============================================================
 # FILE: routers/raven_enterprise_projects.py
-# VERSION: 1.1.0
-# UPDATED: 2026-07-24
+# VERSION: 1.2.0
+# UPDATED: 2026-08-16
 # OWNER: Giggso Inc
 # PURPOSE: Dedicated endpoints for RavenHub's automatic project sync — a
 #          Project created in RavenHub (component-group) mirrors into
-#          patron's own `projects` table, and each Project Owner added in
-#          RavenHub mirrors into patron's `project_members`. Deliberately a
-#          NEW, separate router from routers/ravenhub_projects.py (which
-#          backs the Streamlit dashboard's project management and is left
-#          untouched) so this always-on, service-to-service sync path has
-#          its own authz model instead of reusing/complicating the existing
-#          one.
+#          patron's own `projects` table, each Project Owner added in
+#          RavenHub mirrors into patron's `project_members`, and a Project
+#          permanently deleted in RavenHub deletes the patron mirror row
+#          (and cascades its members/flags via ondelete="CASCADE" FKs).
+#          Deliberately a NEW, separate router from
+#          routers/ravenhub_projects.py (which backs the Streamlit
+#          dashboard's project management and is left untouched) so this
+#          always-on, service-to-service sync path has its own authz model
+#          instead of reusing/complicating the existing one.
 #
 #          SCOPE: only RavenHub Project Owners sync to patron members — NOT
 #          RavenHub's separate Developer Roster feature, and NOT any
@@ -44,13 +46,21 @@
 #          that email already belongs to a DIFFERENT patron org, rather
 #          than silently cross-linking someone else's identity.
 #
+#          PROJECT-DELETE IS IDEMPOTENT TOO: deleting an external_ref that's
+#          already gone (double-fire, retry) 404s rather than erroring — the
+#          raven-side caller treats that 404 as "nothing to clean up", not
+#          a failure.
+#
 #          NOT SYNCED: member/owner REMOVAL. RavenHub has no remove-owner
 #          feature at all yet (add-only) — when it gets one, add a matching
-#          DELETE endpoint here instead of assuming this file needs no
-#          further change.
+#          DELETE /projects/{id}/members/{user} endpoint here. Whole-project
+#          delete (above) is the only removal sync that exists so far.
 # AUDIT LOG:
 #   v1.0.0  2026-07-24  Initial — project create/sync.
 #   v1.1.0  2026-07-24  Add project-member sync (RavenHub Owners only).
+#   v1.2.0  2026-08-16  Add project delete-sync — closes the orphan-row gap
+#                       (confirmed live: 20 of 25 patron project rows had no
+#                       matching raven group left after a raven-side delete).
 # =============================================================
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -85,6 +95,11 @@ class ProjectMemberOut(BaseModel):
     project_id: str
     user_id: str
     email: str
+
+
+class ActionResponse(BaseModel):
+    ok: bool
+    message: str
 
 
 def _require_db() -> None:
@@ -144,6 +159,36 @@ def sync_project_endpoint(body: SyncProjectRequest, email: str = Depends(verify_
             s.rollback()
             raise HTTPException(status_code=400, detail=str(exc))
     return ProjectOut(id=str(row.id), slug=row.slug, display_name=row.display_name)
+
+
+@router.delete("/projects/{external_ref}", response_model=ActionResponse)
+def delete_project_endpoint(external_ref: str, email: str = Depends(verify_ravenhub_identity)) -> ActionResponse:
+    """Counterpart to sync_project_endpoint — deletes the patron mirror of a
+    permanently-deleted RavenHub Project. external_ref is always
+    external_source="ravenhub" here; this router only ever serves RavenHub.
+
+    404 if no project with this external_ref exists — expected and normal
+    for a Project that was still a draft (no owner ever added, so
+    projects/sync never ran) at the time it was deleted in raven. The raven
+    side treats that 404 as a no-op success, not an error.
+
+    Child rows (project_members, raven_flagged_tools, etc.) cascade via
+    ondelete="CASCADE" FKs — deleting the Project row is enough."""
+    _require_db()
+    from db.engine import get_session
+    from db.governance_crud import delete_project_by_external_ref
+
+    with get_session() as s:
+        _actor, org_id = _resolve_actor(s, email)
+        deleted = delete_project_by_external_ref(
+            s, org_id=org_id, external_source="ravenhub", external_ref=external_ref,
+        )
+    if not deleted:
+        raise HTTPException(status_code=404, detail=(
+            f"No patron project found for external_ref='{external_ref}' — "
+            "it was never synced (still a draft) or already deleted."
+        ))
+    return ActionResponse(ok=True, message="Project deleted.")
 
 
 @router.post("/projects/members/sync", response_model=ProjectMemberOut)

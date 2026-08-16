@@ -1,11 +1,14 @@
 # =============================================================
 # FILE: tests/integration/test_raven_enterprise_sync_db.py
-# VERSION: 1.0.0
-# UPDATED: 2026-07-26
+# VERSION: 1.1.0
+# UPDATED: 2026-08-16
 # OWNER: Giggso Inc
 # PURPOSE: Live-DB tests for the RavenHub -> patron project/member sync CRUD
 #          (routers/raven_enterprise_projects.py's backing functions in
 #          db.governance_crud). Requires DATABASE_URL. Self-cleaning org.
+# AUDIT LOG:
+#   v1.0.0  2026-07-26  Initial — create/member-sync CRUD checks.
+#   v1.1.0  2026-08-16  Add delete-sync CRUD checks (D-101 counterpart).
 # =============================================================
 
 import os
@@ -20,7 +23,8 @@ from sqlalchemy.orm import Session
 from db.models_identity import Org, Project, User
 from db.governance_crud import (
     add_project_member_from_sync, create_project_from_sync,
-    get_or_create_user_for_sync, get_project_by_external_ref,
+    delete_project_by_external_ref, get_or_create_user_for_sync,
+    get_project_by_external_ref,
 )
 
 URL = os.environ.get("DATABASE_URL", "")
@@ -89,8 +93,52 @@ def _run():
             except ValueError:
                 pass
 
+            # 6. Delete-sync: deleting an existing project by external_ref
+            #    removes it (and get_project_by_external_ref no longer finds
+            #    it) — the D-101 fix for the confirmed-live orphan-row gap.
+            p2 = create_project_from_sync(
+                s, org_id=org.id, slug="to-delete", display_name="To Delete",
+                external_source="ravenhub", external_ref="group-to-delete",
+            )
+            deleted = delete_project_by_external_ref(
+                s, org_id=org.id, external_source="ravenhub", external_ref="group-to-delete",
+            )
+            assert deleted is True
+            assert get_project_by_external_ref(
+                s, org_id=org.id, external_source="ravenhub", external_ref="group-to-delete",
+            ) is None
+
+            # 7. Delete-sync is idempotent: deleting an external_ref that's
+            #    already gone (or was never synced) returns False, not an
+            #    error — the raven-side caller treats this as "nothing to
+            #    clean up", matching the router's 404-is-a-no-op contract.
+            assert delete_project_by_external_ref(
+                s, org_id=org.id, external_source="ravenhub", external_ref="group-to-delete",
+            ) is False
+            assert delete_project_by_external_ref(
+                s, org_id=org.id, external_source="ravenhub", external_ref="never-synced-at-all",
+            ) is False
+
+            # 8. Delete-sync is org-scoped, same as get_project_by_external_ref:
+            #    a real project in a DIFFERENT org must not be deletable by
+            #    another org's external_ref claim. (Uses its own external_ref,
+            #    distinct from check 3's "group-in-other-org" — the
+            #    (org_id, external_source, external_ref) unique constraint
+            #    would otherwise reject a second row with the same triple.)
+            create_project_from_sync(
+                s, org_id=other_org.id, slug="other-org-keep", display_name="Other Org Keep",
+                external_source="ravenhub", external_ref="group-in-other-org-2",
+            )
+            assert delete_project_by_external_ref(
+                s, org_id=org.id, external_source="ravenhub", external_ref="group-in-other-org-2",
+            ) is False
+            assert get_project_by_external_ref(
+                s, org_id=other_org.id, external_source="ravenhub", external_ref="group-in-other-org-2",
+            ) is not None  # untouched under its real org
+
             print("PASS raven_enterprise sync CRUD (idempotent create, slug collision, "
-                  "org-scoped lookup, idempotent member add, cross-org refusal — 5 checks)")
+                  "org-scoped lookup, idempotent member add, cross-org refusal, "
+                  "delete-sync + idempotent delete + org-scoped delete — 8 checks)")
         finally:
             s.execute(delete(Project).where(Project.org_id.in_([org.id, other_org.id])))
             s.execute(delete(User).where(User.org_id.in_([org.id, other_org.id])))
