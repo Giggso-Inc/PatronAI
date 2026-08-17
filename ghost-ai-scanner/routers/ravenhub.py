@@ -116,6 +116,17 @@ class InventoryOverviewResponse(BaseModel):
     asset_inventory: Optional[list] = None
 
 
+class ShadowByToolResponse(BaseModel):
+    email: str
+    is_admin: bool
+    message: Optional[str] = None
+    source_date: Optional[str] = None
+    categories: Optional[list] = None
+    total_tools: Optional[int] = None
+    total_users: Optional[int] = None
+    uncategorised_tools: Optional[int] = None
+
+
 class UserDetailResponse(BaseModel):
     viewer_email: str
     target_email: str
@@ -489,6 +500,97 @@ def _owner_of(e: dict) -> str:
     return (e.get("email") or e.get("owner") or "").strip()
 
 
+# ── Shadow AI by tool ─────────────────────────────────────────────────────────
+# Display categories for RavenHub's "Shadow AI By Tools" widget, and the map
+# from PatronAI's own detection categories onto them.
+#
+# WHY THIS LIVES HERE AND NOT IN RAVEN: the Hub's version of this widget reads
+# `mcp_governance_notices`, a table that only ever contains MCP servers, and
+# recovers a category by substring-matching the tool NAME (checking "MCPs"
+# last). Measured against these same findings on 2026-08-17 it misclassified
+# 6 of 13 comparable tools — every genuine mcp_server among them, because names
+# like `mcp:claude_desktop:weather` match "claude" before they match "mcp", so
+# an MCP server is reported as a foundation model. PatronAI does not guess: it
+# knows a thing is an MCP server because it read the MCP config, and a browser
+# tool because it observed the browser.
+#
+# "Foundation Models" and "Code Assistant" are deliberately ABSENT. They cannot
+# be established from detection evidence — an IDE plugin is observable, but
+# whether the model behind it is a foundation model is not — so they were
+# dropped rather than guessed. Anything without a confident mapping lands in
+# Others; nothing is silently discarded (see `uncategorised_tools`).
+_SHADOW_DISPLAY_ORDER = ["MCPs", "Vector DB", "Browser AI", "Others"]
+
+_PATRON_CATEGORY_TO_DISPLAY = {
+    "mcp_server": "MCPs",
+    "vector_db": "Vector DB",
+    "browser": "Browser AI",
+    # Real, evidence-backed detections with no dedicated bar of their own.
+    # Mapped explicitly rather than left to the default so that a NEW category
+    # appearing in the scanner shows up in `uncategorised_tools` instead of
+    # quietly inflating Others.
+    "ide_plugin": "Others",
+    "process": "Others",
+    "shell_history": "Others",
+    "tool_registration": "Others",
+}
+
+
+def _tool_name_of(e: dict) -> str:
+    """Stable identifier for one detected tool. `provider` is the matcher's
+    resolved name; dst_domain is the fallback for a network row that matched a
+    domain but no named provider."""
+    return (e.get("provider") or e.get("dst_domain") or "").strip()
+
+
+def _shadow_by_tool(events: list) -> dict:
+    """Distinct tools and distinct users per display category.
+
+    Counts DISTINCT tool names, not events: one developer hitting one vector DB
+    forty times is one tool, not forty. Same for users. This matches what the
+    widget's axis claims to show and is why sets are used rather than counters.
+    """
+    buckets = {c: {"tools": set(), "users": set()} for c in _SHADOW_DISPLAY_ORDER}
+    unmapped: set = set()
+
+    for e in events:
+        if e.get("status") == "resolved":
+            continue
+        name = _tool_name_of(e)
+        if not name:
+            continue
+        raw = (e.get("category") or "").strip()
+        display = _PATRON_CATEGORY_TO_DISPLAY.get(raw)
+        if display is None:
+            # An unknown category is a scanner change we have not accounted for.
+            # Surface it as Others AND report the count, so a silently-growing
+            # Others bar is attributable instead of mysterious.
+            display = "Others"
+            unmapped.add(name)
+        buckets[display]["tools"].add(name)
+        owner = _owner_of(e)
+        if owner:
+            buckets[display]["users"].add(owner)
+
+    categories = [
+        {"category": c,
+         "tools_count": len(buckets[c]["tools"]),
+         "users_count": len(buckets[c]["users"])}
+        for c in _SHADOW_DISPLAY_ORDER
+    ]
+    # Totals are computed over the UNION, not by summing the bars: one tool
+    # appearing in two categories, or one developer using tools in three, must
+    # count once. Summing the rows would over-report both.
+    all_tools = set().union(*(b["tools"] for b in buckets.values()))
+    all_users = set().union(*(b["users"] for b in buckets.values()))
+    return {
+        "categories": categories,
+        "total_tools": len(all_tools),
+        "total_users": len(all_users),
+        "uncategorised_tools": len(unmapped),
+    }
+
+
 def _posture_breakdown_rows(events: list) -> list:
     """Category breakdown rows for the AI Posture card, worst-severity-first
     then highest-count. Extracted from _ai_posture to keep it under the
@@ -718,6 +820,49 @@ def get_inventory_overview(
         source_date=source_date,
         ai_posture=posture,
         asset_inventory=_asset_inventory(events, dev_score),
+    )
+
+
+@router.get("/shadow/by-tool", response_model=ShadowByToolResponse)
+def get_shadow_by_tool(
+    email: str = Depends(_verify_ravenhub_identity),
+) -> ShadowByToolResponse:
+    """Shadow AI grouped into display categories, org-wide.
+
+    Replaces RavenHub's own /dashboard-overview/shadow-by-tool, which cannot
+    answer this question: it reads `mcp_governance_notices` (MCP servers only)
+    and infers a category from the tool's NAME, so its Browser AI bar is
+    populated by MCP servers called `claude_browser` / `claude-in-chrome` while
+    its MCPs bar reads zero. Here the category comes from how the tool was
+    actually detected.
+
+    Admin-gated the same way as /inventory/overview — a non-admin gets 200 with
+    is_admin=false and no data, because this is a privilege boundary rather than
+    an authentication failure. See that endpoint's docstring for the standing
+    caveat that _resolve_is_admin is currently TEMP-relaxed.
+    """
+    email_norm = email
+    try:
+        is_admin = _resolve_is_admin(email_norm)
+    except HTTPException:
+        return ShadowByToolResponse(
+            email=email_norm, is_admin=False,
+            message="Not an admin — no shadow AI data available.",
+        )
+
+    if not is_admin:
+        return ShadowByToolResponse(
+            email=email_norm, is_admin=False,
+            message="Not an admin — no shadow AI data available.",
+        )
+
+    store = _blob_store()
+    events, _summary, _y_summary, source_date = _load_events(store, email_norm, is_admin=True)
+    return ShadowByToolResponse(
+        email=email_norm,
+        is_admin=True,
+        source_date=source_date,
+        **_shadow_by_tool(events),
     )
 
 
