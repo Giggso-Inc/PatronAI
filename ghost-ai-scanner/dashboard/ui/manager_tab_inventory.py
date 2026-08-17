@@ -207,9 +207,14 @@ def render_inventory(events: list) -> None:
     )
     st.markdown('<div class="card-title">ASSET INVENTORY</div>',
                 unsafe_allow_html=True)
+    # "DEVICE NAME", not "SOURCE IP / DEVICE": _asset_key resolves
+    # src_hostname before src_ip, and endpoint-agent events always set
+    # src_hostname — so this column cannot render an IP while agent events
+    # are the only source. Kept in step with commonFE's Shadow AI table
+    # (ShadowAI.jsx), which routers/ravenhub.py mirrors field-for-field.
     st.markdown(
         f"<table><thead><tr>"
-        f"<th>SOURCE IP / DEVICE</th><th>TYPE</th><th>USER</th>"
+        f"<th>DEVICE NAME</th><th>TYPE</th><th>USER</th>"
         f"<th>DEPT</th><th>MAC</th><th>EVENTS</th><th>SCORE</th><th>STATUS</th>"
         f"</tr></thead><tbody>{rows}</tbody></table>",
         unsafe_allow_html=True,
