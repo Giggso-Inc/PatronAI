@@ -42,6 +42,15 @@
 #          belongs to the org it writes to. That check was doing nothing
 #          useful here — the Hub is the only caller and authenticates as a
 #          service — but it is a conscious choice, not an omission.
+#          Spelled out because it is load-bearing: ANY caller that clears
+#          both auth layers can upsert a user into ANY org_slug it names,
+#          and nothing in this handler cross-checks that against the
+#          caller's own org. "The Hub is the only caller" is an
+#          INFRASTRUCTURE guarantee — the bearer API_KEY and the
+#          RAVEN_JWT_SECRET signing key are not distributed further — and
+#          NOT something this endpoint verifies. If either secret is ever
+#          shared more widely, or a second caller is added, this endpoint
+#          needs a real org check before that happens, not after.
 #          Lookup is STRICT (404 on an unknown slug), never ensure_org, so
 #          a typo cannot silently create an org.
 #
@@ -59,12 +68,16 @@
 #   v1.0.0  2026-08-16  Initial — user upsert + admin flag (SPEC-role-sync Phase 2).
 # =============================================================
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 
 from routers._raven_identity import verify_ravenhub_identity
 
 router = APIRouter(dependencies=[Depends(verify_ravenhub_identity)])
+
+_log = logging.getLogger(__name__)
 
 
 class SyncUserRequest(BaseModel):
@@ -89,10 +102,13 @@ def _require_db() -> None:
 
 
 @router.post("/users/sync", response_model=SyncUserOut)
-def sync_user_endpoint(
-    body: SyncUserRequest,
-    email: str = Depends(verify_ravenhub_identity),
-) -> SyncUserOut:
+def sync_user_endpoint(body: SyncUserRequest) -> SyncUserOut:
+    # No `email: str = Depends(verify_ravenhub_identity)` parameter here, unlike
+    # raven_enterprise_projects.py. Auth still runs — the router-level
+    # dependencies=[Depends(verify_ravenhub_identity)] enforces it — but the
+    # caller's email is deliberately unused: the org comes from the payload
+    # (see the header), so binding it would read as though it feeds an
+    # org-ownership check that this endpoint does not perform.
     _require_db()
     from sqlalchemy import select
 
@@ -132,9 +148,16 @@ def sync_user_endpoint(
             raise HTTPException(status_code=409, detail=str(exc))
         except HTTPException:
             raise
-        except Exception as exc:
+        except Exception:
             s.rollback()
-            raise HTTPException(status_code=400, detail=f"user sync failed: {exc}")
+            # Logged with the traceback, returned as a fixed string. The raw
+            # exception text can carry internal detail (a DB driver error will
+            # happily include the connection target or a column name), and the
+            # caller is a service that can read a log — it gains nothing from
+            # the specifics that an attacker who cleared both auth layers would
+            # not gain more from.
+            _log.exception("user sync failed for org=%s", body.org_slug)
+            raise HTTPException(status_code=400, detail="user sync failed")
 
         return SyncUserOut(
             ok=True,
