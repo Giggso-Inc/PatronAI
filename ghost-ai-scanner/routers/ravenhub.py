@@ -602,16 +602,29 @@ def _shadow_by_tool(events: list) -> dict:
     }
 
 
-def _workforce_total() -> Optional[int]:
-    """Headcount for the shadow-AI percentage denominator.
+def _workforce_total(email: str) -> Optional[int]:
+    """Headcount for the shadow-AI percentage denominator, scoped to the
+    CALLER's org.
+
+    Scoped via the caller's own identity (db.policy_queries.get_identity ->
+    org_id), NOT via COMPANY_SLUG. This DB is genuinely multi-org —
+    raven_enterprise_bootstrap.py::provision_admin adds org rows to the same
+    Postgres — so an unscoped count would return another tenant's headcount and
+    silently corrupt the percentage this field exists to support. Caller-org is
+    also the scope every /governance/* read already uses (_raven_actor.py), and
+    it is the correct one here: COMPANY_SLUG is a deployment-wide default that
+    does not track who is asking, and on this deployment it points at an org
+    with no users at all while the real users live under another slug — scoping
+    by it would return 0 and render "N of 0 people".
 
     Postgres `users` — the same table _db_is_admin reads and the one CLAUDE.md
-    names as authoritative for identity. Deliberately NOT the S3 users.json
-    store behind GET /ravenhub/users: that is a legacy read model and returns a
-    smaller, staler set (13 vs 26 on this tenant), which would silently inflate
-    any percentage computed against it.
+    names authoritative for identity. Deliberately NOT the S3 users.json store
+    behind GET /ravenhub/users: that is a legacy read model returning a smaller,
+    staler set (13 vs 26 on this tenant), which would inflate any percentage
+    computed against it purely by shrinking the denominator.
 
-    Returns None rather than 0 when the DB is unreachable, so a consumer renders
+    Returns None rather than 0 whenever the answer is unknown — DB unset,
+    caller not a policy-DB user, or lookup failure — so a consumer renders
     "not available" instead of dividing by a fabricated zero.
     """
     if not os.environ.get("DATABASE_URL"):
@@ -620,8 +633,14 @@ def _workforce_total() -> Optional[int]:
         from sqlalchemy import func as _func, select
         from db.engine import get_session
         from db.models_identity import User
+        from db.policy_queries import get_identity
         with get_session() as s:
-            return int(s.execute(select(_func.count(User.id))).scalar() or 0)
+            _actor, org_id, _projects = get_identity(s, email)
+            if org_id is None:
+                return None
+            return int(s.execute(
+                select(_func.count(User.id)).where(User.org_id == org_id)
+            ).scalar() or 0)
     except Exception as exc:                       # noqa: BLE001 — best effort
         _log.warning("RavenHub workforce_total lookup failed: %s", exc)
         return None
@@ -630,9 +649,14 @@ def _workforce_total() -> Optional[int]:
 def _endpoints_scanned(events: list) -> int:
     """Distinct devices these findings came from — the honest coverage figure.
 
-    device_uuid first, hostname as fallback, mirroring _asset_key's preference
-    order. A finding with neither is not counted rather than bucketed as one
-    phantom device.
+    device_uuid first, hostname as fallback. Deliberately NOT _asset_key's
+    order: that helper leads with `device_id`, a key no normalizer ever sets on
+    an event (agent.py::_bind_identity maps the raw device_id into
+    src_hostname/src_ip and carries device_uuid separately), so following it
+    here would start from a field that is always absent.
+
+    A finding identifying neither is not counted rather than bucketed as one
+    phantom device, which would overstate coverage.
     """
     seen = set()
     for e in events:
@@ -913,7 +937,7 @@ def get_shadow_by_tool(
         email=email_norm,
         is_admin=True,
         source_date=source_date,
-        workforce_total=_workforce_total(),
+        workforce_total=_workforce_total(email_norm),
         endpoints_scanned=_endpoints_scanned(events),
         **_shadow_by_tool(events),
     )

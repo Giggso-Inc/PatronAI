@@ -1,6 +1,6 @@
 # =============================================================
 # FILE: tests/unit/test_ravenhub_shadow_by_tool.py
-# VERSION: 1.1.0
+# VERSION: 1.2.0
 # UPDATED: 2026-08-17
 # OWNER: Giggso Inc
 # PURPOSE: Lock routers/ravenhub.py::_shadow_by_tool — the category
@@ -22,6 +22,11 @@
 #   v1.1.0  2026-08-18  _endpoints_scanned coverage tests, added with
 #                       workforce_total/endpoints_scanned so the card can
 #                       drop its last cross-service (Raven) call.
+#   v1.2.0  2026-08-18  PR#29 review M2/M3: _workforce_total coverage
+#                       (incl. an assertion that the count query is
+#                       org-scoped, which fails against the pre-review
+#                       unscoped query) and the three route-level tests
+#                       mirroring get_inventory_overview's.
 # =============================================================
 
 import sys
@@ -229,3 +234,153 @@ def test_endpoints_scanned_ignores_rows_with_no_device():
     from routers.ravenhub import _endpoints_scanned
     assert _endpoints_scanned([_ev(device_uuid="", src_hostname="")]) == 0
     assert _endpoints_scanned([]) == 0
+
+
+# ── _workforce_total (v1.2.0 — review M1/M2) ──────────────────────────────────
+# Mirrors the _db_is_admin fake-session pattern in test_ravenhub.py:207-252.
+
+class _FakeScalar:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar(self):
+        return self._value
+
+    def scalar_one_or_none(self):
+        return self._value
+
+
+class _FakeCountSession:
+    """Session stand-in that records what the count query was filtered by, so a
+    test can prove the query is org-scoped rather than counting the table."""
+    def __init__(self, count):
+        self._count = count
+        self.executed = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, statement=None, *_a, **_kw):
+        self.executed += 1
+        self.last_statement = statement
+        return _FakeScalar(self._count)
+
+
+def _patch_identity(monkeypatch, org_id):
+    """Stub get_identity, which _workforce_total imports inside the function."""
+    import db.policy_queries as pq
+    monkeypatch.setattr(pq, "get_identity",
+                        lambda s, email: (object() if org_id else None, org_id, []))
+
+
+def test_workforce_total_none_without_database_url(monkeypatch):
+    from routers.ravenhub import _workforce_total
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert _workforce_total("a@giggso.com") is None
+
+
+def test_workforce_total_counts_for_the_callers_org(monkeypatch):
+    """Review M1: the count MUST be filtered by the caller's org. This DB is
+    multi-org, so an unfiltered COUNT returns another tenant's headcount and
+    silently corrupts the percentage.
+
+    Asserts the compiled SQL actually carries the predicate — a fake that just
+    returns a number would pass with or without the WHERE clause, which is
+    exactly the bug being fixed.
+    """
+    from routers.ravenhub import _workforce_total
+    import db.engine as engine_mod
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+    _patch_identity(monkeypatch, "org-a")
+    session = _FakeCountSession(26)
+    monkeypatch.setattr(engine_mod, "get_session", lambda: session)
+
+    assert _workforce_total("admin@giggso.com") == 26
+    sql = str(session.last_statement).lower()
+    assert "count(" in sql
+    assert "where" in sql and "org_id" in sql, (
+        f"count query is not org-scoped: {sql}")
+
+
+def test_workforce_total_none_when_caller_is_not_a_policy_db_user(monkeypatch):
+    """Review M1: an unknown caller has no org, so there is no denominator to
+    give. None (not 0) — otherwise the card renders "N of 0 people"."""
+    from routers.ravenhub import _workforce_total
+    import db.engine as engine_mod
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+    _patch_identity(monkeypatch, None)
+    monkeypatch.setattr(engine_mod, "get_session", lambda: _FakeCountSession(999))
+    assert _workforce_total("stranger@example.com") is None
+
+
+def test_workforce_total_none_on_db_exception(monkeypatch):
+    """A DB outage degrades to "not available", never to a fabricated 0."""
+    from routers.ravenhub import _workforce_total
+    import db.engine as engine_mod
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+
+    def _boom():
+        raise RuntimeError("connection refused")
+    monkeypatch.setattr(engine_mod, "get_session", _boom)
+    assert _workforce_total("a@giggso.com") is None
+
+
+# ── route handler (v1.2.0 — review M3) ────────────────────────────────────────
+# Mirrors get_inventory_overview's route tests (test_ravenhub.py:428-461).
+
+def test_shadow_by_tool_non_admin_returns_200_with_no_data(monkeypatch):
+    import routers.ravenhub as rh
+    monkeypatch.setattr(rh, "_resolve_is_admin", lambda email: False)
+    result = rh.get_shadow_by_tool(email="dev@giggso.com")
+    assert isinstance(result, rh.ShadowByToolResponse)
+    assert result.is_admin is False
+    assert result.message == "Not an admin — no shadow AI data available."
+    assert result.categories is None
+    assert result.workforce_total is None
+
+
+def test_shadow_by_tool_unknown_email_returns_200_not_403(monkeypatch):
+    """A privilege boundary, not an authentication failure — same contract as
+    /inventory/overview."""
+    from fastapi import HTTPException
+    import routers.ravenhub as rh
+
+    def _deny(email):
+        raise HTTPException(status_code=403, detail="Access denied")
+    monkeypatch.setattr(rh, "_resolve_is_admin", _deny)
+    result = rh.get_shadow_by_tool(email="totally-unknown@giggso.com")
+    assert result.is_admin is False
+    assert result.categories is None
+
+
+def test_shadow_by_tool_admin_wires_every_field(monkeypatch):
+    """Pins the merged response — **_shadow_by_tool(events) plus the two
+    separately-computed fields — so a refactor cannot silently drop one."""
+    import routers.ravenhub as rh
+    monkeypatch.setattr(rh, "_resolve_is_admin", lambda email: True)
+    monkeypatch.setattr(rh, "_blob_store", lambda: object())
+    monkeypatch.setattr(rh, "_workforce_total", lambda email: 26)
+    fake_events = [
+        _ev(provider="mcp:claude_desktop:weather", category="mcp_server",
+            device_uuid="dev-1", owner="a@x.com", email="a@x.com"),
+        _ev(provider="vdb:chroma:Chroma", category="vector_db",
+            device_uuid="dev-2", owner="b@x.com", email="b@x.com"),
+    ]
+    monkeypatch.setattr(
+        rh, "_load_events",
+        lambda store, email, is_admin: (fake_events, {}, {}, "2026-08-17"))
+
+    result = rh.get_shadow_by_tool(email="admin@giggso.com")
+    assert result.is_admin is True
+    assert result.message is None
+    assert result.source_date == "2026-08-17"
+    assert result.total_tools == 2
+    assert result.total_users == 2
+    assert result.workforce_total == 26
+    assert result.endpoints_scanned == 2
+    by_cat = {c["category"]: c for c in result.categories}
+    assert by_cat["MCPs"]["tools_count"] == 1
+    assert by_cat["Vector DB"]["tools_count"] == 1
