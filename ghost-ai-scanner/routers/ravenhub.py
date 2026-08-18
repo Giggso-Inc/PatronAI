@@ -125,6 +125,17 @@ class ShadowByToolResponse(BaseModel):
     total_tools: Optional[int] = None
     total_users: Optional[int] = None
     uncategorised_tools: Optional[int] = None
+    # Workforce denominator, so a consumer never has to reach into another
+    # service for it. Counted from the policy DB (authoritative for identity),
+    # NOT the legacy S3 users.json read model, which is a smaller and staler
+    # set — 13 vs 26 on this tenant.
+    workforce_total: Optional[int] = None
+    # How many distinct endpoints these findings actually came from. Published
+    # because total_users/workforce_total alone is misleading: PatronAI can only
+    # observe machines its agent is installed on, so a low percentage may mean
+    # "few people use shadow AI" OR "we have barely looked". Without this a
+    # reader cannot tell which.
+    endpoints_scanned: Optional[int] = None
 
 
 class UserDetailResponse(BaseModel):
@@ -591,6 +602,46 @@ def _shadow_by_tool(events: list) -> dict:
     }
 
 
+def _workforce_total() -> Optional[int]:
+    """Headcount for the shadow-AI percentage denominator.
+
+    Postgres `users` — the same table _db_is_admin reads and the one CLAUDE.md
+    names as authoritative for identity. Deliberately NOT the S3 users.json
+    store behind GET /ravenhub/users: that is a legacy read model and returns a
+    smaller, staler set (13 vs 26 on this tenant), which would silently inflate
+    any percentage computed against it.
+
+    Returns None rather than 0 when the DB is unreachable, so a consumer renders
+    "not available" instead of dividing by a fabricated zero.
+    """
+    if not os.environ.get("DATABASE_URL"):
+        return None
+    try:
+        from sqlalchemy import func as _func, select
+        from db.engine import get_session
+        from db.models_identity import User
+        with get_session() as s:
+            return int(s.execute(select(_func.count(User.id))).scalar() or 0)
+    except Exception as exc:                       # noqa: BLE001 — best effort
+        _log.warning("RavenHub workforce_total lookup failed: %s", exc)
+        return None
+
+
+def _endpoints_scanned(events: list) -> int:
+    """Distinct devices these findings came from — the honest coverage figure.
+
+    device_uuid first, hostname as fallback, mirroring _asset_key's preference
+    order. A finding with neither is not counted rather than bucketed as one
+    phantom device.
+    """
+    seen = set()
+    for e in events:
+        d = (e.get("device_uuid") or e.get("src_hostname") or "").strip()
+        if d:
+            seen.add(d)
+    return len(seen)
+
+
 def _posture_breakdown_rows(events: list) -> list:
     """Category breakdown rows for the AI Posture card, worst-severity-first
     then highest-count. Extracted from _ai_posture to keep it under the
@@ -862,6 +913,8 @@ def get_shadow_by_tool(
         email=email_norm,
         is_admin=True,
         source_date=source_date,
+        workforce_total=_workforce_total(),
+        endpoints_scanned=_endpoints_scanned(events),
         **_shadow_by_tool(events),
     )
 

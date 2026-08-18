@@ -1,6 +1,6 @@
 # =============================================================
 # FILE: tests/unit/test_ravenhub_shadow_by_tool.py
-# VERSION: 1.0.0
+# VERSION: 1.1.0
 # UPDATED: 2026-08-17
 # OWNER: Giggso Inc
 # PURPOSE: Lock routers/ravenhub.py::_shadow_by_tool — the category
@@ -19,6 +19,9 @@
 # AUDIT LOG:
 #   v1.0.0  2026-08-17  Initial — accompanies the /ravenhub/shadow/by-tool
 #                       endpoint added in ravenhub.py.
+#   v1.1.0  2026-08-18  _endpoints_scanned coverage tests, added with
+#                       workforce_total/endpoints_scanned so the card can
+#                       drop its last cross-service (Raven) call.
 # =============================================================
 
 import sys
@@ -195,3 +198,34 @@ def test_missing_owner_counts_the_tool_but_no_user():
     cats = _by_cat(_shadow_by_tool(events))
     assert cats["MCPs"]["tools_count"] == 1
     assert cats["MCPs"]["users_count"] == 0
+
+
+# ── coverage / denominator (v1.1.0) ───────────────────────────────────────────
+
+def test_endpoints_scanned_counts_distinct_devices():
+    """The honest coverage figure. PatronAI only sees machines its agent is on,
+    so a low shadow-AI percentage may mean "few people use it" OR "we barely
+    looked" — this is what lets a reader tell those apart."""
+    from routers.ravenhub import _endpoints_scanned
+    events = [
+        _ev(device_uuid="dev-1"),
+        _ev(device_uuid="dev-1"),          # same machine, many findings
+        _ev(device_uuid="dev-2"),
+    ]
+    assert _endpoints_scanned(events) == 2
+
+
+def test_endpoints_scanned_falls_back_to_hostname():
+    """Mirrors _asset_key's preference order — a finding without device_uuid is
+    still a real endpoint and must not be dropped from coverage."""
+    from routers.ravenhub import _endpoints_scanned
+    events = [_ev(src_hostname="laptop-a"), _ev(device_uuid="dev-1")]
+    assert _endpoints_scanned(events) == 2
+
+
+def test_endpoints_scanned_ignores_rows_with_no_device():
+    """A row identifying no machine must not become one phantom endpoint,
+    which would overstate coverage — the opposite of this field's purpose."""
+    from routers.ravenhub import _endpoints_scanned
+    assert _endpoints_scanned([_ev(device_uuid="", src_hostname="")]) == 0
+    assert _endpoints_scanned([]) == 0
