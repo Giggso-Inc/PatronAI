@@ -61,6 +61,44 @@ def _get_by_id(session, model, row_id):
     return session.get(model, row_id)
 
 
+def _same_org(left, right) -> bool:
+    """UUID columns and caller-supplied ids may arrive as uuid.UUID or str.
+    Python's UUID == str is always False, which falsely rejects valid
+    in-org targets (list queries still match via SQL casting)."""
+    if left is None or right is None:
+        return False
+    return str(left) == str(right)
+
+
+def resolve_user_in_org(session, org_id, user_id) -> User:
+    """Resolve a client-supplied user reference to a User in org_id.
+
+    Accepts a Policy-DB UUID (preferred — what GET /governance/users returns)
+    or an email (legacy / mis-wired FE pickers). Raises PolicyAuthzError with
+    the stable "user_id not found in this org" message on miss or cross-org.
+    """
+    raw = str(user_id).strip()
+    _require(bool(raw), "user_id not found in this org")
+    usr = _get_by_id(session, User, raw)
+    if usr is None and "@" in raw:
+        # Email path: same normalisation as get_or_create_user_for_sync.
+        usr = session.execute(
+            select(User).where(User.email == _norm(raw))
+        ).scalar_one_or_none()
+    _require(usr is not None and _same_org(usr.org_id, org_id),
+             "user_id not found in this org")
+    return usr
+
+
+def resolve_project_in_org(session, org_id, project_id) -> Project:
+    raw = str(project_id).strip()
+    _require(bool(raw), "project_id not found in this org")
+    proj = _get_by_id(session, Project, raw)
+    _require(proj is not None and _same_org(proj.org_id, org_id),
+             "project_id not found in this org")
+    return proj
+
+
 def check_target_in_org(session, *, org_id, project_id=None, user_id=None) -> None:
     """PR#9 review (C1/C2): a client-supplied project_id/user_id must
     actually belong to org_id, not just be well-formed. Before this, an
@@ -72,11 +110,9 @@ def check_target_in_org(session, *, org_id, project_id=None, user_id=None) -> No
     scope endpoint (ravenhub_governance_reads.py), which had no
     ownership check at all."""
     if project_id is not None:
-        proj = _get_by_id(session, Project, project_id)
-        _require(proj is not None and proj.org_id == org_id, "project_id not found in this org")
+        resolve_project_in_org(session, org_id, project_id)
     if user_id is not None:
-        usr = _get_by_id(session, User, user_id)
-        _require(usr is not None and usr.org_id == org_id, "user_id not found in this org")
+        resolve_user_in_org(session, org_id, user_id)
 
 
 def _check_scope_authz(actor, scope: str, user_id, org_id=None, *,
@@ -103,7 +139,7 @@ def _check_scope_authz(actor, scope: str, user_id, org_id=None, *,
     caller that hasn't wired a session through, same as the org_id
     check being conditional above."""
     actor_org = getattr(actor, "org_id", None)
-    if org_id is not None and actor_org is not None and org_id != actor_org:
+    if org_id is not None and actor_org is not None and not _same_org(org_id, actor_org):
         raise PolicyAuthzError("C8: cross-org policy write refused")
     if scope in ("org", "project"):
         _require(getattr(actor, "is_org_admin", False),
@@ -152,6 +188,12 @@ def add_approved(session, *, actor, org_id, scope, name, provider_pattern,
 
     Idempotent per (scope, owner, pattern): a second call for a pattern that
     is already approved at that scope does NOT create a duplicate."""
+    # Normalise client refs to Policy-DB UUIDs before authz + FK write —
+    # email (or str UUID) must not be persisted on ApprovedTool.user_id.
+    if user_id is not None:
+        user_id = resolve_user_in_org(session, org_id, user_id).id
+    if project_id is not None:
+        project_id = resolve_project_in_org(session, org_id, project_id).id
     _check_scope_authz(actor, scope, user_id, org_id=org_id, project_id=project_id, session=session)
     pattern = (provider_pattern or "").strip().lower()
     existing = session.execute(
@@ -185,6 +227,10 @@ def add_blacklisted(session, *, actor, org_id, scope, domain, name=None,
                     reason=None, commit=True):
     """Add a deny entry at the given scope (server-side authz enforced).
     Idempotent per (scope, owner, pattern) — no duplicate deny rows."""
+    if user_id is not None:
+        user_id = resolve_user_in_org(session, org_id, user_id).id
+    if project_id is not None:
+        project_id = resolve_project_in_org(session, org_id, project_id).id
     _check_scope_authz(actor, scope, user_id, org_id=org_id, project_id=project_id, session=session)
     pattern = (domain or "").strip().lower()
     existing = session.execute(
@@ -367,7 +413,7 @@ def get_or_create_user_for_sync(session, *, org_id, email) -> User:
     norm_email = _norm(email)
     user = session.execute(select(User).where(User.email == norm_email)).scalar_one_or_none()
     if user is not None:
-        if user.org_id != org_id:
+        if not _same_org(user.org_id, org_id):
             raise ValueError(f"'{norm_email}' already belongs to a different patron org")
         return user
     user = User(org_id=org_id, email=norm_email, display_name=_display_name(norm_email), is_org_admin=False)
