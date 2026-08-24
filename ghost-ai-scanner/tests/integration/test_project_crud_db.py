@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from sqlalchemy import create_engine, delete
 from sqlalchemy.orm import Session
 
-from db.models_identity import Org, User
+from db.models_identity import Org, Project, User
 from db.models_policy import ApprovedTool
 from db.governance_crud import (
     PolicyAuthzError, add_approved, add_project_member, create_project,
@@ -55,7 +55,25 @@ def _run():
                          name="LangChain", provider_pattern="langchain")
             rows = list_scope(s, ApprovedTool, org_id=org.id, scope="project", project_id=project.id)
             assert len(rows) == 1 and rows[0].domain_pattern == "langchain"
-            print("PASS project_crud + list_scope (4 checks)")
+
+            # M-3 (2026-08-24, PR review round 2 on PatronAI#31): create_project's
+            # new external_source param must actually persist to a real row, not
+            # just survive a mocked round trip — re-fetch fresh from the DB
+            # (not the in-memory object create_project returned) to prove it.
+            rh_project = create_project(s, actor=admin, org_id=org.id, slug="rh-proj",
+                                        display_name="RavenHub Project", external_source="ravenhub")
+            s.expire(rh_project)
+            reloaded = s.get(Project, rh_project.id)
+            assert reloaded.external_source == "ravenhub"
+
+            # And the default (patron-native) path is unaffected — None, not "".
+            native_project = create_project(s, actor=admin, org_id=org.id, slug="native-proj",
+                                            display_name="Native Project")
+            s.expire(native_project)
+            reloaded_native = s.get(Project, native_project.id)
+            assert reloaded_native.external_source is None
+
+            print("PASS project_crud + list_scope (6 checks)")
         finally:
             s.execute(delete(Org).where(Org.slug == SLUG)); s.commit()
 

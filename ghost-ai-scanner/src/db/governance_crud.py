@@ -29,6 +29,11 @@
 #                       move_to_allowed, overrides_giggso/overrides_deny).
 #                       Added _check_no_opposite_polarity (OQ-4) to
 #                       add_approved/add_blacklisted.
+#   v2.1.0  2026-08-24  create_project() gains an optional external_source
+#                       param (default None — patron-native, unchanged for
+#                       every existing caller) so a RavenHub-only caller
+#                       (ravenhub_projects.py) can stamp it correctly at
+#                       creation instead of leaving it NULL (PR review, C1).
 # =============================================================
 
 import uuid as _uuid

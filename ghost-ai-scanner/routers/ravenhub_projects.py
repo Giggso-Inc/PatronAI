@@ -26,8 +26,15 @@
 #          pass the real `actor` straight through to enforce real authz.
 # AUDIT LOG:
 #   v1.0.0  2026-07-21  Initial — 5 endpoints.
+#   v1.1.0  2026-08-24  PR review round 2 — GET /projects filters to
+#                       external_source == "ravenhub"; create_project_
+#                       endpoint stamps it; the 3 member endpoints 404 on
+#                       a non-RavenHub project via _require_ravenhub_
+#                       project(). All four gated by RAVENHUB_PROJECTS_
+#                       FILTER_ENABLED (M-1) — see that flag's docstring.
 # =============================================================
 
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -37,6 +44,20 @@ from routers._raven_actor import resolve_actor as _resolve_actor
 from routers._raven_identity import verify_ravenhub_identity
 
 router = APIRouter(dependencies=[Depends(verify_ravenhub_identity)])
+
+
+def _ravenhub_filter_enabled() -> bool:
+    """Kill switch decoupling this filter's activation from its code deploy
+    (2026-08-24 PR review round 2, M-1): raven-enterprise#195's backfill
+    must actually RUN in a given environment — not merely be merged to
+    that repo's `dev` branch — before this filter can safely hide
+    Patron-native phantom projects without ALSO hiding a genuine
+    pre-existing RavenHub project that's still missing its
+    `external_source` stamp there. Default OFF: deploying this code
+    changes nothing (same behavior as before this PR) until an operator
+    confirms the backfill has run in this environment and sets
+    `RAVENHUB_PROJECTS_FILTER_ENABLED=1` — no redeploy needed to flip it."""
+    return os.environ.get("RAVENHUB_PROJECTS_FILTER_ENABLED", "").strip().lower() in ("1", "true", "yes")
 
 
 def _admin_shim(actor):
@@ -102,6 +123,13 @@ def _require_ravenhub_project(s, org_id: str, project_id: str) -> None:
     already implies, not a 403 — this isn't an authz failure, RavenHub
     just doesn't manage this project.
 
+    Gated by the same RAVENHUB_PROJECTS_FILTER_ENABLED kill switch as the
+    list filter (M-1) — this 404 must not fire in an environment where the
+    filter itself is still off, or a genuine RavenHub project that hasn't
+    been backfilled yet would be manageable through GET /projects (it's
+    unfiltered right now) but not through these endpoints, an inconsistency
+    of its own.
+
     PRECONDITION, enforced here too (2026-08-24 review round 2, N1): every
     call site already calls check_target_in_org() for this exact project_id
     right before this, so resolve_project_in_org() below can't newly raise
@@ -110,6 +138,8 @@ def _require_ravenhub_project(s, org_id: str, project_id: str) -> None:
     caller that skips that precondition still gets a clean 404 instead of an
     unhandled 500 (PolicyAuthzError is a bare Exception — there's no global
     handler for it anywhere in this app)."""
+    if not _ravenhub_filter_enabled():
+        return
     from db.governance_crud import PolicyAuthzError, resolve_project_in_org
     try:
         project = resolve_project_in_org(s, org_id, project_id)
@@ -140,10 +170,11 @@ def list_projects_endpoint(email: str = Depends(verify_ravenhub_identity)) -> Pr
     with get_session() as s:
         actor, org_id = _resolve_actor(s, email)
         rows = list_projects(s, org_id)
+        filter_on = _ravenhub_filter_enabled()
         projects = [
             ProjectOut(id=str(p.id), slug=p.slug, display_name=p.display_name, member_count=count)
             for p, count in rows
-            if p.external_source == "ravenhub"
+            if not filter_on or p.external_source == "ravenhub"
         ]
     return ProjectsResponse(email=email, projects=projects)
 
