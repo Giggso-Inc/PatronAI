@@ -94,8 +94,18 @@ def _require_db() -> None:
 
 @router.get("/projects", response_model=ProjectsResponse)
 def list_projects_endpoint(email: str = Depends(verify_ravenhub_identity)) -> ProjectsResponse:
-    """Every project in the caller's org, with member count. Mirrors
-    projects.py's list_projects() render."""
+    """Every RavenHub-sourced project in the caller's org, with member count.
+
+    Unlike projects.py's Streamlit render (which mirrors patron's FULL
+    `projects` table, including rows created directly in patron itself, e.g.
+    demo/test projects), this REST endpoint backs RavenHub-side UI (e.g. the
+    Shadow AI "Grant project exception" picker) — a project that never came
+    from RavenHub has no RavenHub identity for that UI to act on, so it's
+    filtered out here rather than in the shared `list_projects` query (2026-
+    08-24: confirmed live, two patron-native demo projects — no
+    `external_source` — were showing up in that picker alongside real
+    RavenHub projects, with no way for a RavenHub admin to tell them apart).
+    """
     _require_db()
     from db.engine import get_session
     from db.governance_crud import list_projects
@@ -106,6 +116,7 @@ def list_projects_endpoint(email: str = Depends(verify_ravenhub_identity)) -> Pr
         projects = [
             ProjectOut(id=str(p.id), slug=p.slug, display_name=p.display_name, member_count=count)
             for p, count in rows
+            if p.external_source == "ravenhub"
         ]
     return ProjectsResponse(email=email, projects=projects)
 
