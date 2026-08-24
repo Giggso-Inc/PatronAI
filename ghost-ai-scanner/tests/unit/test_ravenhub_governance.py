@@ -101,6 +101,57 @@ def test_governance_scope_requires_user_id_for_user_scope():
     assert exc.value.status_code == 422
 
 
+class _FakeApprovedRow:
+    def __init__(self, reason):
+        self.id = "approved-1"
+        self.domain_pattern = "cursor.com"
+        self.valid_until = None
+        self.reason = reason
+
+
+class _FakeBlockedRow:
+    def __init__(self, reason):
+        self.id = "blocked-1"
+        self.domain = "mcp-change:claude_desktop"
+        self.severity = "HIGH"
+        self.reason = reason
+
+
+def test_governance_scope_includes_reason_for_allowed_and_blocked_entries(monkeypatch):
+    """Regression (2026-08-24): a grant made with a real reason ("why this
+    exception exists") read back as "No reason provided" on the Projects/
+    Users tabs — the reason was correctly stored (add_approved/add_blacklisted
+    both persist it) but get_governance_scope's current_allowed/current_blocked
+    serialization never selected the column into the response at all."""
+    import routers.ravenhub_governance_reads as reads_mod
+    _stub_get_session(monkeypatch, reads_mod)
+    actor = _FakeActor(is_org_admin=True, org_id="org-1")
+    monkeypatch.setattr(reads_mod, "_resolve_actor", lambda s, email: (actor, "org-1"))
+    monkeypatch.setattr(reads_mod, "_org_events", lambda email: [])
+
+    import db.policy_queries as pq
+    monkeypatch.setattr(pq, "load_policy_context", lambda s, **kw: object())
+
+    import scoring.provider_views as pv
+    monkeypatch.setattr(pv, "all_providers", lambda events, ctx: [])
+    monkeypatch.setattr(pv, "newly_found", lambda events, ctx: [])
+
+    import db.governance_crud as crud
+    from db.models_policy import ApprovedTool, BlacklistedTool
+    def _fake_list_scope(s, model, **kw):
+        if model is ApprovedTool:
+            return [_FakeApprovedRow(reason="needed for the release pipeline")]
+        if model is BlacklistedTool:
+            return [_FakeBlockedRow(reason="flagged by security review")]
+        return []
+    monkeypatch.setattr(crud, "list_scope", _fake_list_scope)
+
+    result = get_governance_scope(scope="org", project_id=None, user_id=None, email="admin@giggso.com")
+
+    assert result.current_allowed[0]["reason"] == "needed for the release pipeline"
+    assert result.current_blocked[0]["reason"] == "flagged by security review"
+
+
 # ── Writes: actor-not-found fails closed before any governance_crud call ─
 
 def test_approve_fails_closed_for_unresolvable_actor(monkeypatch):
