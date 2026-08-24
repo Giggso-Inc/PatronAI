@@ -29,6 +29,11 @@
 #                       move_to_allowed, overrides_giggso/overrides_deny).
 #                       Added _check_no_opposite_polarity (OQ-4) to
 #                       add_approved/add_blacklisted.
+#   v2.1.0  2026-08-24  create_project() gains an optional external_source
+#                       param (default None — patron-native, unchanged for
+#                       every existing caller) so a RavenHub-only caller
+#                       (ravenhub_projects.py) can stamp it correctly at
+#                       creation instead of leaving it NULL (PR review, C1).
 # =============================================================
 
 import uuid as _uuid
@@ -330,9 +335,18 @@ def list_scope(session, model, *, org_id, scope, project_id=None, user_id=None):
 
 # ── Project management (org-admin only) ─────────────────────────────────
 
-def create_project(session, *, actor, org_id, slug, display_name) -> Project:
+def create_project(session, *, actor, org_id, slug, display_name, external_source=None) -> Project:
+    """`external_source` defaults to None (a genuine patron-native project,
+    e.g. the Streamlit tab's own create flow). A caller that only ever
+    serves one external system — e.g. ravenhub_projects.py's
+    create_project_endpoint, RavenHub-only — should pass its own
+    `external_source` explicitly so a project it creates is stamped the
+    same way a synced one is (2026-08-24 PR review, C1): without this, a
+    project created there was invisible in that same router's own
+    external_source-filtered GET /projects, silently, right after being
+    created through it."""
     _require(getattr(actor, "is_org_admin", False), "C8: only an org admin may create projects")
-    t = Project(org_id=org_id, slug=_norm(slug), display_name=display_name)
+    t = Project(org_id=org_id, slug=_norm(slug), display_name=display_name, external_source=external_source)
     session.add(t)
     session.commit()
     return t

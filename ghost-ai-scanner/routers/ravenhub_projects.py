@@ -26,8 +26,15 @@
 #          pass the real `actor` straight through to enforce real authz.
 # AUDIT LOG:
 #   v1.0.0  2026-07-21  Initial — 5 endpoints.
+#   v1.1.0  2026-08-24  PR review round 2 — GET /projects filters to
+#                       external_source == "ravenhub"; create_project_
+#                       endpoint stamps it; the 3 member endpoints 404 on
+#                       a non-RavenHub project via _require_ravenhub_
+#                       project(). All four gated by RAVENHUB_PROJECTS_
+#                       FILTER_ENABLED (M-1) — see that flag's docstring.
 # =============================================================
 
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -37,6 +44,20 @@ from routers._raven_actor import resolve_actor as _resolve_actor
 from routers._raven_identity import verify_ravenhub_identity
 
 router = APIRouter(dependencies=[Depends(verify_ravenhub_identity)])
+
+
+def _ravenhub_filter_enabled() -> bool:
+    """Kill switch decoupling this filter's activation from its code deploy
+    (2026-08-24 PR review round 2, M-1): raven-enterprise#195's backfill
+    must actually RUN in a given environment — not merely be merged to
+    that repo's `dev` branch — before this filter can safely hide
+    Patron-native phantom projects without ALSO hiding a genuine
+    pre-existing RavenHub project that's still missing its
+    `external_source` stamp there. Default OFF: deploying this code
+    changes nothing (same behavior as before this PR) until an operator
+    confirms the backfill has run in this environment and sets
+    `RAVENHUB_PROJECTS_FILTER_ENABLED=1` — no redeploy needed to flip it."""
+    return os.environ.get("RAVENHUB_PROJECTS_FILTER_ENABLED", "").strip().lower() in ("1", "true", "yes")
 
 
 def _admin_shim(actor):
@@ -92,10 +113,56 @@ def _require_db() -> None:
         raise HTTPException(status_code=503, detail="Projects require the policy database (DATABASE_URL not set).")
 
 
+def _require_ravenhub_project(s, org_id: str, project_id: str) -> None:
+    """The member-management endpoints below must not operate on a
+    patron-native project (2026-08-24 PR review, M1) — GET /projects
+    already hides those from this router's caller, so letting the member
+    endpoints act on one anyway (given its id some other way) would be an
+    inconsistent, incomplete version of that same scoping rule. Treated as
+    404 ("doesn't exist from here"), the same contract the list filter
+    already implies, not a 403 — this isn't an authz failure, RavenHub
+    just doesn't manage this project.
+
+    Gated by the same RAVENHUB_PROJECTS_FILTER_ENABLED kill switch as the
+    list filter (M-1) — this 404 must not fire in an environment where the
+    filter itself is still off, or a genuine RavenHub project that hasn't
+    been backfilled yet would be manageable through GET /projects (it's
+    unfiltered right now) but not through these endpoints, an inconsistency
+    of its own.
+
+    PRECONDITION, enforced here too (2026-08-24 review round 2, N1): every
+    call site already calls check_target_in_org() for this exact project_id
+    right before this, so resolve_project_in_org() below can't newly raise
+    PolicyAuthzError in practice — but that's true only by calling
+    convention, not structurally. Catching it explicitly here means a future
+    caller that skips that precondition still gets a clean 404 instead of an
+    unhandled 500 (PolicyAuthzError is a bare Exception — there's no global
+    handler for it anywhere in this app)."""
+    if not _ravenhub_filter_enabled():
+        return
+    from db.governance_crud import PolicyAuthzError, resolve_project_in_org
+    try:
+        project = resolve_project_in_org(s, org_id, project_id)
+    except PolicyAuthzError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.external_source != "ravenhub":
+        raise HTTPException(status_code=404, detail="Project not found")
+
+
 @router.get("/projects", response_model=ProjectsResponse)
 def list_projects_endpoint(email: str = Depends(verify_ravenhub_identity)) -> ProjectsResponse:
-    """Every project in the caller's org, with member count. Mirrors
-    projects.py's list_projects() render."""
+    """Every RavenHub-sourced project in the caller's org, with member count.
+
+    Unlike projects.py's Streamlit render (which mirrors patron's FULL
+    `projects` table, including rows created directly in patron itself, e.g.
+    demo/test projects), this REST endpoint backs RavenHub-side UI (e.g. the
+    Shadow AI "Grant project exception" picker) — a project that never came
+    from RavenHub has no RavenHub identity for that UI to act on, so it's
+    filtered out here rather than in the shared `list_projects` query (2026-
+    08-24: confirmed live, two patron-native demo projects — no
+    `external_source` — were showing up in that picker alongside real
+    RavenHub projects, with no way for a RavenHub admin to tell them apart).
+    """
     _require_db()
     from db.engine import get_session
     from db.governance_crud import list_projects
@@ -103,9 +170,11 @@ def list_projects_endpoint(email: str = Depends(verify_ravenhub_identity)) -> Pr
     with get_session() as s:
         actor, org_id = _resolve_actor(s, email)
         rows = list_projects(s, org_id)
+        filter_on = _ravenhub_filter_enabled()
         projects = [
             ProjectOut(id=str(p.id), slug=p.slug, display_name=p.display_name, member_count=count)
             for p, count in rows
+            if not filter_on or p.external_source == "ravenhub"
         ]
     return ProjectsResponse(email=email, projects=projects)
 
@@ -129,6 +198,7 @@ def list_project_members_endpoint(project_id: str, email: str = Depends(verify_r
             check_target_in_org(s, org_id=org_id, project_id=project_id)
         except PolicyAuthzError as exc:
             raise HTTPException(status_code=403, detail=str(exc))
+        _require_ravenhub_project(s, org_id, project_id)
         members = list_project_members(s, project_id)
         member_ids = {str(m.id) for m in members}
         users = list_org_users(s, org_id)
@@ -142,6 +212,11 @@ def list_project_members_endpoint(project_id: str, email: str = Depends(verify_r
 
 @router.post("/projects", response_model=ProjectOut)
 def create_project_endpoint(body: CreateProjectRequest, email: str = Depends(verify_ravenhub_identity)) -> ProjectOut:
+    """external_source="ravenhub" (2026-08-24 PR review, C1): this router
+    only ever serves RavenHub, so a project created through it IS a
+    RavenHub project the same way a synced one is — without this stamp, it
+    was created here and then immediately invisible in this same router's
+    GET /projects, which filters to external_source == "ravenhub"."""
     _require_db()
     from db.engine import get_session
     from db.governance_crud import create_project
@@ -149,7 +224,8 @@ def create_project_endpoint(body: CreateProjectRequest, email: str = Depends(ver
     with get_session() as s:
         actor, org_id = _resolve_actor(s, email)
         try:
-            row = create_project(s, actor=_admin_shim(actor), org_id=org_id, slug=body.slug, display_name=body.display_name)
+            row = create_project(s, actor=_admin_shim(actor), org_id=org_id, slug=body.slug,
+                                 display_name=body.display_name, external_source="ravenhub")
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc))
     return ProjectOut(id=str(row.id), slug=row.slug, display_name=row.display_name, member_count=0)
@@ -170,6 +246,14 @@ def add_project_member_endpoint(project_id: str, body: AddMemberRequest, email: 
             # just by knowing both ids, same pattern already fixed on the
             # governance write routers.
             check_target_in_org(s, org_id=org_id, project_id=project_id, user_id=body.user_id)
+        except PolicyAuthzError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        # Outside the try above, on purpose: that block's own generic
+        # `except Exception` further down would otherwise catch this 404
+        # and re-raise it as a misleading 400 (2026-08-24 PR review follow-up
+        # while fixing M1 — HTTPException IS an Exception).
+        _require_ravenhub_project(s, org_id, project_id)
+        try:
             add_project_member(s, actor=_admin_shim(actor), project_id=project_id, user_id=body.user_id)
         except PolicyAuthzError as exc:
             raise HTTPException(status_code=403, detail=str(exc))
@@ -188,6 +272,10 @@ def remove_project_member_endpoint(project_id: str, user_id: str, email: str = D
         actor, org_id = _resolve_actor(s, email)
         try:
             check_target_in_org(s, org_id=org_id, project_id=project_id, user_id=user_id)
+        except PolicyAuthzError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        _require_ravenhub_project(s, org_id, project_id)  # see add_project_member_endpoint's comment
+        try:
             remove_project_member(s, actor=_admin_shim(actor), project_id=project_id, user_id=user_id)
         except PolicyAuthzError as exc:
             raise HTTPException(status_code=403, detail=str(exc))
