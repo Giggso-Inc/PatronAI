@@ -211,3 +211,23 @@ def test_list_members_succeeds_for_a_ravenhub_project(monkeypatch):
     monkeypatch.setattr(crud_mod, "list_org_users", lambda s, org_id: [])
     result = ravenhub_projects.list_project_members_endpoint(project_id="buildandbreak", email="admin@giggso.com")
     assert result.members == []
+
+
+def test_require_ravenhub_project_converts_policy_authz_error_to_404(monkeypatch):
+    """N1 (2026-08-24 review round 2): every real call site already calls
+    check_target_in_org() for this exact project_id first, so
+    resolve_project_in_org() can't newly raise PolicyAuthzError in
+    practice — but that's a calling convention, not a structural
+    guarantee. Calling _require_ravenhub_project directly, bypassing that
+    precondition entirely, must still 404 cleanly rather than let a bare
+    PolicyAuthzError escape as an unhandled 500 (no global handler for it
+    exists anywhere in this app)."""
+    import db.governance_crud as crud_mod
+
+    def _raise(s, org_id, project_id):
+        raise crud_mod.PolicyAuthzError("project_id not found in this org")
+    monkeypatch.setattr(crud_mod, "resolve_project_in_org", _raise)
+
+    with pytest.raises(HTTPException) as exc:
+        ravenhub_projects._require_ravenhub_project(object(), "org-1", "not-a-real-project")
+    assert exc.value.status_code == 404

@@ -100,9 +100,21 @@ def _require_ravenhub_project(s, org_id: str, project_id: str) -> None:
     inconsistent, incomplete version of that same scoping rule. Treated as
     404 ("doesn't exist from here"), the same contract the list filter
     already implies, not a 403 — this isn't an authz failure, RavenHub
-    just doesn't manage this project."""
-    from db.governance_crud import resolve_project_in_org
-    project = resolve_project_in_org(s, org_id, project_id)
+    just doesn't manage this project.
+
+    PRECONDITION, enforced here too (2026-08-24 review round 2, N1): every
+    call site already calls check_target_in_org() for this exact project_id
+    right before this, so resolve_project_in_org() below can't newly raise
+    PolicyAuthzError in practice — but that's true only by calling
+    convention, not structurally. Catching it explicitly here means a future
+    caller that skips that precondition still gets a clean 404 instead of an
+    unhandled 500 (PolicyAuthzError is a bare Exception — there's no global
+    handler for it anywhere in this app)."""
+    from db.governance_crud import PolicyAuthzError, resolve_project_in_org
+    try:
+        project = resolve_project_in_org(s, org_id, project_id)
+    except PolicyAuthzError:
+        raise HTTPException(status_code=404, detail="Project not found")
     if project.external_source != "ravenhub":
         raise HTTPException(status_code=404, detail="Project not found")
 
