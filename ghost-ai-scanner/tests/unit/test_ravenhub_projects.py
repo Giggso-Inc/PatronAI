@@ -1,6 +1,6 @@
 # =============================================================
 # FILE: tests/unit/test_ravenhub_projects.py
-# VERSION: 1.0.0
+# VERSION: 1.1.0
 # UPDATED: 2026-08-24
 # OWNER: Giggso Inc
 # PURPOSE: Lock routers/ravenhub_projects.py's list_projects_endpoint —
@@ -11,12 +11,25 @@
 #          exception" picker showing phantom projects RavenHub never
 #          created (GSD ticket, 2026-08-24). Pure; no real DB — everything
 #          is stubbed.
+# AUDIT LOG:
+#   v1.0.0  2026-08-24  Initial — list-filter coverage.
+#   v1.1.0  2026-08-24  PR review (C1): create_project_endpoint didn't stamp
+#                       external_source, so a project created through this
+#                       router was immediately invisible in its own list.
+#                       Added a create-then-list round-trip test plus a
+#                       direct create_project() call-arg check. (M1) the
+#                       three member-management endpoints must 404 for a
+#                       non-ravenhub project the same way the list filters
+#                       it out, not silently operate on it anyway.
 # =============================================================
 
 import contextlib
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
+from fastapi import HTTPException
 
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT / "src"))
@@ -74,3 +87,127 @@ def test_list_projects_endpoint_empty_when_none_are_ravenhub_sourced(monkeypatch
 
     result = ravenhub_projects.list_projects_endpoint(email="admin@giggso.com")
     assert result.projects == []
+
+
+def test_create_project_endpoint_stamps_external_source_ravenhub(monkeypatch):
+    """C1: this router only ever serves RavenHub — a project it creates
+    must be stamped the same way a synced one is, or it vanishes from this
+    same router's own filtered list right after being created."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+    monkeypatch.setattr(
+        ravenhub_projects, "_resolve_actor",
+        lambda s, email: (SimpleNamespace(id="actor-1", is_org_admin=True), "org-1"),
+    )
+
+    calls = []
+
+    def fake_create_project(s, **kwargs):
+        calls.append(kwargs)
+        return _project(kwargs["display_name"], kwargs["slug"], kwargs.get("external_source"))
+
+    import db.engine as engine_mod
+    import db.governance_crud as crud_mod
+    monkeypatch.setattr(engine_mod, "get_session", lambda: contextlib.nullcontext(object()))
+    monkeypatch.setattr(crud_mod, "create_project", fake_create_project)
+
+    ravenhub_projects.create_project_endpoint(
+        ravenhub_projects.CreateProjectRequest(slug="new-svc", display_name="New Service"),
+        email="admin@giggso.com",
+    )
+
+    assert calls[0]["external_source"] == "ravenhub"
+
+
+def test_create_then_list_round_trip_shows_the_new_project(monkeypatch):
+    """The exact regression from C1: before the fix, this create-then-list
+    sequence — a previously-working flow — went from passing to silently
+    failing (the new project 200s on create, then simply isn't in the very
+    list it was just created through)."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+    monkeypatch.setattr(
+        ravenhub_projects, "_resolve_actor",
+        lambda s, email: (SimpleNamespace(id="actor-1", is_org_admin=True), "org-1"),
+    )
+
+    fake_db = []
+
+    def fake_create_project(s, **kwargs):
+        row = _project(kwargs["display_name"], kwargs["slug"], kwargs.get("external_source"))
+        fake_db.append(row)
+        return row
+
+    def fake_list_projects(s, org_id):
+        return [(row, 0) for row in fake_db]
+
+    import db.engine as engine_mod
+    import db.governance_crud as crud_mod
+    monkeypatch.setattr(engine_mod, "get_session", lambda: contextlib.nullcontext(object()))
+    monkeypatch.setattr(crud_mod, "create_project", fake_create_project)
+    monkeypatch.setattr(crud_mod, "list_projects", fake_list_projects)
+
+    ravenhub_projects.create_project_endpoint(
+        ravenhub_projects.CreateProjectRequest(slug="new-svc", display_name="New Service"),
+        email="admin@giggso.com",
+    )
+    result = ravenhub_projects.list_projects_endpoint(email="admin@giggso.com")
+
+    assert [p.slug for p in result.projects] == ["new-svc"]
+
+
+# ── M1: member-management endpoints must not operate on a non-ravenhub project ──
+
+def _setup_common(monkeypatch, external_source):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+    monkeypatch.setattr(
+        ravenhub_projects, "_resolve_actor",
+        lambda s, email: (SimpleNamespace(id="actor-1", is_org_admin=True), "org-1"),
+    )
+    import db.engine as engine_mod
+    import db.governance_crud as crud_mod
+    monkeypatch.setattr(engine_mod, "get_session", lambda: contextlib.nullcontext(object()))
+    monkeypatch.setattr(crud_mod, "check_target_in_org", lambda s, **kw: None)
+    monkeypatch.setattr(
+        crud_mod, "resolve_project_in_org",
+        lambda s, org_id, project_id: _project("Some Project", project_id, external_source),
+    )
+    return crud_mod
+
+
+def test_list_members_404s_for_a_non_ravenhub_project(monkeypatch):
+    _setup_common(monkeypatch, external_source=None)
+    with pytest.raises(HTTPException) as exc:
+        ravenhub_projects.list_project_members_endpoint(project_id="gsd_sample", email="admin@giggso.com")
+    assert exc.value.status_code == 404
+
+
+def test_add_member_404s_for_a_non_ravenhub_project(monkeypatch):
+    crud_mod = _setup_common(monkeypatch, external_source=None)
+    calls = []
+    monkeypatch.setattr(crud_mod, "add_project_member", lambda **kw: calls.append(kw))
+    with pytest.raises(HTTPException) as exc:
+        ravenhub_projects.add_project_member_endpoint(
+            project_id="gsd_sample", body=ravenhub_projects.AddMemberRequest(user_id="u-1"),
+            email="admin@giggso.com",
+        )
+    assert exc.value.status_code == 404
+    assert calls == []  # never reached the actual mutation
+
+
+def test_remove_member_404s_for_a_non_ravenhub_project(monkeypatch):
+    crud_mod = _setup_common(monkeypatch, external_source=None)
+    calls = []
+    monkeypatch.setattr(crud_mod, "remove_project_member", lambda **kw: calls.append(kw))
+    with pytest.raises(HTTPException) as exc:
+        ravenhub_projects.remove_project_member_endpoint(
+            project_id="gsd_sample", user_id="u-1", email="admin@giggso.com",
+        )
+    assert exc.value.status_code == 404
+    assert calls == []
+
+
+def test_list_members_succeeds_for_a_ravenhub_project(monkeypatch):
+    crud_mod = _setup_common(monkeypatch, external_source="ravenhub")
+    monkeypatch.setattr(crud_mod, "list_project_members", lambda s, project_id: [])
+    monkeypatch.setattr(crud_mod, "list_org_users", lambda s, org_id: [])
+    result = ravenhub_projects.list_project_members_endpoint(project_id="buildandbreak", email="admin@giggso.com")
+    assert result.members == []
