@@ -213,10 +213,12 @@ def get_governance_scope(
             inherited_policy += [{"blocked_by": "project", "pattern": g} for g in sorted(eff.project_deny)]
 
         current_allowed = [{"id": str(r.id), "pattern": r.domain_pattern,
+                            "reason": r.reason,
                             "expires": str(r.valid_until) if r.valid_until else None}
                            for r in list_scope(s, ApprovedTool, org_id=org_id, scope=scope,
                                               project_id=project_id, user_id=user_id)]
-        current_blocked = [{"id": str(r.id), "pattern": r.domain, "severity": r.severity}
+        current_blocked = [{"id": str(r.id), "pattern": r.domain, "severity": r.severity,
+                            "reason": r.reason}
                            for r in list_scope(s, BlacklistedTool, org_id=org_id, scope=scope,
                                               project_id=project_id, user_id=user_id)]
 
