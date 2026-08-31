@@ -14,6 +14,13 @@
 #                       real running instances) now collapse to one finding
 #                       per matched app family instead of one per process,
 #                       keyed on the lowest real PID in that family.
+#   v1.3.0  2026-08-31  Add start_timestamp / session_duration_seconds
+#                       (D4b1/D4b2). Windows uses Get-CimInstance, not
+#                       wmic - wmic's query returned nothing on a real
+#                       Win11 24H2+ box this session. macOS/Linux use
+#                       `ps -eo pid,etimes` (elapsed secs, no locale-
+#                       dependent date parsing). api_call_frequency is
+#                       excluded - needs network telemetry, not built yet.
 # =============================================================
 
 _AI_PROCS_RE = re.compile(
@@ -58,11 +65,54 @@ def _process_records() -> list:
     return records
 
 
+def _windows_start_epochs() -> dict:
+    """PID → process creation epoch (seconds). Uses Get-CimInstance, not
+    wmic (unreliable on current Windows builds - see AUDIT LOG). Output
+    is locale-independent "PID,epoch" lines, not a formatted date string."""
+    try:
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-CimInstance Win32_Process | ForEach-Object { "
+             "\"$($_.ProcessId),$([int64](($_.CreationDate.ToUniversalTime() - "
+             "(Get-Date '1970-01-01').ToUniversalTime()).TotalSeconds))\" }"],
+            stderr=subprocess.DEVNULL, text=True, timeout=15,
+        )
+    except Exception:
+        return {}
+    epochs: dict = {}
+    for line in out.splitlines():
+        parts = line.split(",")
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].lstrip("-").isdigit():
+            epochs[int(parts[0])] = int(parts[1])
+    return epochs
+
+
+def _unix_start_epochs() -> dict:
+    """PID → process start epoch (seconds), macOS/Linux. `etimes` gives
+    elapsed seconds directly, sidestepping lstart's locale-dependent
+    date-string format."""
+    try:
+        out = subprocess.check_output(
+            ["ps", "-eo", "pid,etimes"], stderr=subprocess.DEVNULL, text=True, timeout=10,
+        )
+    except Exception:
+        return {}
+    now = int(datetime.now(timezone.utc).timestamp())
+    epochs: dict = {}
+    for line in out.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            epochs[int(parts[0])] = now - int(parts[1])
+    return epochs
+
+
 def scan_processes() -> list:
     """OS-aware process enumeration → regex match against AI process names.
     One finding per matched keyword family (root-process dedup): the
     family's root is its lowest real PID, with instance_process_count
-    showing how many real OS processes back that one finding."""
+    showing how many real OS processes back that one finding. Each
+    finding also carries the root process's real start_timestamp and
+    session_duration_seconds where the OS could provide one."""
     families: dict = {}
     for pid, cmd_col in _process_records():
         m = _AI_PROCS_RE.search(cmd_col)
@@ -77,12 +127,21 @@ def scan_processes() -> list:
             fam["root_pid"], fam["root_name"] = pid, cmd_col
 
     findings: list = []
-    for keyword, fam in families.items():
-        findings.append({
-            "type":                    "process",
-            "name":                    keyword,
-            "root_pid":                fam["root_pid"],
-            "root_process_name":       fam["root_name"][:200],
-            "instance_process_count":  fam["count"],
-        })
+    if families:
+        start_epochs = _windows_start_epochs() if OS_NAME == "windows" else _unix_start_epochs()
+        now = datetime.now(timezone.utc)
+        for keyword, fam in families.items():
+            start_epoch = start_epochs.get(fam["root_pid"])
+            finding = {
+                "type":                    "process",
+                "name":                    keyword,
+                "root_pid":                fam["root_pid"],
+                "root_process_name":       fam["root_name"][:200],
+                "instance_process_count":  fam["count"],
+            }
+            if start_epoch is not None:
+                started = datetime.fromtimestamp(start_epoch, tz=timezone.utc)
+                finding["start_timestamp"]           = started.isoformat()
+                finding["session_duration_seconds"]  = int((now - started).total_seconds())
+            findings.append(finding)
     return findings

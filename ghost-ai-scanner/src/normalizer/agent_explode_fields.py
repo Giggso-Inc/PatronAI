@@ -17,12 +17,15 @@
 #                       root-process dedup fields (root_pid,
 #                       instance_process_count) are dashboard-visible
 #                       instead of only living in the notes blob.
+#   v1.2.0  2026-08-31  Add start_timestamp / session_duration_seconds
+#                       to "process" (Autonomous AI Agents D4b1/D4b2).
 # =============================================================
 
 # Field whitelist per Phase 1A finding category. Anything outside this
 # table is intentionally left in `notes` and not promoted to a column.
 PHASE_1A_FIELD_MAP = {
-    "process":           ("root_pid", "root_process_name", "instance_process_count"),
+    "process":           ("root_pid", "root_process_name", "instance_process_count",
+                          "start_timestamp", "session_duration_seconds"),
     "mcp_server":        ("mcp_host", "config_sha256", "config_basename",
                           "server_name", "command_basename", "arg_flags",
                           "env_keys_present", "transport", "mcp_server_url"),

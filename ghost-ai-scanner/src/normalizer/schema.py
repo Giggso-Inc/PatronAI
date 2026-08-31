@@ -39,6 +39,8 @@ FLAT_SCHEMA = {
     "root_pid":            0,   # root-process dedup: PID chosen to represent a multi-process app
     "root_process_name":   "",  # command line of that root PID
     "instance_process_count": 0,  # real OS process count collapsed into this one finding
+    "start_timestamp":     "",  # root process creation time (ISO 8601, UTC)
+    "session_duration_seconds": 0,  # now - start_timestamp; 0 if the OS couldn't provide one
     "owner":           "",   # resolved employee identity
     "department":      "",   # resolved department
     "mac_address":     "",   # device MAC

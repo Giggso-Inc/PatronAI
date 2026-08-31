@@ -13,9 +13,12 @@
 #   v1.1.0  2026-08-31  Add root-process dedup coverage - real Otter (11
 #                       processes) and Fathom (5 processes) installs
 #                       must collapse to exactly one finding each.
+#   v1.2.0  2026-08-31  Add session_duration_seconds / start_timestamp
+#                       coverage (Autonomous AI Agents D4b1/D4b2).
 # =============================================================
 
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO  = Path(__file__).resolve().parents[2]
@@ -23,27 +26,33 @@ FRAGS = REPO / "agent" / "install"
 
 
 class _FakeSubprocess:
-    """Stand-in for the `subprocess` module - returns canned tasklist-shaped
-    CSV text instead of touching the real OS process table."""
+    """Stand-in for the `subprocess` module. Routes to different canned
+    output depending on whether the fragment is calling tasklist (process
+    enumeration) or powershell (start-epoch lookup) - real code calls both."""
     DEVNULL = -1
 
-    def __init__(self, output: str):
-        self._output = output
+    def __init__(self, tasklist_output: str = "", powershell_output: str = ""):
+        self._tasklist_output  = tasklist_output
+        self._powershell_output = powershell_output
 
     def check_output(self, args, **kwargs):
-        return self._output
+        if args and args[0] == "powershell":
+            return self._powershell_output
+        return self._tasklist_output
 
 
 def _tasklist_line(name: str, pid: int) -> str:
     return f'"{name}","{pid}","Console","1","10,000 K"'
 
 
-def _run_scan(tasklist_lines: list) -> list:
-    """Exec the fragment with a fake Windows tasklist output and run
-    scan_processes() end-to-end, including root-process dedup."""
+def _run_scan(tasklist_lines: list, powershell_lines: list = None) -> list:
+    """Exec the fragment with fake Windows tasklist/powershell output and
+    run scan_processes() end-to-end, including root-process dedup and
+    session-duration lookup."""
     ns: dict = {
-        "re": re, "OS_NAME": "windows",
-        "subprocess": _FakeSubprocess("\n".join(tasklist_lines)),
+        "re": re, "OS_NAME": "windows", "datetime": datetime, "timezone": timezone,
+        "subprocess": _FakeSubprocess("\n".join(tasklist_lines),
+                                       "\n".join(powershell_lines or [])),
         "_is_authorized": lambda n: False,
     }
     exec(compile((FRAGS / "scan_processes.py.frag").read_text(),
@@ -107,6 +116,28 @@ def test_different_app_families_stay_separate_findings():
     out = _run_scan(lines)
     assert {f["name"] for f in out} == {"otter", "fathom"}
     assert all(f["instance_process_count"] == 1 for f in out)
+
+
+def test_session_duration_computed_from_real_start_epoch():
+    """A root process that started 1 real hour ago must report a
+    session_duration_seconds close to 3600, and a real ISO start_timestamp."""
+    now_epoch = int(datetime.now(timezone.utc).timestamp())
+    one_hour_ago = now_epoch - 3600
+    lines = [_tasklist_line("Otter.exe", 500)]
+    ps_lines = [f"500,{one_hour_ago}"]
+    out = _run_scan(lines, ps_lines)
+    otter = [f for f in out if f["name"] == "otter"][0]
+    assert 3595 <= otter["session_duration_seconds"] <= 3610
+    assert otter["start_timestamp"]  # a real ISO string, not empty
+
+
+def test_session_duration_absent_when_os_gives_no_epoch():
+    """If the epoch lookup can't find this PID (or fails entirely), the
+    finding must not fabricate a duration - fields are simply omitted."""
+    out = _run_scan([_tasklist_line("Otter.exe", 500)], powershell_lines=[])
+    otter = [f for f in out if f["name"] == "otter"][0]
+    assert "session_duration_seconds" not in otter
+    assert "start_timestamp" not in otter
 
 
 def test_processes_scanner_under_loc_cap():
