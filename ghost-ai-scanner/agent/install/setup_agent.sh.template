@@ -605,13 +605,22 @@ PLIST_EOF
     return 0
 }
 
+PACKETBEAT_ACTIVE="false"
 if [ "${PATRONAI_ENABLE_PACKETBEAT:-}" = "1" ]; then
-    _install_packetbeat_optional || _info "Continuing install without network-target capture (non-fatal, optional module)."
+    if _install_packetbeat_optional; then
+        PACKETBEAT_ACTIVE="true"
+    else
+        _info "Continuing install without network-target capture (non-fatal, optional module)."
+    fi
 fi
 
 # ── Report installed status ───────────────────────────────────
+# packetbeat_active lets IT see at a glance, per device, whether deep
+# network-target visibility actually ended up active - never assumed
+# true just because the flag was requested (reuses the function's own
+# real success/failure return code, not a guess).
 curl -fsSL -X PUT "$STATUS_PUT_URL" -H "Content-Type: application/json" \
-  -d "{\"token\":\"$TOKEN\",\"status\":\"installed\",\"device_id\":\"$(hostname)\",\"installed_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
+  -d "{\"token\":\"$TOKEN\",\"status\":\"installed\",\"device_id\":\"$(hostname)\",\"installed_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"packetbeat_active\":$PACKETBEAT_ACTIVE}" \
   >/dev/null 2>&1 || true
 
 # ── Run first scan immediately ────────────────────────────────

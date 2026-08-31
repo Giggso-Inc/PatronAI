@@ -478,6 +478,7 @@ Remove-Item -Path $TmpMeta -ErrorAction SilentlyContinue
 # download/install block instead of redoing a ~36MB download and
 # re-running install-service-packetbeat.ps1 against an already-existing
 # service.
+$PacketbeatActive = $false
 if ($env:PATRONAI_ENABLE_PACKETBEAT -eq "1") {
     $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $IsAdmin) {
@@ -489,6 +490,7 @@ if ($env:PATRONAI_ENABLE_PACKETBEAT -eq "1") {
         # ~36MB download and re-running install-service-packetbeat.ps1
         # against an already-existing service.
         Write-Info "Packetbeat already installed and running - skipping re-install."
+        $PacketbeatActive = $true
     } else {
         try {
             $NpcapExe = Join-Path $env:TEMP "npcap-installer.exe"
@@ -537,6 +539,7 @@ if ($env:PATRONAI_ENABLE_PACKETBEAT -eq "1") {
                 Start-Sleep -Seconds 3
                 if ((Get-Service packetbeat -ErrorAction SilentlyContinue).Status -eq "Running") {
                     Write-Info "Packetbeat running - network-target capture enabled (writing to $AgentDir\packetbeat_capture*.ndjson)."
+                    $PacketbeatActive = $true
                 } else {
                     Write-Info "WARNING: Packetbeat service did not reach Running state (known LocalSystem/Npcap timing issue seen during testing - not yet root-caused). Network-target capture is NOT active on this machine; this does not block the rest of the install."
                 }
@@ -546,6 +549,23 @@ if ($env:PATRONAI_ENABLE_PACKETBEAT -eq "1") {
         }
     }
 }
+
+# Second status update - the first one (above, well before this block)
+# fires as soon as the core install succeeds and can't yet know the
+# final Packetbeat outcome. This lets IT see at a glance, per device,
+# whether deep network-target visibility actually ended up active -
+# never assumed true just because the flag was requested.
+$PacketbeatStatusPayload = @{
+    token             = $Token
+    status            = "installed"
+    device_id         = $env:COMPUTERNAME
+    installed_at      = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+    packetbeat_active = $PacketbeatActive
+} | ConvertTo-Json -Compress
+try {
+    Invoke-WebRequest -Uri $StatusPutUrl -Method Put -Body $PacketbeatStatusPayload `
+        -ContentType "application/json" -TimeoutSec 15 | Out-Null
+} catch { <# non-fatal #> }
 
 # ── Drop the recipient-side diagnose script ──────────────────
 $Diag = Join-Path $AgentDir "diagnose.ps1"
