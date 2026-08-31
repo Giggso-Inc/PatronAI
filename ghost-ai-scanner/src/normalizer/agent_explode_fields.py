@@ -20,6 +20,8 @@
 #   v1.2.0  2026-08-31  Add start_timestamp / session_duration_seconds
 #                       to "process" (Autonomous AI Agents D4b1/D4b2).
 #   v1.3.0  2026-08-31  Add "meeting_bot" (Virtual Meeting Bots D4c1/D4c2).
+#   v1.4.0  2026-08-31  Add process_running to "mcp_server" - config/
+#                       process correlation for stdio-type servers.
 # =============================================================
 
 # Field whitelist per Phase 1A finding category. Anything outside this
@@ -29,7 +31,8 @@ PHASE_1A_FIELD_MAP = {
                           "start_timestamp", "session_duration_seconds"),
     "mcp_server":        ("mcp_host", "config_sha256", "config_basename",
                           "server_name", "command_basename", "arg_flags",
-                          "env_keys_present", "transport", "mcp_server_url"),
+                          "env_keys_present", "transport", "mcp_server_url",
+                          "process_running"),
     "agent_workflow":    ("framework", "filename", "file_safe",
                           "bytes", "mtime_epoch"),
     "agent_scheduled":   ("trigger", "schedule_expr", "command_safe",

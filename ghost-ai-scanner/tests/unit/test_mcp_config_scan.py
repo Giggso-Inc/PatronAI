@@ -15,6 +15,8 @@
 #   v1.0.0  2026-04-26  Initial. Phase 1A.
 #   v1.0.1  2026-04-26  Helper now runs the scanner inside the patched
 #                       Path.home() scope (was being undone too early).
+#   v1.1.0  2026-08-31  Add process_running coverage - config/process
+#                       correlation for stdio-type servers.
 # =============================================================
 
 import json
@@ -26,14 +28,30 @@ REPO  = Path(__file__).resolve().parents[2]
 FRAGS = REPO / "agent" / "install"
 
 
-def _run_mcp_scan(home: Path) -> list:
+class _FakeSubprocess:
+    """Stand-in for `subprocess` - returns canned `ps aux`-shaped text
+    (macOS/Linux branch, since the harness runs under OS_NAME="darwin")."""
+    DEVNULL = -1
+
+    def __init__(self, ps_output: str = ""):
+        self._ps_output = ps_output
+
+    def check_output(self, args, **kwargs):
+        return self._ps_output
+
+
+def _ps_line(command: str, pid: int = 100) -> str:
+    return f"user  {pid}  0.0  0.1  0  0  ??  S  10:00AM  0:00.01 {command}"
+
+
+def _run_mcp_scan(home: Path, ps_output: str = "") -> list:
     """Exec redactor + mcp scanner under fake $HOME and return findings.
     Path.home() patch persists for the entire scanner call so the
     fragment's module-level _HOME_RE and per-OS path table both
     resolve relative to the test home, not the real home."""
     ns: dict = {
         "re": re, "Path": Path, "os": os, "json": json,
-        "subprocess": None,
+        "subprocess": _FakeSubprocess(ps_output),
         "OS_NAME": "darwin",
         "AGENT_DIR": home / ".patronai",
     }
@@ -166,6 +184,37 @@ def test_stdio_server_type_defaults_and_no_url(tmp_path):
     f = _run_mcp_scan(tmp_path)[0]
     assert f["transport"]      == "stdio"
     assert f["mcp_server_url"] == ""
+
+
+def test_process_running_true_when_command_actually_running(tmp_path):
+    """Positive case: MCP server process spawned from a known config ->
+    finding links back to the config file AND confirms it's really running."""
+    _write_claude_desktop(tmp_path, {
+        "mcpServers": {"fs": {"command": "npx", "args": ["-y", "server-filesystem"]}}
+    })
+    out = _run_mcp_scan(tmp_path, ps_output=_ps_line("npx server-filesystem /some/path"))
+    assert out[0]["process_running"] is True
+
+
+def test_process_running_false_when_config_only(tmp_path):
+    """Negative case: config exists but the server isn't actually running ->
+    config-only finding, no phantom process claim."""
+    _write_claude_desktop(tmp_path, {
+        "mcpServers": {"fs": {"command": "npx", "args": []}}
+    })
+    out = _run_mcp_scan(tmp_path, ps_output=_ps_line("some-unrelated-process"))
+    assert out[0]["process_running"] is False
+
+
+def test_process_running_always_false_for_remote_servers(tmp_path):
+    """Remote (http-type) servers have no local process to correlate -
+    process_running must never be True for them, even if the command
+    field happens to be unset."""
+    _write_claude_code(tmp_path, {
+        "mcpServers": {"trinity": {"type": "http", "url": "https://gsd.giggso.com/redteaming/mcp"}}
+    })
+    out = _run_mcp_scan(tmp_path, ps_output=_ps_line("anything at all"))
+    assert out[0]["process_running"] is False
 
 
 def test_mcp_scanner_under_loc_cap():

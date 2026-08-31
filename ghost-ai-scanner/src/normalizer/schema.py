@@ -71,6 +71,7 @@ FLAT_SCHEMA = {
     "env_keys_present": [],  # env var KEYS only, values dropped
     "transport":       "",   # stdio | http | sse
     "mcp_server_url":  "",   # remote server URL; empty for stdio-type servers
+    "process_running": False,  # stdio-type server's command found in the real process table
     # Phase 1A — agent workflow / scheduled / tools / vector DB
     "framework":       "",   # n8n | flowise | langflow | crewai | autogen | …
     "schedule_expr":   "",   # cron string when trigger=crontab
