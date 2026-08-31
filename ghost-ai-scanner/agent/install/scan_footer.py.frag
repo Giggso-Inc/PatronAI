@@ -17,6 +17,10 @@
 #                       server-side findings_compact job. Enables future
 #                       v3 agent delta-emission (send hash only, omit
 #                       findings array if hash matches the previous send).
+#   v2.2.0  2026-08-31  Add scan_meeting_bots() (D4c1/D4c2 - Virtual
+#                       Meeting Bots, split out of the generic process
+#                       emitter so Fathom/Otter get the category-correct
+#                       finding type instead of double-counting).
 # =============================================================
 
 _findings: list = []
@@ -32,6 +36,7 @@ _findings += scan_mcp_configs()
 _findings += scan_agents_workflows()
 _findings += scan_tools_code()
 _findings += scan_vector_dbs()
+_findings += scan_meeting_bots()
 
 
 def _count(kind: str) -> int:
@@ -93,6 +98,7 @@ _payload = {
         "agent_scheduled":       _count("agent_scheduled"),
         "tool_registrations":    _count("tool_registration"),
         "vector_dbs":            _count("vector_db"),
+        "meeting_bots":          _count("meeting_bot"),
         "repos_discovered":      len(DISCOVERED_REPOS),
     },
 }

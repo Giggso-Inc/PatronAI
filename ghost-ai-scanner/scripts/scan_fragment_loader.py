@@ -41,6 +41,7 @@ FRAGMENT_ORDER = (
     "scan_agents_workflows.py.frag",
     "scan_tools_code.py.frag",
     "scan_vector_dbs.py.frag",
+    "scan_meeting_bots.py.frag",
     # --- footer last (aggregates all scan_*) ---
     "scan_footer.py.frag",
 )

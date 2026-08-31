@@ -41,6 +41,8 @@ FLAT_SCHEMA = {
     "instance_process_count": 0,  # real OS process count collapsed into this one finding
     "start_timestamp":     "",  # root process creation time (ISO 8601, UTC)
     "session_duration_seconds": 0,  # now - start_timestamp; 0 if the OS couldn't provide one
+    "platform":            "",  # meeting-bot vendor (fathom | otter)
+    "join_timestamp":      "",  # meeting_bot only - process-start proxy, NOT a true meeting-join time
     "owner":           "",   # resolved employee identity
     "department":      "",   # resolved department
     "mac_address":     "",   # device MAC

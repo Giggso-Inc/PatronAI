@@ -7,26 +7,26 @@
 #          Filtered through AUTH_LIST. Returns finding dicts.
 # AUDIT LOG:
 #   v1.0.0  2026-04-25  Initial. Extracted from setup_agent.sh.template.
-#   v1.1.0  2026-08-28  Add claude, power automate desktop, fathom, otter —
-#                       confirmed 0/31 real-process detection rate before this fix.
-#   v1.2.0  2026-08-31  Root-process dedup: multi-process apps (Fathom real
-#                       count 5, Otter real count 11 - confirmed against
-#                       real running instances) now collapse to one finding
-#                       per matched app family instead of one per process,
-#                       keyed on the lowest real PID in that family.
+#   v1.1.0  2026-08-28  Add claude/PAD/fathom/otter - real detection was
+#                       0/31 before this fix.
+#   v1.2.0  2026-08-31  Root-process dedup: real multi-process apps
+#                       (Fathom=5, Otter=11 procs) now collapse to one
+#                       finding per app family, keyed on the lowest PID.
 #   v1.3.0  2026-08-31  Add start_timestamp / session_duration_seconds
-#                       (D4b1/D4b2). Windows uses Get-CimInstance, not
-#                       wmic - wmic's query returned nothing on a real
-#                       Win11 24H2+ box this session. macOS/Linux use
-#                       `ps -eo pid,etimes` (elapsed secs, no locale-
-#                       dependent date parsing). api_call_frequency is
-#                       excluded - needs network telemetry, not built yet.
+#                       (D4b1/D4b2) via Get-CimInstance (Windows - wmic
+#                       returned nothing on a real Win11 24H2+ box this
+#                       session) / `ps -eo pid,etimes` (macOS/Linux).
+#                       api_call_frequency excluded - needs network
+#                       telemetry, not built yet.
+#   v1.4.0  2026-08-31  Remove fathom/otter - moved to their own category,
+#                       scan_meeting_bots.py.frag (D4c1/D4c2), so the same
+#                       app isn't double-counted under two finding types.
 # =============================================================
 
 _AI_PROCS_RE = re.compile(
     r"\b(n8n|ollama|lm[._-]studio|lmstudio|gpt4all|jan|cursor|copilot|"
     r"codeium|tabnine|msty|chatbox|typing-mind|flowise|langflow|"
-    r"claude|pad\.console\.host|pad\.automationserver|fathom|otter)\b",
+    r"claude|pad\.console\.host|pad\.automationserver)\b",
     re.IGNORECASE,
 )
 

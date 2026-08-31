@@ -65,6 +65,7 @@ _FINDING_SEVERITY = {
     "agent_scheduled":      "HIGH",      # cron / launchd-triggered AI agent
     "tool_registration":    "MEDIUM",    # @tool decorators in code (capability)
     "vector_db":            "MEDIUM",    # local RAG store; data exposure risk
+    "meeting_bot":          "HIGH",      # AI notetaker actively running in a meeting
 }
 
 
@@ -102,12 +103,14 @@ def _provider_for(finding: dict) -> str:
         return f"tools:{finding.get('repo_name','')}"
     if ftype == "vector_db":
         return f"vdb:{finding.get('kind','')}:{finding.get('name','')}"
+    if ftype == "meeting_bot":
+        return f"meeting:{finding.get('platform','')}"
     return ftype or "unknown"
 
 
 def _name_field(f: dict) -> str:
     """Distinctive identifier for non-browser findings → goes into process_name."""
-    return (f.get("name") or f.get("plugin_id") or f.get("image")
+    return (f.get("name") or f.get("platform") or f.get("plugin_id") or f.get("image")
             or f.get("signal") or (f.get("command_hint", "") or "")[:140])
 
 

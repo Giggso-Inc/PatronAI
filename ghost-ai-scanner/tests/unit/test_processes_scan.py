@@ -15,6 +15,11 @@
 #                       must collapse to exactly one finding each.
 #   v1.2.0  2026-08-31  Add session_duration_seconds / start_timestamp
 #                       coverage (Autonomous AI Agents D4b1/D4b2).
+#   v1.3.0  2026-08-31  Fathom/Otter moved to their own category
+#                       (scan_meeting_bots.py.frag / D4c1-D4c2) - dedup
+#                       tests here now use claude as the multi-process
+#                       stand-in instead. See test_meeting_bots_scan.py
+#                       for the Fathom/Otter coverage.
 # =============================================================
 
 import re
@@ -77,44 +82,35 @@ def test_power_automate_desktop_detected():
     assert _match("PAD.AutomationServer.exe")
 
 
-def test_fathom_and_otter_detected():
-    assert _match("Fathom.exe")
-    assert _match("Otter.exe")
-
-
 def test_system_processes_not_falsely_flagged():
     for name in ("explorer.exe", "svchost.exe", "sihost.exe", "chrome.exe"):
         assert not _match(name), f"{name} should not match"
 
 
-def test_otter_multi_process_collapses_to_one_finding():
-    """Real Otter installation produces 11 real OS processes off one
-    root (confirmed this session) - must be 1 finding, not 11."""
+def test_fathom_and_otter_no_longer_match_here():
+    """Recategorized into scan_meeting_bots.py.frag (D4c1/D4c2) - must
+    NOT also match the generic bucket, or the same app double-counts
+    under two finding types."""
+    assert not _match("Fathom.exe")
+    assert not _match("Otter.exe")
+
+
+def test_multi_process_family_collapses_to_one_finding():
+    """Same real shape as a multi-process app (e.g. Otter's real 11
+    processes) - must be 1 finding, not N."""
     pids = [500, 501, 250, 600, 700, 800, 900, 1000, 1100, 1200, 1300]
-    lines = [_tasklist_line("Otter.exe", p) for p in pids]
+    lines = [_tasklist_line("claude.exe", p) for p in pids]
     out = _run_scan(lines)
-    otter = [f for f in out if f["name"] == "otter"]
-    assert len(otter) == 1
-    assert otter[0]["root_pid"] == min(pids)
-    assert otter[0]["instance_process_count"] == len(pids)
-
-
-def test_fathom_multi_process_collapses_to_one_finding():
-    """Real Fathom installation produces 5 real OS processes off one
-    root (confirmed this session) - must be 1 finding, not 5."""
-    pids = [900, 100, 901, 902, 903]
-    lines = [_tasklist_line("Fathom.exe", p) for p in pids]
-    out = _run_scan(lines)
-    fathom = [f for f in out if f["name"] == "fathom"]
-    assert len(fathom) == 1
-    assert fathom[0]["root_pid"] == min(pids)
-    assert fathom[0]["instance_process_count"] == len(pids)
+    claude = [f for f in out if f["name"] == "claude"]
+    assert len(claude) == 1
+    assert claude[0]["root_pid"] == min(pids)
+    assert claude[0]["instance_process_count"] == len(pids)
 
 
 def test_different_app_families_stay_separate_findings():
-    lines = [_tasklist_line("Otter.exe", 10), _tasklist_line("Fathom.exe", 20)]
+    lines = [_tasklist_line("claude.exe", 10), _tasklist_line("PAD.AutomationServer.exe", 20)]
     out = _run_scan(lines)
-    assert {f["name"] for f in out} == {"otter", "fathom"}
+    assert {f["name"] for f in out} == {"claude", "pad.automationserver"}
     assert all(f["instance_process_count"] == 1 for f in out)
 
 
@@ -123,21 +119,21 @@ def test_session_duration_computed_from_real_start_epoch():
     session_duration_seconds close to 3600, and a real ISO start_timestamp."""
     now_epoch = int(datetime.now(timezone.utc).timestamp())
     one_hour_ago = now_epoch - 3600
-    lines = [_tasklist_line("Otter.exe", 500)]
+    lines = [_tasklist_line("claude.exe", 500)]
     ps_lines = [f"500,{one_hour_ago}"]
     out = _run_scan(lines, ps_lines)
-    otter = [f for f in out if f["name"] == "otter"][0]
-    assert 3595 <= otter["session_duration_seconds"] <= 3610
-    assert otter["start_timestamp"]  # a real ISO string, not empty
+    claude = [f for f in out if f["name"] == "claude"][0]
+    assert 3595 <= claude["session_duration_seconds"] <= 3610
+    assert claude["start_timestamp"]  # a real ISO string, not empty
 
 
 def test_session_duration_absent_when_os_gives_no_epoch():
     """If the epoch lookup can't find this PID (or fails entirely), the
     finding must not fabricate a duration - fields are simply omitted."""
-    out = _run_scan([_tasklist_line("Otter.exe", 500)], powershell_lines=[])
-    otter = [f for f in out if f["name"] == "otter"][0]
-    assert "session_duration_seconds" not in otter
-    assert "start_timestamp" not in otter
+    out = _run_scan([_tasklist_line("claude.exe", 500)], powershell_lines=[])
+    claude = [f for f in out if f["name"] == "claude"][0]
+    assert "session_duration_seconds" not in claude
+    assert "start_timestamp" not in claude
 
 
 def test_processes_scanner_under_loc_cap():

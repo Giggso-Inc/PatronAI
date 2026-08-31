@@ -33,7 +33,7 @@ EXPECTED_FUNCTIONS = (
     "scan_ide_plugins", "scan_containers", "scan_shell_history",
     # Phase 1A emitters
     "scan_mcp_configs", "scan_agents_workflows",
-    "scan_tools_code", "scan_vector_dbs",
+    "scan_tools_code", "scan_vector_dbs", "scan_meeting_bots",
 )
 
 

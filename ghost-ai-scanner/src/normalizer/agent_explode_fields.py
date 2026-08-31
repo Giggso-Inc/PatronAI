@@ -19,6 +19,7 @@
 #                       instead of only living in the notes blob.
 #   v1.2.0  2026-08-31  Add start_timestamp / session_duration_seconds
 #                       to "process" (Autonomous AI Agents D4b1/D4b2).
+#   v1.3.0  2026-08-31  Add "meeting_bot" (Virtual Meeting Bots D4c1/D4c2).
 # =============================================================
 
 # Field whitelist per Phase 1A finding category. Anything outside this
@@ -37,6 +38,7 @@ PHASE_1A_FIELD_MAP = {
                           "total_tools", "files_with_tools", "per_file"),
     "vector_db":         ("kind", "source", "path_safe", "name",
                           "bytes", "mtime_epoch", "repo_name"),
+    "meeting_bot":       ("platform", "root_pid", "instance_process_count", "join_timestamp"),
 }
 
 
