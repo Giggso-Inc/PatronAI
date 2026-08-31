@@ -499,7 +499,17 @@ Remove-Item -Path $TmpMeta -ErrorAction SilentlyContinue
 # instead), and this file already does the same for Heartbeat/Scan (Task
 # Scheduler, not a Windows Service) - so Packetbeat now uses that same,
 # already-proven mechanism instead of the SCM start protocol that's
-# hitting the bug.
+# hitting the bug. CONFIRMED against a real machine this session:
+# Packetbeat reached Running via Task Scheduler on first start - the
+# thing it could never do as a native service in any earlier test.
+#
+# v3.1 (2026-08-31): dropped the "start once, then flip
+# npcap.never_install and restart" two-phase dance. It caused a real,
+# reproduced failure (task ran, LastTaskResult=1, process not running
+# after the restart) that first-start alone never hit. Since Npcap's own
+# presence is checkable up front, there's no need to start Packetbeat
+# twice to find out - decide never_install before the only start attempt
+# instead.
 $PacketbeatActive = $false
 if ($env:PATRONAI_ENABLE_PACKETBEAT -eq "1") {
     $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -543,6 +553,15 @@ if ($env:PATRONAI_ENABLE_PACKETBEAT -eq "1") {
                 Set-Content $PbConfig
             Add-Content $PbConfig "`noutput.file:`n  path: `"$AgentDir`"`n  filename: packetbeat_capture`n  rotate_every_kb: 10000`n  number_of_files: 3`n"
 
+            # Decide npcap.never_install BEFORE the only start attempt (see
+            # v3.1 note above) - if Npcap is already confirmed present, skip
+            # Packetbeat's own startup-time install/verify check entirely;
+            # otherwise leave it unset so Packetbeat's bundled installer
+            # gets its one chance to provision Npcap on this first run.
+            if ((Get-Service npcap -ErrorAction SilentlyContinue).Status -eq "Running") {
+                Add-Content $PbConfig "`npacketbeat.npcap.never_install: true`n"
+            }
+
             # Task Scheduler, not a native Windows Service - see v3 note
             # above. Runs as SYSTEM so it survives reboot without a logged-
             # on user and has the privileges Npcap needs. ExecutionTimeLimit
@@ -566,26 +585,11 @@ if ($env:PATRONAI_ENABLE_PACKETBEAT -eq "1") {
             Start-Sleep -Seconds 5   # first start may also be installing Packetbeat's bundled Npcap - give it a bit longer
 
             if ((Get-Process -Name "packetbeat" -ErrorAction SilentlyContinue)) {
-                Write-Info "Packetbeat running via Task Scheduler on first start."
+                Write-Info "Packetbeat running via Task Scheduler - network-target capture enabled (writing to $AgentDir\packetbeat_capture*.ndjson)."
                 New-Item -ItemType File -Force -Path (Join-Path $AgentDir "packetbeat_enabled.flag") | Out-Null
-                # Disable the startup-time Npcap install/verify check for every
-                # FUTURE start (including after reboot) now that it's confirmed
-                # present - a real optimization, not a hang workaround anymore
-                # (that theory was disproven by testing - see v3 note above).
-                Add-Content $PbConfig "`npacketbeat.npcap.never_install: true`n"
-                Stop-ScheduledTask -TaskName $PbTaskName -ErrorAction SilentlyContinue
-                Get-Process -Name "packetbeat" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-                Start-Sleep -Seconds 1
-                Start-ScheduledTask -TaskName $PbTaskName
-                Start-Sleep -Seconds 3
-                if ((Get-Process -Name "packetbeat" -ErrorAction SilentlyContinue)) {
-                    Write-Info "Packetbeat running - network-target capture enabled (writing to $AgentDir\packetbeat_capture*.ndjson)."
-                    $PacketbeatActive = $true
-                } else {
-                    Write-Info "WARNING: Packetbeat was running but did not restart cleanly after setting npcap.never_install - network-target capture may not be active."
-                }
+                $PacketbeatActive = $true
             } else {
-                Write-Info "WARNING: Packetbeat did not start via Task Scheduler on first attempt - deeper investigation needed. Network-target capture is NOT active on this machine; this does not block the rest of the install."
+                Write-Info "WARNING: Packetbeat did not start via Task Scheduler - deeper investigation needed. Network-target capture is NOT active on this machine; this does not block the rest of the install."
             }
         } catch {
             Write-Info "WARNING: Packetbeat install failed ($_) - continuing without network-target capture. This is a non-fatal, optional module."
