@@ -36,6 +36,9 @@ FLAT_SCHEMA = {
     "protocol":        "",   # TCP | UDP | ICMP
     "bytes_out":       0,    # bytes sent to destination
     "process_name":    "",   # process making the call (Packetbeat only)
+    "root_pid":            0,   # root-process dedup: PID chosen to represent a multi-process app
+    "root_process_name":   "",  # command line of that root PID
+    "instance_process_count": 0,  # real OS process count collapsed into this one finding
     "owner":           "",   # resolved employee identity
     "department":      "",   # resolved department
     "mac_address":     "",   # device MAC
