@@ -473,10 +473,22 @@ Remove-Item -Path $TmpMeta -ErrorAction SilentlyContinue
 #      anyway (correct for unattended fleets) but verify it actually
 #      reached Running state and warn if it didn't, instead of reporting
 #      "installed" when it silently isn't capturing anything.
+# Idempotent: if this installer gets re-run (config refresh, repeat OTP
+# flow) and Packetbeat is already running, skip straight past the whole
+# download/install block instead of redoing a ~36MB download and
+# re-running install-service-packetbeat.ps1 against an already-existing
+# service.
 if ($env:PATRONAI_ENABLE_PACKETBEAT -eq "1") {
     $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $IsAdmin) {
         Write-Info "PATRONAI_ENABLE_PACKETBEAT=1 but this session is not elevated - skipping network-target capture (Npcap's driver install requires Administrator). Re-run as Administrator to enable it."
+    } elseif ((Get-Service packetbeat -ErrorAction SilentlyContinue).Status -eq "Running") {
+        # Re-run of this installer (config refresh, repeat OTP flow, etc.) -
+        # Packetbeat is already installed and running from a prior pass.
+        # Skip re-downloading/re-installing entirely rather than redoing a
+        # ~36MB download and re-running install-service-packetbeat.ps1
+        # against an already-existing service.
+        Write-Info "Packetbeat already installed and running - skipping re-install."
     } else {
         try {
             $NpcapExe = Join-Path $env:TEMP "npcap-installer.exe"

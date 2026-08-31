@@ -517,10 +517,19 @@ fi
 # verified this session (real TLS SNI capture confirmed working). This
 # macOS/Linux path follows the same design but has NOT been live-tested
 # on a real Mac or Linux machine yet - validate before relying on it.
+# Idempotent: a re-run of this installer skips straight past the
+# download/extract if Packetbeat is already running from a prior pass.
 _install_packetbeat_optional() {
     if [ "$(id -u)" -ne 0 ]; then
         _info "WARNING: PATRONAI_ENABLE_PACKETBEAT=1 but this session is not root - packet capture needs root on macOS/Linux. Re-run with root privileges to enable it."
         return 1
+    fi
+    if pgrep -f "/opt/patronai-packetbeat/packetbeat" >/dev/null 2>&1; then
+        # Re-run of this installer - Packetbeat is already installed and
+        # running from a prior pass. Skip re-downloading/re-extracting
+        # entirely rather than redoing it against an already-running instance.
+        _info "Packetbeat already installed and running - skipping re-install."
+        return 0
     fi
 
     local PB_OS PB_ARCH PB_URL PB_TGZ PB_ROOT PB_HOME
