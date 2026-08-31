@@ -75,6 +75,10 @@ FLAT_SCHEMA = {
     "listening_port":  0,    # vector_db (source=listening_port) - real bound TCP port
     "container_id":    "",   # vector_db - Docker container ID if containerized, else ""
     "container_image": "",   # vector_db - Docker image name if containerized, else ""
+    "domain":           "",  # observed_network_target - real TLS SNI hostname
+    "observation_count": 0,  # observed_network_target - real TLS handshakes seen this window
+    "first_seen":       "",  # observed_network_target - ISO 8601, first handshake this window
+    "last_seen":        "",  # observed_network_target - ISO 8601, most recent handshake this window
     # Phase 1A — agent workflow / scheduled / tools / vector DB
     "framework":       "",   # n8n | flowise | langflow | crewai | autogen | …
     "schedule_expr":   "",   # cron string when trigger=crontab

@@ -26,6 +26,10 @@
 #                       additive alongside the file-signature scanner
 #                       per team decision - both run, neither replaces
 #                       the other).
+#   v2.4.0  2026-08-31  Add scan_network_capture() (D2a2 -
+#                       observed_network_target, reads Packetbeat's real
+#                       NDJSON capture when the optional module is
+#                       installed; [] otherwise).
 # =============================================================
 
 _findings: list = []
@@ -43,6 +47,7 @@ _findings += scan_tools_code()
 _findings += scan_vector_dbs()
 _findings += scan_vector_db_ports()
 _findings += scan_meeting_bots()
+_findings += scan_network_capture()
 
 
 def _count(kind: str) -> int:
@@ -105,6 +110,7 @@ _payload = {
         "tool_registrations":    _count("tool_registration"),
         "vector_dbs":            _count("vector_db"),
         "meeting_bots":          _count("meeting_bot"),
+        "observed_network_targets": _count("observed_network_target"),
         "repos_discovered":      len(DISCOVERED_REPOS),
     },
 }

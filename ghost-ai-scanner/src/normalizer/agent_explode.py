@@ -66,6 +66,7 @@ _FINDING_SEVERITY = {
     "tool_registration":    "MEDIUM",    # @tool decorators in code (capability)
     "vector_db":            "MEDIUM",    # local RAG store; data exposure risk
     "meeting_bot":          "HIGH",      # AI notetaker actively running in a meeting
+    "observed_network_target": "MEDIUM",  # real TLS SNI capture; not yet linked to a process
 }
 
 
@@ -105,13 +106,15 @@ def _provider_for(finding: dict) -> str:
         return f"vdb:{finding.get('kind','')}:{finding.get('name') or finding.get('listening_port','')}"
     if ftype == "meeting_bot":
         return f"meeting:{finding.get('platform','')}"
+    if ftype == "observed_network_target":
+        return f"net:{finding.get('domain','')}"
     return ftype or "unknown"
 
 
 def _name_field(f: dict) -> str:
     """Distinctive identifier for non-browser findings → goes into process_name."""
     return (f.get("name") or f.get("platform") or f.get("plugin_id") or f.get("image")
-            or f.get("signal") or f.get("kind")
+            or f.get("signal") or f.get("kind") or f.get("domain")
             or (f.get("command_hint", "") or "")[:140])
 
 
