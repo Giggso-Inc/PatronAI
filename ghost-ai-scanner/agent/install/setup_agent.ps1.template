@@ -551,7 +551,19 @@ if ($env:PATRONAI_ENABLE_PACKETBEAT -eq "1") {
             # capture safely, it does not claim to wire it into findings yet.
             (Get-Content $PbConfig) -replace '(?m)^output\.elasticsearch:', '#output.elasticsearch:' |
                 Set-Content $PbConfig
-            Add-Content $PbConfig "`noutput.file:`n  path: `"$AgentDir`"`n  filename: packetbeat_capture`n  rotate_every_kb: 10000`n  number_of_files: 3`n"
+            # Real bug found and fixed this session: $AgentDir is a Windows
+            # path (e.g. C:\Users\Admin\.patronai). A double-quoted YAML
+            # string interprets backslash escapes - "\Users" starts with
+            # \U, YAML's 8-hex-digit Unicode escape token, which broke
+            # parsing entirely ("did not find expected hexdecimal number").
+            # Single-quoted YAML strings don't interpret backslashes at
+            # all - use that instead. This was present since the very
+            # first Packetbeat commit and affected every version, native
+            # Windows Service included - the "SERVICE_RUNNING/SCM timeout"
+            # theory earlier in this file's history may never have been
+            # the real cause; packetbeat.exe likely just exited immediately
+            # on this same YAML error every time, in every architecture.
+            Add-Content $PbConfig "`noutput.file:`n  path: '$AgentDir'`n  filename: packetbeat_capture`n  rotate_every_kb: 10000`n  number_of_files: 3`n"
 
             # Decide npcap.never_install BEFORE the only start attempt (see
             # v3.1 note above) - if Npcap is already confirmed present, skip
