@@ -502,6 +502,104 @@ else
   ) | crontab -
 fi
 
+# ── Optional: network-target visibility (Packetbeat) ─────────
+# Opt-in only (PATRONAI_ENABLE_PACKETBEAT=1). Wrapped in its own function
+# so a failure anywhere inside is caught by `||` at the call site instead
+# of tripping this script's `set -e` and aborting an otherwise-working
+# agent install over an optional module.
+#
+# Unlike Windows (Npcap), there is no separate paid-driver blocker here -
+# macOS uses its built-in BPF devices and Linux uses libpcap, both already
+# part of the OS. The real requirement on both is root, since raw packet
+# capture is a privileged operation everywhere.
+#
+# CAVEAT: only the Windows Packetbeat path was actually installed and
+# verified this session (real TLS SNI capture confirmed working). This
+# macOS/Linux path follows the same design but has NOT been live-tested
+# on a real Mac or Linux machine yet - validate before relying on it.
+_install_packetbeat_optional() {
+    if [ "$(id -u)" -ne 0 ]; then
+        _info "WARNING: PATRONAI_ENABLE_PACKETBEAT=1 but this session is not root - packet capture needs root on macOS/Linux. Re-run with root privileges to enable it."
+        return 1
+    fi
+
+    local PB_OS PB_ARCH PB_URL PB_TGZ PB_ROOT PB_HOME
+    case "$(uname -s)" in
+        Darwin) PB_OS="darwin" ;;
+        Linux)  PB_OS="linux"  ;;
+        *) _info "WARNING: unsupported OS for Packetbeat - skipping network-target capture."; return 1 ;;
+    esac
+    case "$(uname -m)" in
+        arm64|aarch64) PB_ARCH="aarch64" ;;
+        *)             PB_ARCH="x86_64"  ;;
+    esac
+    # macOS only ships x86_64 + aarch64 builds; Linux aarch64 build name
+    # differs (arm64) - x86_64 covers the common case reliably either way.
+    [ "$PB_OS" = "linux" ] && [ "$PB_ARCH" = "aarch64" ] && PB_ARCH="arm64"
+
+    PB_URL="https://artifacts.elastic.co/downloads/beats/packetbeat/packetbeat-9.5.2-${PB_OS}-${PB_ARCH}.tar.gz"
+    PB_TGZ="/tmp/packetbeat-patronai.tar.gz"
+    PB_ROOT="/opt/patronai-packetbeat"
+
+    _info "Downloading Packetbeat ($PB_OS/$PB_ARCH)..."
+    curl -fsSL "$PB_URL" -o "$PB_TGZ" --max-time 180 || { _info "WARNING: Packetbeat download failed - skipping."; return 1; }
+    mkdir -p "$PB_ROOT"
+    tar -xzf "$PB_TGZ" -C "$PB_ROOT" --strip-components=1 || { _info "WARNING: Packetbeat extract failed - skipping."; return 1; }
+    PB_HOME="$PB_ROOT"
+
+    # Default config points at a local Elasticsearch that almost always
+    # doesn't exist. Point output at a local NDJSON file inside AGENT_DIR
+    # instead - reading/forwarding this file into scan findings is a
+    # separate, not-yet-built consumer; this only lands the raw capture.
+    sed -i.bak 's/^output\.elasticsearch:/#output.elasticsearch:/' "$PB_HOME/packetbeat.yml" 2>/dev/null || true
+    {
+        echo ""
+        echo "output.file:"
+        echo "  path: \"$AGENT_DIR\""
+        echo "  filename: packetbeat_capture"
+        echo "  rotate_every_kb: 10000"
+        echo "  number_of_files: 3"
+    } >> "$PB_HOME/packetbeat.yml"
+
+    if [ "$PB_OS" = "darwin" ]; then
+        PLIST="/Library/LaunchDaemons/com.patronai.packetbeat.plist"
+        cat > "$PLIST" << PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.patronai.packetbeat</string>
+  <key>UserName</key><string>root</string>
+  <key>ProgramArguments</key><array>
+    <string>$PB_HOME/packetbeat</string><string>-e</string><string>-c</string><string>$PB_HOME/packetbeat.yml</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>$AGENT_DIR/packetbeat.log</string>
+</dict></plist>
+PLIST_EOF
+        launchctl unload "$PLIST" 2>/dev/null || true
+        launchctl load  "$PLIST" 2>/dev/null || true
+        sleep 3
+        pgrep -f "$PB_HOME/packetbeat" >/dev/null 2>&1 || { _info "WARNING: Packetbeat did not start via launchd - network-target capture is NOT active."; return 1; }
+    else
+        # Linux: no systemd assumed (this installer's own scheduling uses
+        # crontab, not systemd, for the same reason) - background it now
+        # and add a @reboot crontab entry so it survives a restart.
+        nohup "$PB_HOME/packetbeat" -e -c "$PB_HOME/packetbeat.yml" >> "$AGENT_DIR/packetbeat.log" 2>&1 &
+        sleep 3
+        pgrep -f "$PB_HOME/packetbeat" >/dev/null 2>&1 || { _info "WARNING: Packetbeat did not stay running - network-target capture is NOT active."; return 1; }
+        ( crontab -l 2>/dev/null | grep -v patronai-packetbeat || true
+          echo "@reboot nohup $PB_HOME/packetbeat -e -c $PB_HOME/packetbeat.yml >> $AGENT_DIR/packetbeat.log 2>&1 & # patronai-packetbeat"
+        ) | crontab - 2>/dev/null || true
+    fi
+    _info "Packetbeat running - network-target capture enabled (writing to $AGENT_DIR/packetbeat_capture*.ndjson)."
+    return 0
+}
+
+if [ "${PATRONAI_ENABLE_PACKETBEAT:-}" = "1" ]; then
+    _install_packetbeat_optional || _info "Continuing install without network-target capture (non-fatal, optional module)."
+fi
+
 # ── Report installed status ───────────────────────────────────
 curl -fsSL -X PUT "$STATUS_PUT_URL" -H "Content-Type: application/json" \
   -d "{\"token\":\"$TOKEN\",\"status\":\"installed\",\"device_id\":\"$(hostname)\",\"installed_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \

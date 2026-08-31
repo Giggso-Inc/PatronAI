@@ -450,6 +450,91 @@ Start-Process wscript.exe -ArgumentList "//B `"$HiddenLauncher`" `"$ScanScript`"
 
 Remove-Item -Path $TmpMeta -ErrorAction SilentlyContinue
 
+# ── Optional: network-target visibility (Packetbeat + Npcap) ─────────
+# Opt-in only (PATRONAI_ENABLE_PACKETBEAT=1) and never fatal to the main
+# install - this whole block is wrapped so a failure here can't trip the
+# script's global $ErrorActionPreference="Stop" and abort a working agent
+# install over an optional module.
+#
+# Confirmed this session against a real Packetbeat 9.5.2 install: real TLS
+# SNI capture works and correctly identifies a real destination hostname.
+# Two known, NOT-yet-solved gaps, called out rather than hidden:
+#   1. Npcap's FREE edition has no supported silent install - the /S flag
+#      only works with the paid Npcap OEM Edition (confirmed against
+#      npcap.com/oem and nmap/npcap GitHub issues #545 and #720). We still
+#      attempt /S here (best-effort) since it's harmless if unsupported,
+#      but we bound the wait and detect a stuck/incomplete install rather
+#      than assuming success - on the free edition this most likely means
+#      Npcap did NOT get installed and this step is skipped with a clear
+#      warning, not a silent lie.
+#   2. Packetbeat as a Windows SERVICE (LocalSystem account) hit a real,
+#      unresolved Npcap-driver-access timing issue during testing that
+#      foreground/interactive capture did not hit. We install the service
+#      anyway (correct for unattended fleets) but verify it actually
+#      reached Running state and warn if it didn't, instead of reporting
+#      "installed" when it silently isn't capturing anything.
+if ($env:PATRONAI_ENABLE_PACKETBEAT -eq "1") {
+    $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $IsAdmin) {
+        Write-Info "PATRONAI_ENABLE_PACKETBEAT=1 but this session is not elevated - skipping network-target capture (Npcap's driver install requires Administrator). Re-run as Administrator to enable it."
+    } else {
+        try {
+            $NpcapExe = Join-Path $env:TEMP "npcap-installer.exe"
+            Write-Info "Downloading Npcap..."
+            Invoke-WebRequest -Uri "https://npcap.com/dist/npcap-1.88.exe" -OutFile $NpcapExe -TimeoutSec 60
+
+            $NpcapOk = $false
+            if ((Get-Service npcap -ErrorAction SilentlyContinue).Status -eq "Running") {
+                $NpcapOk = $true   # already installed from a prior run - idempotent
+            } else {
+                Write-Info "Attempting Npcap install (best-effort silent; free edition has no guaranteed silent path)..."
+                $NpcapProc = Start-Process -FilePath $NpcapExe -ArgumentList "/S" -PassThru
+                $NpcapProc | Wait-Process -Timeout 90 -ErrorAction SilentlyContinue
+                if (-not $NpcapProc.HasExited) {
+                    # Free edition ignored /S and is waiting on a GUI click that will
+                    # never come in an unattended install - stop it, don't hang forever.
+                    Stop-Process -Id $NpcapProc.Id -Force -ErrorAction SilentlyContinue
+                    Write-Info "WARNING: Npcap did not complete an unattended install (expected on the free edition - see https://npcap.com/oem/ for the licensed silent-install path). Skipping network-target capture on this machine. To enable it, install Npcap manually (https://npcap.com/#download) and re-run with PATRONAI_ENABLE_PACKETBEAT=1."
+                } elseif ((Get-Service npcap -ErrorAction SilentlyContinue).Status -eq "Running") {
+                    $NpcapOk = $true
+                } else {
+                    Write-Info "WARNING: Npcap installer exited but the npcap service isn't running - skipping network-target capture on this machine."
+                }
+            }
+
+            if ($NpcapOk) {
+                Write-Info "Installing Packetbeat..."
+                $PbZip = Join-Path $env:TEMP "packetbeat.zip"
+                Invoke-WebRequest -Uri "https://artifacts.elastic.co/downloads/beats/packetbeat/packetbeat-9.5.2-windows-x86_64.zip" -OutFile $PbZip -TimeoutSec 180
+                $PbRoot = "C:\Packetbeat"
+                Expand-Archive -Path $PbZip -DestinationPath $PbRoot -Force
+                $PbHome   = Join-Path $PbRoot "packetbeat-9.5.2-windows-x86_64"
+                $PbConfig = Join-Path $PbHome "packetbeat.yml"
+
+                # Default config points at a local Elasticsearch that (almost always)
+                # doesn't exist. Point output at a local NDJSON file inside AgentDir
+                # instead - the scan pipeline reading/forwarding this file is a
+                # separate, not-yet-built consumer; this step only lands the raw
+                # capture safely, it does not claim to wire it into findings yet.
+                (Get-Content $PbConfig) -replace '(?m)^output\.elasticsearch:', '#output.elasticsearch:' |
+                    Set-Content $PbConfig
+                Add-Content $PbConfig "`noutput.file:`n  path: `"$AgentDir`"`n  filename: packetbeat_capture`n  rotate_every_kb: 10000`n  number_of_files: 3`n"
+
+                & powershell -ExecutionPolicy UnRestricted -File (Join-Path $PbHome "install-service-packetbeat.ps1") | Out-Null
+                Start-Service packetbeat -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 3
+                if ((Get-Service packetbeat -ErrorAction SilentlyContinue).Status -eq "Running") {
+                    Write-Info "Packetbeat running - network-target capture enabled (writing to $AgentDir\packetbeat_capture*.ndjson)."
+                } else {
+                    Write-Info "WARNING: Packetbeat service did not reach Running state (known LocalSystem/Npcap timing issue seen during testing - not yet root-caused). Network-target capture is NOT active on this machine; this does not block the rest of the install."
+                }
+            }
+        } catch {
+            Write-Info "WARNING: Packetbeat/Npcap install failed ($_) - continuing without network-target capture. This is a non-fatal, optional module."
+        }
+    }
+}
+
 # ── Drop the recipient-side diagnose script ──────────────────
 $Diag = Join-Path $AgentDir "diagnose.ps1"
 @'
