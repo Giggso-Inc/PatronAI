@@ -22,6 +22,9 @@
 #   v1.3.0  2026-08-31  Add "meeting_bot" (Virtual Meeting Bots D4c1/D4c2).
 #   v1.4.0  2026-08-31  Add process_running to "mcp_server" - config/
 #                       process correlation for stdio-type servers.
+#   v1.5.0  2026-08-31  Add listening_port/container_id/container_image
+#                       to "vector_db" (D2c1/D2c2 process/port detection,
+#                       additive alongside the file-signature scanner).
 # =============================================================
 
 # Field whitelist per Phase 1A finding category. Anything outside this
@@ -40,7 +43,8 @@ PHASE_1A_FIELD_MAP = {
     "tool_registration": ("repo_name", "repo_safe", "remote_host", "head_sha",
                           "total_tools", "files_with_tools", "per_file"),
     "vector_db":         ("kind", "source", "path_safe", "name",
-                          "bytes", "mtime_epoch", "repo_name"),
+                          "bytes", "mtime_epoch", "repo_name",
+                          "listening_port", "container_id", "container_image"),
     "meeting_bot":       ("platform", "root_pid", "instance_process_count", "join_timestamp"),
 }
 

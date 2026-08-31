@@ -72,6 +72,9 @@ FLAT_SCHEMA = {
     "transport":       "",   # stdio | http | sse
     "mcp_server_url":  "",   # remote server URL; empty for stdio-type servers
     "process_running": False,  # stdio-type server's command found in the real process table
+    "listening_port":  0,    # vector_db (source=listening_port) - real bound TCP port
+    "container_id":    "",   # vector_db - Docker container ID if containerized, else ""
+    "container_image": "",   # vector_db - Docker image name if containerized, else ""
     # Phase 1A — agent workflow / scheduled / tools / vector DB
     "framework":       "",   # n8n | flowise | langflow | crewai | autogen | …
     "schedule_expr":   "",   # cron string when trigger=crontab

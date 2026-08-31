@@ -21,6 +21,11 @@
 #                       Meeting Bots, split out of the generic process
 #                       emitter so Fathom/Otter get the category-correct
 #                       finding type instead of double-counting).
+#   v2.3.0  2026-08-31  Add scan_vector_db_ports() (D2c1/D2c2 - real
+#                       listening-port + Docker container_id detection,
+#                       additive alongside the file-signature scanner
+#                       per team decision - both run, neither replaces
+#                       the other).
 # =============================================================
 
 _findings: list = []
@@ -36,6 +41,7 @@ _findings += scan_mcp_configs()
 _findings += scan_agents_workflows()
 _findings += scan_tools_code()
 _findings += scan_vector_dbs()
+_findings += scan_vector_db_ports()
 _findings += scan_meeting_bots()
 
 

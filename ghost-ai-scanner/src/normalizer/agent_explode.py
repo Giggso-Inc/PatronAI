@@ -102,7 +102,7 @@ def _provider_for(finding: dict) -> str:
     if ftype == "tool_registration":
         return f"tools:{finding.get('repo_name','')}"
     if ftype == "vector_db":
-        return f"vdb:{finding.get('kind','')}:{finding.get('name','')}"
+        return f"vdb:{finding.get('kind','')}:{finding.get('name') or finding.get('listening_port','')}"
     if ftype == "meeting_bot":
         return f"meeting:{finding.get('platform','')}"
     return ftype or "unknown"
@@ -111,7 +111,8 @@ def _provider_for(finding: dict) -> str:
 def _name_field(f: dict) -> str:
     """Distinctive identifier for non-browser findings → goes into process_name."""
     return (f.get("name") or f.get("platform") or f.get("plugin_id") or f.get("image")
-            or f.get("signal") or (f.get("command_hint", "") or "")[:140])
+            or f.get("signal") or f.get("kind")
+            or (f.get("command_hint", "") or "")[:140])
 
 
 # Phase 1A field-copy logic split into agent_explode_fields.py to keep
