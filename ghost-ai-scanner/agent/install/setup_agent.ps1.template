@@ -516,7 +516,19 @@ if ($env:PATRONAI_ENABLE_PACKETBEAT -eq "1") {
         try {
             Write-Info "Installing Packetbeat (bundles and silently installs its own licensed Npcap - no separate Npcap download needed)..."
             $PbZip = Join-Path $env:TEMP "packetbeat.zip"
-            Invoke-WebRequest -Uri "https://artifacts.elastic.co/downloads/beats/packetbeat/packetbeat-9.5.2-windows-x86_64.zip" -OutFile $PbZip -TimeoutSec 180
+            # Invoke-WebRequest's default progress-bar rendering has a real,
+            # well-documented per-chunk overhead in Windows PowerShell that
+            # can throttle large downloads enough to trigger a transport-
+            # level "unexpected EOF" failure (confirmed against a real
+            # ~36MB download this session). Suppressing it for just this
+            # download is the documented fix - restored right after.
+            $PrevProgressPreference = $ProgressPreference
+            $ProgressPreference = 'SilentlyContinue'
+            try {
+                Invoke-WebRequest -Uri "https://artifacts.elastic.co/downloads/beats/packetbeat/packetbeat-9.5.2-windows-x86_64.zip" -OutFile $PbZip -TimeoutSec 180
+            } finally {
+                $ProgressPreference = $PrevProgressPreference
+            }
             $PbRoot = "C:\Packetbeat"
             Expand-Archive -Path $PbZip -DestinationPath $PbRoot -Force
             $PbHome   = Join-Path $PbRoot "packetbeat-9.5.2-windows-x86_64"
