@@ -24,6 +24,12 @@
 #                       proper rows. Clean scans (zero findings) drop entirely
 #                       (heartbeat covers liveness). Each event tagged with
 #                       scan_id for grouping back to the source scan.
+#   v1.5.0  2026-08-31  Add enrollment_source (constant - the only real
+#                       enrollment path today). last_verified_timestamp
+#                       deliberately NOT added - no devices table exists
+#                       to back a real one (confirmed against
+#                       src/db/models_identity.py); needs a migration,
+#                       scoped as a separate follow-up, not faked here.
 # =============================================================
 
 import logging
@@ -116,6 +122,15 @@ def _bind_identity(event: dict, raw: dict) -> None:
     event["email"]        = raw.get("email", "")
     event["ip_set"]       = ip_set
     event["asset_type"]   = "laptop"
+    # enrollment_source: constant, not looked up - there is exactly one
+    # enrollment path in this system today (the OTP-validated PatronAI
+    # installer; see setup_agent.ps1/sh.template). No devices table exists
+    # to persist a real per-device enrollment record or a genuine
+    # last_verified_timestamp - confirmed by inspecting src/db/models_identity.py
+    # (orgs/users/projects only, no device/endpoint table). Adding those for
+    # real needs a schema migration + a normalizer DB read, deliberately not
+    # attempted here rather than faked.
+    event["enrollment_source"] = "patronai_installer"
 
 
 def _parse_heartbeat(raw: dict, company: str) -> dict:

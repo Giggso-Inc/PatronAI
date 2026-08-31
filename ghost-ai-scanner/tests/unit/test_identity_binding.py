@@ -11,6 +11,10 @@
 #          ENDPOINT_SCAN. Pure-data; no AWS, no LocalStack.
 # AUDIT LOG:
 #   v1.0.0  2026-04-25  Initial. Step 0.
+#   v1.1.0  2026-08-31  Add enrollment_source coverage (constant - the
+#                       only real enrollment path today; no devices
+#                       table exists yet to back a real per-device
+#                       value or a genuine last_verified_timestamp).
 # =============================================================
 
 import os
@@ -68,6 +72,8 @@ def _expect_identity(event: dict, raw: dict) -> None:
     assert event["src_hostname"] == raw["device_id"]
     # owner = email per the Step 0 binding (was hostname before)
     assert event["owner"]        == raw["email"]
+    # enrollment_source is a constant - the only real enrollment path today
+    assert event["enrollment_source"] == "patronai_installer"
 
 
 def test_heartbeat_carries_full_identity():
