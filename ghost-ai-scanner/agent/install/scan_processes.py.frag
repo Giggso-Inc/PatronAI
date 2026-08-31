@@ -7,11 +7,14 @@
 #          Filtered through AUTH_LIST. Returns finding dicts.
 # AUDIT LOG:
 #   v1.0.0  2026-04-25  Initial. Extracted from setup_agent.sh.template.
+#   v1.1.0  2026-08-28  Add claude, power automate desktop, fathom, otter —
+#                       confirmed 0/31 real-process detection rate before this fix.
 # =============================================================
 
 _AI_PROCS_RE = re.compile(
     r"\b(n8n|ollama|lm[._-]studio|lmstudio|gpt4all|jan|cursor|copilot|"
-    r"codeium|tabnine|msty|chatbox|typing-mind|flowise|langflow)\b",
+    r"codeium|tabnine|msty|chatbox|typing-mind|flowise|langflow|"
+    r"claude|pad\.console\.host|pad\.automationserver|fathom|otter)\b",
     re.IGNORECASE,
 )
 

@@ -128,6 +128,46 @@ def test_invalid_json_is_skipped_quietly(tmp_path):
     assert _run_mcp_scan(tmp_path) == []
 
 
+def _write_claude_code(home: Path, payload: dict) -> Path:
+    """Drop a synthetic ~/.claude.json - the Claude Code CLI's own config,
+    previously unscanned entirely (confirmed via a real config this
+    fragment never read before this fix)."""
+    p = home / ".claude.json"
+    p.write_text(json.dumps(payload), encoding="utf-8")
+    return p
+
+
+def test_claude_code_config_is_scanned(tmp_path):
+    _write_claude_code(tmp_path, {
+        "mcpServers": {
+            "trinity": {"type": "http", "url": "https://gsd.giggso.com/redteaming/mcp"}
+        }
+    })
+    out = _run_mcp_scan(tmp_path)
+    assert any(f["mcp_host"] == "claude_code" and f["server_name"] == "trinity" for f in out)
+
+
+def test_remote_http_server_type_and_url_captured(tmp_path):
+    _write_claude_code(tmp_path, {
+        "mcpServers": {
+            "trinity": {"type": "http", "url": "https://gsd.giggso.com/redteaming/mcp"}
+        }
+    })
+    f = _run_mcp_scan(tmp_path)[0]
+    assert f["transport"]        == "http"
+    assert f["mcp_server_url"]   == "https://gsd.giggso.com/redteaming/mcp"
+    assert f["command_basename"] == ""          # remote server has no local command
+
+
+def test_stdio_server_type_defaults_and_no_url(tmp_path):
+    _write_claude_desktop(tmp_path, {
+        "mcpServers": {"fs": {"command": "npx", "args": []}}
+    })
+    f = _run_mcp_scan(tmp_path)[0]
+    assert f["transport"]      == "stdio"
+    assert f["mcp_server_url"] == ""
+
+
 def test_mcp_scanner_under_loc_cap():
     body = (FRAGS / "scan_mcp_configs.py.frag").read_text()
     assert len(body.splitlines()) <= 150

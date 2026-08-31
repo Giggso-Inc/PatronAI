@@ -109,6 +109,31 @@ def test_unrelated_files_are_skipped(tmp_path):
     assert _run_vdb_scan(tmp_path, [r]) == []
 
 
+def test_qdrant_real_files_detected(tmp_path):
+    """Real qdrant/qdrant never writes meta.json - it writes raft_state.json,
+    replica_state.json, shard_config.json. Confirmed against a real instance."""
+    qdrant_dir = tmp_path / ".cache" / "qdrant_storage"
+    qdrant_dir.mkdir(parents=True)
+    (qdrant_dir / "raft_state.json").write_bytes(b"x")
+    (qdrant_dir / "replica_state.json").write_bytes(b"x")
+    (qdrant_dir / "shard_config.json").write_bytes(b"x")
+    r = _make_repo(tmp_path, "rag", {
+        "storage/raft_state.json": "x",
+        "storage/replica_state.json": "x",
+        "storage/shard_config.json": "x",
+    })
+    out = _run_vdb_scan(tmp_path, [r])
+    assert any(f["kind"] == "qdrant" for f in out)
+
+
+def test_qdrant_old_wrong_marker_not_required(tmp_path):
+    """meta.json alone (the old, wrong signature) should NOT be the only
+    thing that flags a qdrant instance - it isn't written by real qdrant."""
+    r = _make_repo(tmp_path, "rag2", {"storage/meta.json": "x"})
+    out = _run_vdb_scan(tmp_path, [r])
+    assert not any(f["kind"] == "qdrant" for f in out)
+
+
 def test_vector_dbs_scanner_under_loc_cap():
     body = (FRAGS / "scan_vector_dbs.py.frag").read_text()
     assert len(body.splitlines()) <= 150

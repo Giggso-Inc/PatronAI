@@ -14,6 +14,12 @@
 #          redaction is dropped entirely.
 # AUDIT LOG:
 #   v1.0.0  2026-04-26  Initial. Phase 1A.
+#   v1.1.0  2026-08-28  Add ~/.claude.json (Claude Code CLI config — was
+#                       entirely unscanned; confirmed via a real config
+#                       containing a remote MCP server this fragment
+#                       never read). `transport` now also reads the real
+#                       "type" key (configs use "type", not "transport"),
+#                       and mcp_server_url is captured for remote servers.
 # =============================================================
 
 import hashlib
@@ -26,6 +32,7 @@ def _mcp_config_paths() -> list:
     if OS_NAME == "darwin":
         return [
             ("claude_desktop", h / "Library/Application Support/Claude/claude_desktop_config.json"),
+            ("claude_code",    h / ".claude.json"),
             ("cursor",         h / ".cursor/mcp.json"),
             ("continue",       h / ".continue/config.json"),
             ("cline",          h / ".config/Cline/mcp_settings.json"),
@@ -34,6 +41,7 @@ def _mcp_config_paths() -> list:
         appdata = Path(os.environ.get("APPDATA", h / "AppData/Roaming"))
         return [
             ("claude_desktop", appdata / "Claude/claude_desktop_config.json"),
+            ("claude_code",    h / ".claude.json"),
             ("cursor",         h / ".cursor/mcp.json"),
             ("continue",       h / ".continue/config.json"),
             ("cline",          h / ".config/Cline/mcp_settings.json"),
@@ -41,6 +49,7 @@ def _mcp_config_paths() -> list:
     # linux + other unix
     return [
         ("claude_desktop", h / ".config/Claude/claude_desktop_config.json"),
+        ("claude_code",    h / ".claude.json"),
         ("cursor",         h / ".cursor/mcp.json"),
         ("continue",       h / ".continue/config.json"),
         ("cline",          h / ".config/Cline/mcp_settings.json"),
@@ -96,6 +105,7 @@ def _parse_one_config(host: str, path: Path) -> list:
     for name, spec in servers.items():
         if not isinstance(spec, dict):
             continue
+        transport = str(spec.get("type") or spec.get("transport") or "stdio")[:24]
         finding = {
             "type":             "mcp_server",
             "mcp_host":         host,
@@ -105,7 +115,8 @@ def _parse_one_config(host: str, path: Path) -> list:
             "command_basename": _command_basename(spec.get("command")),
             "arg_flags":        _arg_flags_only(spec.get("args")),
             "env_keys_present": _env_keys_only(spec.get("env")),
-            "transport":        str(spec.get("transport", "stdio"))[:24],
+            "transport":        transport,
+            "mcp_server_url":   str(spec.get("url", ""))[:200] if transport != "stdio" else "",
         }
         safe = _safe_finding(finding)
         if _has_unredacted_secret(safe):

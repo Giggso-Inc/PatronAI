@@ -20,7 +20,7 @@
 PHASE_1A_FIELD_MAP = {
     "mcp_server":        ("mcp_host", "config_sha256", "config_basename",
                           "server_name", "command_basename", "arg_flags",
-                          "env_keys_present", "transport"),
+                          "env_keys_present", "transport", "mcp_server_url"),
     "agent_workflow":    ("framework", "filename", "file_safe",
                           "bytes", "mtime_epoch"),
     "agent_scheduled":   ("trigger", "schedule_expr", "command_safe",

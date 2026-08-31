@@ -9,11 +9,16 @@
 #          macOS + Linux paths. (Windows handled by .ps1.frag.)
 # AUDIT LOG:
 #   v1.0.0  2026-04-25  Initial. Group 2.C — IDE plugin enumeration.
+#   v1.1.0  2026-08-28  Fix Amazon Q publisher-prefix mismatch (real ID is
+#                       amazonwebservices.amazon-q-vscode, not aws.*); add
+#                       anthropic.claude-code — confirmed 0/7 real-extension
+#                       detection rate before this fix.
 # =============================================================
 
 _AI_IDE_PLUGINS_RE = re.compile(
     r"\b(github\.copilot|github\.copilot-chat|codeium\.codeium|"
-    r"tabnine\.tabnine-vscode|continue\.continue|aws\.amazon-q-vscode|"
+    r"tabnine\.tabnine-vscode|continue\.continue|amazonwebservices\.amazon-q-vscode|"
+    r"anthropic\.claude-code|"
     r"com\.github\.copilot|com\.codeium\.intellij|com\.tabnine\.intellij)\b",
     re.IGNORECASE,
 )

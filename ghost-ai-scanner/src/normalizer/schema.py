@@ -56,13 +56,14 @@ FLAT_SCHEMA = {
     "repo":            "",   # git repo name
     "branch":          "",   # git branch name
     # Phase 1A — MCP server inventory (mcp_server findings only)
-    "mcp_host":        "",   # claude_desktop | cursor | continue | cline
+    "mcp_host":        "",   # claude_desktop | claude_code | cursor | continue | cline
     "config_sha256":   "",   # SHA-256 of the parent MCP config file
     "server_name":     "",   # server label as defined in mcpServers
-    "command_basename": "",  # leaf executable name (no path)
+    "command_basename": "",  # leaf executable name (no path); empty for remote servers
     "arg_flags":       [],   # flag-shaped args only, values dropped
     "env_keys_present": [],  # env var KEYS only, values dropped
-    "transport":       "",   # stdio | sse | http
+    "transport":       "",   # stdio | http | sse
+    "mcp_server_url":  "",   # remote server URL; empty for stdio-type servers
     # Phase 1A — agent workflow / scheduled / tools / vector DB
     "framework":       "",   # n8n | flowise | langflow | crewai | autogen | …
     "schedule_expr":   "",   # cron string when trigger=crontab

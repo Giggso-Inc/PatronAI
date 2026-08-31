@@ -13,6 +13,10 @@
 #          number of findings per scan to keep payload size sane.
 # AUDIT LOG:
 #   v1.0.0  2026-04-26  Initial. Phase 1A.
+#   v1.1.0  2026-08-28  Fix qdrant signature: real Qdrant never writes
+#                       meta.json (confirmed against a real qdrant/qdrant
+#                       instance). Real files are raft_state.json,
+#                       replica_state.json, shard_config.json.
 # =============================================================
 
 # Map of "kind label" → set of filename markers and dir markers.
@@ -20,7 +24,7 @@ _VDB_FILE_MARKERS = {
     "chroma":  {"chroma.sqlite3", "chroma-collections.parquet"},
     "faiss":   set(),                                  # extension-only; see below
     "lancedb": set(),
-    "qdrant":  {"meta.json"},                          # qdrant storage signature
+    "qdrant":  {"raft_state.json", "replica_state.json", "shard_config.json"},
     "milvus":  {"meta.kv"},
 }
 _VDB_EXTENSION_MARKERS = {
