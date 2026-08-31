@@ -30,6 +30,10 @@
 #                       observed_network_target, reads Packetbeat's real
 #                       NDJSON capture when the optional module is
 #                       installed; [] otherwise).
+#   v2.5.0  2026-08-31  Add scan_unclassified_processes() - broad process
+#                       visibility beyond the known-AI catalog, LOW
+#                       severity, tiered separately from the specific
+#                       AI-category findings so it doesn't drown them out.
 # =============================================================
 
 _findings: list = []
@@ -48,6 +52,7 @@ _findings += scan_vector_dbs()
 _findings += scan_vector_db_ports()
 _findings += scan_meeting_bots()
 _findings += scan_network_capture()
+_findings += scan_unclassified_processes()
 
 
 def _count(kind: str) -> int:
@@ -111,6 +116,7 @@ _payload = {
         "vector_dbs":            _count("vector_db"),
         "meeting_bots":          _count("meeting_bot"),
         "observed_network_targets": _count("observed_network_target"),
+        "unclassified_software": _count("unclassified_software"),
         "repos_discovered":      len(DISCOVERED_REPOS),
     },
 }

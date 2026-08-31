@@ -27,6 +27,8 @@
 #                       additive alongside the file-signature scanner).
 #   v1.6.0  2026-08-31  Add "observed_network_target" (D2a2 - real
 #                       Packetbeat TLS SNI capture).
+#   v1.7.0  2026-08-31  Add "unclassified_software" - broad process
+#                       visibility beyond the known-AI catalog.
 # =============================================================
 
 # Field whitelist per Phase 1A finding category. Anything outside this
@@ -49,6 +51,7 @@ PHASE_1A_FIELD_MAP = {
                           "listening_port", "container_id", "container_image"),
     "meeting_bot":       ("platform", "root_pid", "instance_process_count", "join_timestamp"),
     "observed_network_target": ("domain", "observation_count", "first_seen", "last_seen"),
+    "unclassified_software": ("name", "root_pid", "instance_process_count"),
 }
 
 

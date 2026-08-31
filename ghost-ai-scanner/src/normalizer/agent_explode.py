@@ -67,6 +67,9 @@ _FINDING_SEVERITY = {
     "vector_db":            "MEDIUM",    # local RAG store; data exposure risk
     "meeting_bot":          "HIGH",      # AI notetaker actively running in a meeting
     "observed_network_target": "MEDIUM",  # real TLS SNI capture; not yet linked to a process
+    "unclassified_software": "LOW",      # broad process visibility, tiered deliberately below
+                                          # the known-AI categories - a real new risk still
+                                          # stands out once catalogued, this doesn't drown it out
 }
 
 
@@ -108,6 +111,8 @@ def _provider_for(finding: dict) -> str:
         return f"meeting:{finding.get('platform','')}"
     if ftype == "observed_network_target":
         return f"net:{finding.get('domain','')}"
+    if ftype == "unclassified_software":
+        return f"unclassified:{finding.get('name','')}"
     return ftype or "unknown"
 
 

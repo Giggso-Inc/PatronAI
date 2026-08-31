@@ -44,6 +44,11 @@ FRAGMENT_ORDER = (
     "scan_vector_db_ports.py.frag",
     "scan_meeting_bots.py.frag",
     "scan_network_capture.py.frag",
+    # scan_unclassified_processes must come after scan_processes.py.frag
+    # and scan_meeting_bots.py.frag - it reuses their _AI_PROCS_RE /
+    # _MEETING_BOT_RE globals to avoid double-counting an already
+    # AI-matched process under the generic unclassified bucket too.
+    "scan_unclassified_processes.py.frag",
     # --- footer last (aggregates all scan_*) ---
     "scan_footer.py.frag",
 )
