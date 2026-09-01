@@ -15,6 +15,7 @@ SCAN_PUT_URL="{{SCAN_PUT_URL}}"
 AUTHORIZED_GET_URL="{{AUTHORIZED_GET_URL}}"
 URLS_REFRESH_URL="{{URLS_REFRESH_URL}}"
 AUTHORIZED_DOMAINS="{{AUTHORIZED_DOMAINS}}"
+PATRONAI_ENABLE_PACKETBEAT="{{ENABLE_PACKETBEAT}}"
 BUCKET="{{BUCKET}}"
 REGION="{{REGION}}"
 COMPANY="{{COMPANY}}"
@@ -503,10 +504,13 @@ else
 fi
 
 # ── Optional: network-target visibility (Packetbeat) ─────────
-# Opt-in only (PATRONAI_ENABLE_PACKETBEAT=1). Wrapped in its own function
-# so a failure anywhere inside is caught by `||` at the call site instead
-# of tripping this script's `set -e` and aborting an otherwise-working
-# agent install over an optional module.
+# Opt-in only. PATRONAI_ENABLE_PACKETBEAT is baked in above from the
+# per-recipient enable_packetbeat flag passed to render_agent_package() -
+# not a manually-set env var, so this is a real generation-time decision,
+# not something that silently defaults to off because nothing ever set it.
+# Wrapped in its own function so a failure anywhere inside is caught by
+# `||` at the call site instead of tripping this script's `set -e` and
+# aborting an otherwise-working agent install over an optional module.
 #
 # Unlike Windows (Npcap), there is no separate paid-driver blocker here -
 # macOS uses its built-in BPF devices and Linux uses libpcap, both already
@@ -521,7 +525,7 @@ fi
 # download/extract if Packetbeat is already running from a prior pass.
 _install_packetbeat_optional() {
     if [ "$(id -u)" -ne 0 ]; then
-        _info "WARNING: PATRONAI_ENABLE_PACKETBEAT=1 but this session is not root - packet capture needs root on macOS/Linux. Re-run with root privileges to enable it."
+        _info "WARNING: Packetbeat is enabled for this package but this session is not root - packet capture needs root on macOS/Linux. Re-run with root privileges to enable it."
         return 1
     fi
     if pgrep -f "/opt/patronai-packetbeat/packetbeat" >/dev/null 2>&1; then

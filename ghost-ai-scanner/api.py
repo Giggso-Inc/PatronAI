@@ -377,6 +377,9 @@ class ProvisionRequest(BaseModel):
     # so the recipient enters exactly one code that BOTH products
     # validate — no unauthenticated trust-mode bypass on this side.
     otp_override:       str | None = None
+    # Per-recipient opt-in for Packetbeat network-target capture. Needs
+    # admin/root on the recipient's device — default off.
+    enable_packetbeat:  bool = False
 
 
 class ProvisionResponse(BaseModel):
@@ -465,6 +468,7 @@ def provision_agent(
             send_email         = False,
             authorized_domains = body.authorized_domains,
             otp_override       = body.otp_override,
+            enable_packetbeat  = body.enable_packetbeat,
         )
     except Exception as exc:                                      # noqa: BLE001
         logger.error("PatronAI provision failed: %s", exc, exc_info=True)

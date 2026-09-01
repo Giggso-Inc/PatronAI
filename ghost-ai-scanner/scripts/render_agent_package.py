@@ -28,6 +28,16 @@
 #                       treats as a string terminator, corrupting the rest
 #                       of the parse. .sh stays plain utf-8 — a BOM there
 #                       would break shebang detection on Linux/Mac.
+#   v1.7.0  2026-09-01  enable_packetbeat param -> {{ENABLE_PACKETBEAT}}
+#                       placeholder. Previously the installer templates
+#                       read a bare $env:PATRONAI_ENABLE_PACKETBEAT /
+#                       ${PATRONAI_ENABLE_PACKETBEAT:-} that was never set
+#                       by anything in this pipeline, so Packetbeat was
+#                       silently skipped for every recipient regardless of
+#                       intent. Now it's a real per-recipient decision
+#                       baked into the rendered script, same as
+#                       authorized_domains. Defaults to False (unchanged
+#                       behaviour for existing callers).
 # =============================================================
 
 import json
@@ -58,6 +68,7 @@ def render_agent_package(
     send_email: bool = True,
     authorized_domains: list | None = None,
     otp_override: str | None = None,
+    enable_packetbeat: bool = False,
 ) -> dict:
     """
     Generate a complete agent delivery package.
@@ -65,6 +76,10 @@ def render_agent_package(
     Always builds BOTH macOS DMG and Windows EXE on EC2.
     authorized_domains: per-user allowlist baked into the script.
       Scan findings matching these domains/packages are suppressed.
+    enable_packetbeat: per-recipient decision, baked into the rendered
+      script as PATRONAI_ENABLE_PACKETBEAT. Defaults to off — Packetbeat
+      needs admin/root and its own Npcap driver install on Windows, so
+      this should only be turned on for recipients where that's wanted.
     otp_override: when set, use this string as the OTP instead of
       generating a new one — used by Raven-bundled invites so both
       products validate against the SAME OTP the user entered in
@@ -135,6 +150,7 @@ def render_agent_package(
             "AUTHORIZED_GET_URL":  "PENDING",
             "URLS_REFRESH_URL":    "PENDING",
             "AUTHORIZED_DOMAINS":  auth_domains_str,
+            "ENABLE_PACKETBEAT":   "1" if enable_packetbeat else "0",
             "INLINE_SCAN_PYTHON":  inline_scan_python,
             "INLINE_DIAGNOSE_SH":  inline_diagnose_sh,
             "INLINE_DIAGNOSE_PS1": inline_diagnose_ps1,
@@ -176,6 +192,7 @@ def render_agent_package(
             "AUTHORIZED_GET_URL": urls.get("authorized_get_url", ""),
             "URLS_REFRESH_URL":   urls.get("urls_refresh_url", ""),
             "AUTHORIZED_DOMAINS": auth_domains_str,  # fallback if URL unreachable
+            "ENABLE_PACKETBEAT":  "1" if enable_packetbeat else "0",
             "INLINE_SCAN_PYTHON": inline_scan_python,
             "INLINE_DIAGNOSE_SH":  inline_diagnose_sh,
             "INLINE_DIAGNOSE_PS1": inline_diagnose_ps1,

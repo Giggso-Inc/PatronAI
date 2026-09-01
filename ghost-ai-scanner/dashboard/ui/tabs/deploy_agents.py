@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: dashboard/ui/tabs/deploy_agents.py
-# VERSION: 1.3.0
-# UPDATED: 2026-04-20
+# VERSION: 1.4.0
+# UPDATED: 2026-09-01
 # OWNER: Giggso Inc
 # PURPOSE: Streamlit admin tab for generating OTP-locked agent
 #          installer packages. Shows live status table from S3.
@@ -12,6 +12,10 @@
 #   v1.0.0  2026-04-19  Initial — agent delivery system
 #   v1.1.0  2026-04-19  S3 prefix update — paths now via AgentStore constant
 #   v1.3.0  2026-04-20  authorized_domains field in generate form (per-user whitelist)
+#   v1.4.0  2026-09-01  enable_packetbeat toggle - previously Packetbeat was
+#                       silently always-off (installer read a bare env var
+#                       nothing in this pipeline ever set); now a real
+#                       per-recipient choice baked into the rendered script.
 # =============================================================
 
 import os
@@ -66,6 +70,14 @@ def _render_generate_form(admin_email: str) -> None:
         )
         send_email = st.toggle("Send OTP via email", value=True,
                                help="Uses SES. Disable to copy OTP from the result below.")
+        enable_packetbeat = st.toggle(
+            "Enable network-target capture (Packetbeat)", value=False,
+            help=(
+                "Installs Packetbeat to capture destination domains over TLS. "
+                "Needs Administrator/root on the recipient's device — the "
+                "installer skips it (non-fatally) if that's not available."
+            ),
+        )
         submitted = st.form_submit_button("Generate Package", type="primary")
 
     if submitted:
@@ -74,12 +86,13 @@ def _render_generate_form(admin_email: str) -> None:
             return
         auth_domains = [d.strip() for d in auth_raw.splitlines() if d.strip()]
         _generate(name.strip(), recipient_email.strip(), os_type,
-                  send_email, admin_email, auth_domains)
+                  send_email, admin_email, auth_domains, enable_packetbeat)
 
 
 def _generate(name: str, email: str, os_type: str,
               send_email: bool, admin_email: str,
-              authorized_domains: list | None = None) -> None:
+              authorized_domains: list | None = None,
+              enable_packetbeat: bool = False) -> None:
     """Run package generation and display the result."""
     from store.agent_store import AgentStore
     from store import agent_renderer
@@ -109,6 +122,7 @@ def _generate(name: str, email: str, os_type: str,
                 renderer           = renderer,
                 send_email         = send_email,
                 authorized_domains = authorized_domains or [],
+                enable_packetbeat  = enable_packetbeat,
             )
         except Exception as e:
             st.error(f"Generation failed: {e}")

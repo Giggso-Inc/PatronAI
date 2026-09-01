@@ -7,6 +7,8 @@
 #          All S3/SES calls are mocked — no AWS credentials needed.
 # AUDIT LOG:
 #   v1.0.0  2026-04-19  Initial — agent delivery system
+#   v1.1.0  2026-09-01  Cover enable_packetbeat -> {{ENABLE_PACKETBEAT}}
+#                       context threading (default off, explicit on).
 # =============================================================
 
 import os
@@ -158,3 +160,72 @@ def test_renderer_called_five_times_for_real_urls():
     second_ctx = renderer.render.call_args_list[1][0][1]
     assert second_ctx["TOKEN"] == "abc-def-123"
     assert second_ctx["META_URL"] == "https://s3.example.com/meta"
+
+
+def test_enable_packetbeat_defaults_to_off():
+    """Callers that don't pass enable_packetbeat must keep today's real
+    behaviour (Packetbeat never runs) rather than silently opting in."""
+    store    = _make_store()
+    renderer = _make_renderer()
+
+    render_agent_package(
+        recipient_name  = "Default Off",
+        recipient_email = "off@example.com",
+        os_type         = "mac",
+        store           = store,
+        renderer        = renderer,
+        send_email      = False,
+    )
+
+    second_ctx = renderer.render.call_args_list[1][0][1]
+    assert second_ctx["ENABLE_PACKETBEAT"] == "0"
+
+
+def test_enable_packetbeat_true_flows_into_both_render_passes():
+    """The per-recipient choice must reach both the placeholder pass
+    (used to mint the token) and the final pass (real URLs)."""
+    store    = _make_store()
+    renderer = _make_renderer()
+
+    render_agent_package(
+        recipient_name    = "Packetbeat On",
+        recipient_email   = "on@example.com",
+        os_type           = "windows",
+        store             = store,
+        renderer          = renderer,
+        send_email        = False,
+        enable_packetbeat = True,
+    )
+
+    first_ctx  = renderer.render.call_args_list[0][0][1]
+    second_ctx = renderer.render.call_args_list[1][0][1]
+    assert first_ctx["ENABLE_PACKETBEAT"]  == "1"
+    assert second_ctx["ENABLE_PACKETBEAT"] == "1"
+
+
+def test_enable_packetbeat_resolves_against_the_real_templates():
+    """A mocked renderer can't catch a typo'd {{PLACEHOLDER}} name - render
+    through the REAL agent_renderer against the real template files so a
+    missing/renamed context key surfaces as a real KeyError, not a
+    silent pass."""
+    from store import agent_renderer
+
+    store = _make_store()
+
+    result = render_agent_package(
+        recipient_name    = "Real Render",
+        recipient_email   = "real@example.com",
+        os_type           = "windows",
+        store             = store,
+        renderer          = agent_renderer,
+        send_email        = False,
+        enable_packetbeat = True,
+    )
+
+    assert result["success"] is True
+    ps1_calls = [c for c in store._put.call_args_list
+                 if c.args and str(c.args[0]).endswith("setup_agent.ps1")]
+    assert ps1_calls, "expected a setup_agent.ps1 upload"
+    ps1_body = ps1_calls[0].args[1].decode("utf-8-sig")
+    assert '$EnablePacketbeat  = "1"' in ps1_body
+    assert "{{ENABLE_PACKETBEAT}}" not in ps1_body
