@@ -9,6 +9,9 @@
 #   v1.0.0  2026-04-19  Initial — agent delivery system
 #   v1.1.0  2026-09-01  Cover enable_packetbeat -> {{ENABLE_PACKETBEAT}}
 #                       context threading (default off, explicit on).
+#   v1.2.0  2026-09-01  Cover the Windows installer's self-elevation
+#                       block (UAC relaunch) - real template content,
+#                       not mocked, via the real agent_renderer.
 # =============================================================
 
 import os
@@ -229,3 +232,35 @@ def test_enable_packetbeat_resolves_against_the_real_templates():
     ps1_body = ps1_calls[0].args[1].decode("utf-8-sig")
     assert '$EnablePacketbeat  = "1"' in ps1_body
     assert "{{ENABLE_PACKETBEAT}}" not in ps1_body
+
+
+def test_windows_installer_self_elevates_before_doing_any_work():
+    """Every Windows recipient must be prompted for Administrator via UAC
+    before the script does anything else - not just Packetbeat recipients.
+    Checks real template content (not a mocked renderer) so a regression
+    here (block removed, or moved after real setup work) is caught."""
+    from store import agent_renderer
+
+    store = _make_store()
+
+    render_agent_package(
+        recipient_name  = "Elevation Check",
+        recipient_email = "elevate@example.com",
+        os_type         = "windows",
+        store           = store,
+        renderer        = agent_renderer,
+        send_email      = False,
+    )
+
+    ps1_calls = [c for c in store._put.call_args_list
+                 if c.args and str(c.args[0]).endswith("setup_agent.ps1")]
+    ps1_body = ps1_calls[0].args[1].decode("utf-8-sig")
+
+    assert "IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)" in ps1_body
+    assert "Start-Process powershell -Verb RunAs" in ps1_body
+
+    # Must come before the first real setup action (Python/bcrypt check),
+    # not be dead code stuck after work has already started.
+    elevate_idx = ps1_body.index("Start-Process powershell -Verb RunAs")
+    first_real_work_idx = ps1_body.index('python --version')
+    assert elevate_idx < first_real_work_idx

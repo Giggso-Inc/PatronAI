@@ -74,8 +74,10 @@ def _render_generate_form(admin_email: str) -> None:
             "Enable network-target capture (Packetbeat)", value=False,
             help=(
                 "Installs Packetbeat to capture destination domains over TLS. "
-                "Needs Administrator/root on the recipient's device — the "
-                "installer skips it (non-fatally) if that's not available."
+                "Windows installers now self-elevate via a UAC prompt (Administrator "
+                "is required for every install, not just Packetbeat). macOS/Linux "
+                "still needs root and skips Packetbeat (non-fatally) if that's not "
+                "available."
             ),
         )
         submitted = st.form_submit_button("Generate Package", type="primary")

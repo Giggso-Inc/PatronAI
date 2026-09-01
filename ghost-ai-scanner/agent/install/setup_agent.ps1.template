@@ -9,6 +9,29 @@
 # =============================================================
 $ErrorActionPreference = "Stop"
 
+# ── Require Administrator — self-elevate via UAC if needed ───────────
+# v1 (2026-09-01): the installer used to run fine unelevated and just
+# skip Packetbeat (with a warning) if the recipient hadn't happened to
+# launch PowerShell as Administrator. That made "did Packetbeat actually
+# install" depend on how the recipient ran the script, not on whether it
+# was enabled for them. Elevating up front removes that ambiguity for
+# every recipient, not just ones with Packetbeat on.
+# $PSCommandPath is populated because USAGE (above) always runs this via
+# `-File` — this only works when invoked that way, not via `iex (irm ...)`.
+$IsElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $IsElevated) {
+    Write-Host "[patronai] Not running as Administrator - requesting elevation (a UAC prompt will appear)..."
+    try {
+        $ElevatedProc = Start-Process powershell -Verb RunAs -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`""
+        ) -Wait -PassThru
+        exit $ElevatedProc.ExitCode
+    } catch {
+        Write-Host "ERROR: Administrator elevation was cancelled or failed ($_). This installer requires Administrator - re-run and accept the UAC prompt." -ForegroundColor Red
+        exit 1
+    }
+}
+
 $MetaUrl           = "{{META_URL}}"
 $StatusPutUrl      = "{{STATUS_PUT_URL}}"
 $HeartbeatPutUrl   = "{{HEARTBEAT_PUT_URL}}"
@@ -514,13 +537,14 @@ Remove-Item -Path $TmpMeta -ErrorAction SilentlyContinue
 # presence is checkable up front, there's no need to start Packetbeat
 # twice to find out - decide never_install before the only start attempt
 # instead.
+#
+# v4 (2026-09-01): dropped the separate not-elevated check here - the
+# whole script now self-elevates via UAC before it gets this far (see
+# top of file), so by this point Administrator is already guaranteed.
 $PacketbeatActive = $false
 if ($EnablePacketbeat -eq "1") {
-    $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     $PbTaskName = "PatronAI-Packetbeat"
-    if (-not $IsAdmin) {
-        Write-Info "Packetbeat is enabled for this package but this session is not elevated - skipping network-target capture (Npcap's driver install requires Administrator). Re-run as Administrator to enable it."
-    } elseif ((Get-Process -Name "packetbeat" -ErrorAction SilentlyContinue)) {
+    if ((Get-Process -Name "packetbeat" -ErrorAction SilentlyContinue)) {
         # Re-run of this installer (config refresh, repeat OTP flow, etc.) -
         # Packetbeat is already installed and running from a prior pass.
         # Skip re-downloading/re-installing entirely.
