@@ -73,7 +73,7 @@ class GovernanceScopeResponse(BaseModel):
 
 
 def _org_events(email: str) -> list:
-    store = _blob_store()
+    store = _blob_store(email)
     events, _summary, _y_summary, _source_date = _load_events(store, email, is_admin=True)
     return events
 

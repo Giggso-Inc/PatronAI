@@ -494,7 +494,7 @@ def test_inventory_overview_unknown_email_returns_200_not_403(monkeypatch):
 
 def test_inventory_overview_admin_returns_full_data(monkeypatch):
     monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: True)
-    monkeypatch.setattr(ravenhub, "_blob_store", lambda: object())
+    monkeypatch.setattr(ravenhub, "_blob_store", lambda email=None: object())
     fake_events = [_ev(src_hostname="box-1", category="browser", severity="HIGH")]
     monkeypatch.setattr(
         ravenhub, "_load_events",
@@ -538,7 +538,7 @@ def test_user_logs_missing_provider_is_none_not_empty_string():
 
 def _stub_user_detail_deps(monkeypatch, events):
     """Stub out identity/S3/DB so get_user_detail runs fully offline."""
-    monkeypatch.setattr(ravenhub, "_blob_store", lambda: object())
+    monkeypatch.setattr(ravenhub, "_blob_store", lambda email=None: object())
     monkeypatch.setattr(
         ravenhub, "_load_events",
         lambda store, email, is_admin: (events, {}, {}, "2026-07-20"),
