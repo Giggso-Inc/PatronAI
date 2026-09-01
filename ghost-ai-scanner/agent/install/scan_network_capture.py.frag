@@ -22,11 +22,25 @@
 #          domain-level signal only, honestly, not a fabricated link.
 # AUDIT LOG:
 #   v1.0.0  2026-08-31  Initial.
+#   v1.1.0  2026-08-31  Add calls_per_10_min + high_frequency_flag - real
+#                       connection-frequency data for a domain, using the
+#                       team's own threshold rule ("flag if 50+ connections
+#                       in 10 minutes", confirmed working against a real
+#                       threshold test earlier this session). Deliberately
+#                       NOT named api_call_frequency and NOT attached to
+#                       the "process" finding type - this is domain-level
+#                       frequency (how often THIS DOMAIN was contacted),
+#                       not per-process frequency. Packetbeat's capture
+#                       carries no local PID for the connection (confirmed
+#                       this session), so a genuine per-process
+#                       api_call_frequency still isn't attemptable; naming
+#                       these fields distinctly avoids conflating the two.
 # =============================================================
 
 _NETCAP_MAX_FINDINGS = 200
 _NETCAP_WINDOW_SECONDS = 1800  # one scan cycle (30 min) - avoids re-reporting old events forever
 _TLS_RECORD_TYPE = "tls"  # Packetbeat's own record type for a TLS handshake
+_HIGH_FREQUENCY_THRESHOLD_PER_10MIN = 50  # team's own rule, confirmed via a real threshold test
 
 
 def _capture_files() -> list:
@@ -80,6 +94,23 @@ def _recent_tls_domains() -> dict:
     return domains
 
 
+def _calls_per_10_min(info: dict) -> float:
+    """Real connections-per-10-minutes for one domain, from its actual
+    first/last-seen span in this window - not the fixed 30-min window
+    itself, since most domains won't span the whole thing. A single
+    observation has no span to compute a rate from; reporting its raw
+    count is the honest, conservative choice (never a fabricated rate)."""
+    try:
+        first = datetime.fromisoformat(info["first_seen"].replace("Z", "+00:00"))
+        last  = datetime.fromisoformat(info["last_seen"].replace("Z", "+00:00"))
+        span  = (last - first).total_seconds()
+    except Exception:
+        span = 0
+    if span <= 0:
+        return float(info["count"])
+    return round(info["count"] * 600.0 / span, 1)
+
+
 def scan_network_capture() -> list:
     """One finding per real domain observed via TLS SNI in the last scan
     window. Returns [] cleanly when Packetbeat isn't installed/enabled -
@@ -88,12 +119,15 @@ def scan_network_capture() -> list:
         return []
     findings: list = []
     for domain, info in _recent_tls_domains().items():
+        rate = _calls_per_10_min(info)
         findings.append({
             "type":                "observed_network_target",
             "domain":              domain[:200],
             "observation_count":   info["count"],
             "first_seen":          info["first_seen"],
             "last_seen":           info["last_seen"],
+            "calls_per_10_min":    rate,
+            "high_frequency_flag": rate >= _HIGH_FREQUENCY_THRESHOLD_PER_10MIN,
         })
         if len(findings) >= _NETCAP_MAX_FINDINGS:
             break

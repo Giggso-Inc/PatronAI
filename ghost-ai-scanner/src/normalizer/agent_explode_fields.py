@@ -29,6 +29,11 @@
 #                       Packetbeat TLS SNI capture).
 #   v1.7.0  2026-08-31  Add "unclassified_software" - broad process
 #                       visibility beyond the known-AI catalog.
+#   v1.8.0  2026-08-31  Add calls_per_10_min / high_frequency_flag to
+#                       "observed_network_target" - domain-level
+#                       connection frequency, not per-process
+#                       api_call_frequency (Packetbeat has no local PID
+#                       for the connection).
 # =============================================================
 
 # Field whitelist per Phase 1A finding category. Anything outside this
@@ -50,7 +55,8 @@ PHASE_1A_FIELD_MAP = {
                           "bytes", "mtime_epoch", "repo_name",
                           "listening_port", "container_id", "container_image"),
     "meeting_bot":       ("platform", "root_pid", "instance_process_count", "join_timestamp"),
-    "observed_network_target": ("domain", "observation_count", "first_seen", "last_seen"),
+    "observed_network_target": ("domain", "observation_count", "first_seen", "last_seen",
+                          "calls_per_10_min", "high_frequency_flag"),
     "unclassified_software": ("name", "root_pid", "instance_process_count"),
 }
 

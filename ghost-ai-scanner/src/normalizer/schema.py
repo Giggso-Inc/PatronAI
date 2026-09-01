@@ -43,6 +43,8 @@ FLAT_SCHEMA = {
     "session_duration_seconds": 0,  # now - start_timestamp; 0 if the OS couldn't provide one
     "platform":            "",  # meeting-bot vendor (fathom | otter)
     "join_timestamp":      "",  # meeting_bot only - process-start proxy, NOT a true meeting-join time
+    "calls_per_10_min":    0,   # observed_network_target - real connections/10min for this DOMAIN (not per-process)
+    "high_frequency_flag": False,  # observed_network_target - calls_per_10_min >= the team's own threshold
     "owner":           "",   # resolved employee identity
     "department":      "",   # resolved department
     "mac_address":     "",   # device MAC

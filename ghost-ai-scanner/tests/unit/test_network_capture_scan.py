@@ -13,6 +13,9 @@
 #            finding with a real observation_count, not N duplicates
 # AUDIT LOG:
 #   v1.0.0  2026-08-31  Initial. Real-data regression coverage.
+#   v1.1.0  2026-08-31  Add calls_per_10_min / high_frequency_flag coverage
+#                       - domain-level connection frequency using the
+#                       team's own threshold rule (50+ per 10 min).
 # =============================================================
 
 import json
@@ -85,6 +88,47 @@ def test_non_tls_lines_are_ignored(tmp_path):
     out = _run_scan(tmp_path, lines)
     assert len(out) == 1
     assert out[0]["domain"] == "api.anthropic.com"
+
+
+def test_single_observation_reports_raw_count_not_a_fabricated_rate(tmp_path):
+    """One observation has no real span to compute a rate from - the
+    honest choice is to report the raw count, never an invented rate."""
+    now = datetime.now(timezone.utc).isoformat()
+    out = _run_scan(tmp_path, [_tls_line("rare-domain.example.com", now)])
+    f = out[0]
+    assert f["calls_per_10_min"] == 1.0
+    assert f["high_frequency_flag"] is False
+
+
+def test_high_frequency_domain_gets_flagged_using_real_rate():
+    """60 real connections inside 1 real minute -> 600/10min, over the
+    team's own 50-per-10-min threshold -> flagged."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        tmp_path = Path(td)
+        base = datetime.now(timezone.utc)
+        lines = [_tls_line("api.heavy-user.example.com", (base + timedelta(seconds=i)).isoformat())
+                 for i in range(60)]
+        out = _run_scan(tmp_path, lines)
+        f = [x for x in out if x["domain"] == "api.heavy-user.example.com"][0]
+        assert f["observation_count"] == 60
+        assert f["calls_per_10_min"] >= 50
+        assert f["high_frequency_flag"] is True
+
+
+def test_low_frequency_domain_not_flagged():
+    """5 real connections spread over a real 10-minute span -> 5/10min,
+    well under the threshold -> not flagged."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        tmp_path = Path(td)
+        base = datetime.now(timezone.utc)
+        lines = [_tls_line("api.light-user.example.com", (base + timedelta(minutes=2 * i)).isoformat())
+                 for i in range(5)]
+        out = _run_scan(tmp_path, lines)
+        f = [x for x in out if x["domain"] == "api.light-user.example.com"][0]
+        assert f["calls_per_10_min"] < 50
+        assert f["high_frequency_flag"] is False
 
 
 def test_network_capture_scanner_under_loc_cap():
