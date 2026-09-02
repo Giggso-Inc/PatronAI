@@ -58,6 +58,7 @@ from scoring.posture_score import (
 )
 from routers.ravenhub import router as ravenhub_router
 from routers.ravenhub import _org_bucket_for
+from routers.ravenhub_retina import router as ravenhub_retina_router
 from routers.ravenhub_governance_reads import router as ravenhub_governance_reads_router
 from routers.ravenhub_governance_writes_lists import router as ravenhub_governance_writes_lists_router
 from routers.ravenhub_projects import router as ravenhub_projects_router
@@ -120,6 +121,13 @@ app.include_router(
     ravenhub_router,
     prefix="/ravenhub",
     tags=["ravenhub"],
+    dependencies=[Depends(_auth)],
+)
+# RavenHub Card — Patron side link endpoints (POST/GET/DELETE /ravenhub/retina/link/{token})
+app.include_router(
+    ravenhub_retina_router,
+    prefix="/ravenhub",
+    tags=["ravenhub-retina"],
     dependencies=[Depends(_auth)],
 )
 app.include_router(

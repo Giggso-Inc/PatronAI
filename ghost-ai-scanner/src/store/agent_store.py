@@ -119,15 +119,20 @@ class AgentStore(BaseStore):
         domains    = authorized_domains or []
 
         meta = {
-            "token":              token,
-            "recipient_name":     recipient_name,
-            "recipient_email":    recipient_email,
-            "os_type":            os_type,
-            "otp_hash":           otp_hash,
-            "created_at":         created_at,
-            "expires_at":         expires_at,
-            "script_key":         script_key,
-            "authorized_domains": domains,
+            "token":                token,
+            "recipient_name":       recipient_name,
+            "recipient_email":      recipient_email,
+            "os_type":              os_type,
+            "otp_hash":             otp_hash,
+            "created_at":           created_at,
+            "expires_at":           expires_at,
+            "script_key":           script_key,
+            "authorized_domains":   domains,
+            # RavenHub Card device token — issued by Hub admin via
+            # POST /api/v1/devices/token/emit and stored here to link
+            # this Patron agent to the Hub Card system. Set after creation
+            # via set_hub_token_id(). Empty until linked.
+            "raven_hub_token_id":   "",
         }
         status = {"token": token, "status": "pending", "updated_at": created_at}
         # authorized.csv: one domain per line, no header — agent fetches on every scan
@@ -363,6 +368,46 @@ class AgentStore(BaseStore):
             self._put(CATALOG_KEY, json.dumps(catalog, indent=2).encode(), "application/json")
         except Exception as e:
             log.error("_catalog_add write failed: %s", e)
+
+    # ── RavenHub Card token link ──────────────────────────────
+    # The raven_hub_token_id is the device token issued by the RavenHub
+    # admin (POST /api/v1/devices/token/emit). Storing it here links this
+    # Patron agent to the Hub Card system so the retina assembler can
+    # POST fingerprints to Hub /api/v1/retina/ingest.
+
+    def get_hub_token_id(self, token: str) -> str:
+        """Return the raven_hub_token_id for a Patron agent, or '' if not set."""
+        try:
+            raw = self._get(f"{HOOK_AGENTS_PREFIX}/{token}/meta.json")
+            if not raw:
+                return ""
+            return json.loads(raw).get("raven_hub_token_id", "")
+        except Exception as e:
+            log.warning("get_hub_token_id failed [%s]: %s", token, e)
+            return ""
+
+    def set_hub_token_id(self, token: str, hub_token_id: str) -> bool:
+        """Write raven_hub_token_id into meta.json for a Patron agent.
+
+        Called by the admin API after issuing a Hub device token so the
+        two systems are linked. Safe to call multiple times — overwrites
+        the previous value. Returns True on success.
+        """
+        try:
+            raw = self._get(f"{HOOK_AGENTS_PREFIX}/{token}/meta.json")
+            if not raw:
+                log.warning("set_hub_token_id: no meta found for %s", token)
+                return False
+            meta = json.loads(raw)
+            meta["raven_hub_token_id"] = hub_token_id.strip()
+            self._put(f"{HOOK_AGENTS_PREFIX}/{token}/meta.json",
+                      json.dumps(meta).encode(), "application/json")
+            log.info("set_hub_token_id: linked patron %s to hub token %s",
+                     token[:8], hub_token_id[:8])
+            return True
+        except Exception as e:
+            log.error("set_hub_token_id failed [%s]: %s", token, e)
+            return False
 
     def delete_package(self, token: str, os_type: str = "") -> bool:
         """
