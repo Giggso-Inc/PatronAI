@@ -55,13 +55,20 @@ from pydantic import BaseModel
 
 from routers._raven_actor import resolve_actor as _resolve_actor
 from routers._raven_identity import verify_ravenhub_identity
+from routers.ravenhub import _org_bucket_for
 
 router = APIRouter(dependencies=[Depends(verify_ravenhub_identity)])
 
 
-def _store():
+def _store(email: Optional[str] = None):
+    # review-pr C2: was reading MARAUDER_SCAN_BUCKET unconditionally -- same
+    # cross-tenant bug ravenhub.py's _blob_store already fixed, but worse in
+    # kind here: this is the user list/add/remove/grant-admin store, so an
+    # unscoped read didn't just leak findings, it could read or write the
+    # wrong org's user roster. Every call site below already has `email`
+    # from verify_ravenhub_identity; just wasn't threaded through.
     from store.users_store import UsersStore
-    bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
+    bucket = (_org_bucket_for(email) if email else None) or os.environ.get("MARAUDER_SCAN_BUCKET", "")
     if not bucket:
         raise HTTPException(status_code=503, detail="MARAUDER_SCAN_BUCKET not configured")
     return UsersStore(bucket, os.environ.get("AWS_REGION", "us-east-1"))
@@ -152,7 +159,7 @@ class ActionResponse(BaseModel):
 @router.get("/users", response_model=UsersResponse)
 def list_users_endpoint(email: str = Depends(verify_ravenhub_identity)) -> UsersResponse:
     """Every user in the tenant's users.json — mirrors users.py's table."""
-    store = _store()
+    store = _store(email)
     users = store.read_all()
     return UsersResponse(users=[UserRecord(email=em, **rec) for em, rec in sorted(users.items())])
 
@@ -167,7 +174,7 @@ def upsert_user_endpoint(body: UpsertUserRequest, email: str = Depends(verify_ra
     False) must not be able to silently demote an existing admin. Only a
     real state change requires the caller to already be an org admin;
     re-saving the same is_admin value (grant or plain) stays open."""
-    store = _store()
+    store = _store(email)
     existing = store.get(body.email)
     existing_is_admin = bool(existing.get("is_admin")) if existing else False
     if body.is_admin != existing_is_admin:
@@ -199,7 +206,7 @@ def upsert_user_endpoint(body: UpsertUserRequest, email: str = Depends(verify_ra
 def remove_user_endpoint(target_email: str, email: str = Depends(verify_ravenhub_identity)) -> ActionResponse:
     caller_org_id = _require_caller_is_org_admin(email)
 
-    store = _store()
+    store = _store(email)
     users = store.read_all()
     old_rec = users.get(target_email.strip().lower())
     ok = store.remove(target_email)

@@ -152,8 +152,37 @@ class UserDetailResponse(BaseModel):
 # Helper functions
 # =============================================================
 
-def _blob_store() -> BlobIndexStore:
-    bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
+def _org_bucket_for(email: str) -> Optional[str]:
+    """Resolve the caller's own org's S3 bucket (Org.s3_bucket) instead of
+    trusting the process-wide MARAUDER_SCAN_BUCKET env var. This DB is
+    genuinely multi-org (see _workforce_total's docstring below) and every
+    org gets its own bucket at provisioning time (raven_enterprise_bootstrap.py,
+    src/db/seeding.py), but MARAUDER_SCAN_BUCKET reflects whichever org was
+    last provisioned/deployed into that env var, not necessarily the
+    caller's own org — an unscoped read here could return another tenant's
+    findings, or nothing at all if the wrong bucket happens to be empty.
+    Falls through (returns None) on any DB failure or unrecognized email —
+    matching _db_is_admin's convention — so single-org/dev setups without a
+    populated Org table keep working via _blob_store's env-var fallback."""
+    if not os.environ.get("DATABASE_URL"):
+        return None
+    try:
+        from db.engine import get_session
+        from db.models_identity import Org
+        from db.policy_queries import get_identity
+        with get_session() as s:
+            _user, org_id, _projects = get_identity(s, email)
+            if org_id is None:
+                return None
+            org = s.get(Org, org_id)
+            return org.s3_bucket if org and org.s3_bucket else None
+    except Exception as exc:                       # noqa: BLE001 — best effort
+        _log.warning("RavenHub org-bucket resolve failed (falling back to MARAUDER_SCAN_BUCKET): %s", exc)
+        return None
+
+
+def _blob_store(email: Optional[str] = None) -> BlobIndexStore:
+    bucket = (_org_bucket_for(email) if email else None) or os.environ.get("MARAUDER_SCAN_BUCKET", "")
     region = os.environ.get("AWS_REGION", "us-east-1")
     if not bucket:
         raise HTTPException(status_code=503, detail="MARAUDER_SCAN_BUCKET not configured")
@@ -849,7 +878,7 @@ def get_exec_overview(
     pipeline, not built yet. Revisit once that FE work lands — this
     endpoint's "scoped to non-admins" claim is aspirational until then,
     not currently enforced."""
-    store = _blob_store()
+    store = _blob_store(email)
     email_norm = email
     is_admin = _resolve_is_admin(email_norm)
 
@@ -907,7 +936,7 @@ def get_inventory_overview(
             message="Not an admin — no inventory data available.",
         )
 
-    store = _blob_store()
+    store = _blob_store(email_norm)
     events, _summary, _y_summary, source_date = _load_events(store, email_norm, is_admin=True)
     posture = _ai_posture(events)
     dev_score = posture.pop("device_scores")
@@ -954,7 +983,7 @@ def get_shadow_by_tool(
             message="Not an admin — no shadow AI data available.",
         )
 
-    store = _blob_store()
+    store = _blob_store(email_norm)
     events, _summary, _y_summary, source_date = _load_events(store, email_norm, is_admin=True)
     return ShadowByToolResponse(
         email=email_norm,
@@ -1003,7 +1032,7 @@ def get_user_detail(
             message="Not authorized to view this user's data.",
         )
 
-    store = _blob_store()
+    store = _blob_store(target_norm)
     user_events, _summary, _y_summary, _source_date = _load_events(store, target_norm, is_admin=False)
     policy_ctx = _user_policy_context(target_norm, _org_policy_context())
 
