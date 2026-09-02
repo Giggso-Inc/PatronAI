@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import unicodedata
 
 
 _DIMS = ("d1", "d2", "d3", "d4", "d5", "d6", "d7")
@@ -33,13 +34,19 @@ _SCHEMA_VERSION = "1"
 
 
 def _normalise_dim(values: list[str] | None) -> list[str]:
-    """Return a sorted, deduped, lowercase list from raw collected strings."""
+    """Return a sorted, deduped, NFC-normalised lowercase list.
+
+    Unicode NFC normalisation is applied before lowercasing so that
+    the same logical value (e.g. a process name with an accented char)
+    produces identical bytes on macOS (NFD) and Linux (NFC). Without
+    this, cross-platform hash invariance is not guaranteed.
+    """
     if not values:
         return []
     seen: set[str] = set()
     out: list[str] = []
     for v in values:
-        norm = (v or "").strip().lower()
+        norm = unicodedata.normalize("NFC", (v or "").strip()).lower()
         if norm and norm not in seen:
             seen.add(norm)
             out.append(norm)

@@ -375,9 +375,30 @@ class AgentStore(BaseStore):
     # Patron agent to the Hub Card system so the retina assembler can
     # POST fingerprints to Hub /api/v1/retina/ingest.
 
+    @staticmethod
+    def _safe_token(token: str) -> str:
+        """Return token if it looks like a UUID; raise ValueError otherwise.
+
+        Defence-in-depth guard against path traversal. The router layer
+        already validates with _UUID_RE, but this guard prevents accidental
+        misuse from internal callers that bypass the HTTP layer (e.g. tests,
+        admin scripts).
+        """
+        import re as _re
+        # Full UUID pattern — same as _UUID_RE in routers/ravenhub_retina.py.
+        # Both guards must stay in sync; if you change one, change the other.
+        if not _re.match(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            (token or ""),
+            _re.IGNORECASE,
+        ):
+            raise ValueError(f"unsafe token value rejected: {token!r}")
+        return token
+
     def get_hub_token_id(self, token: str) -> str:
         """Return the raven_hub_token_id for a Patron agent, or '' if not set."""
         try:
+            token = self._safe_token(token)
             raw = self._get(f"{HOOK_AGENTS_PREFIX}/{token}/meta.json")
             if not raw:
                 return ""
@@ -394,6 +415,7 @@ class AgentStore(BaseStore):
         the previous value. Returns True on success.
         """
         try:
+            token = self._safe_token(token)
             raw = self._get(f"{HOOK_AGENTS_PREFIX}/{token}/meta.json")
             if not raw:
                 log.warning("set_hub_token_id: no meta found for %s", token)

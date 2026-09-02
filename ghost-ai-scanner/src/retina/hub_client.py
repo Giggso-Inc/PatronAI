@@ -79,7 +79,8 @@ def post_retina_scan(
             },
         )
         with urllib.request.urlopen(req, timeout=_TIMEOUT_SECS) as resp:
-            ok = resp.status == 200
+            # Accept any 2xx (Hub may return 201 Created on first ingest).
+            ok = 200 <= resp.status < 300
             if not ok:
                 _log.warning("retina ingest HTTP %s for token %s",
                              resp.status, hub_token_id[:8])

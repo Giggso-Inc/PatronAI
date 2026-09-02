@@ -26,8 +26,21 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+import re
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel
+
+# patron_token is always a UUID (hex digits and hyphens). Enforcing this
+# here prevents path-traversal attacks where a caller passes "../../../..."
+# to read or overwrite arbitrary S3 keys under config/HOOK_AGENTS/.
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+
+def _validate_token(patron_token: str) -> str:
+    if not _UUID_RE.match(patron_token):
+        raise HTTPException(400, "patron_token must be a valid UUID")
+    return patron_token
 
 router = APIRouter()
 
@@ -46,8 +59,8 @@ class LinkPayload(BaseModel):
 
 @router.post("/retina/link/{patron_token}")
 async def link_hub_token(
-    patron_token: str,
-    body: LinkPayload,
+    patron_token: str = Depends(_validate_token),
+    body: LinkPayload = ...,
     store=Depends(_get_store),
 ):
     """Store the Hub device token for a Patron agent.
@@ -75,7 +88,7 @@ async def link_hub_token(
 
 @router.get("/retina/link/{patron_token}")
 async def get_hub_token_link(
-    patron_token: str,
+    patron_token: str = Depends(_validate_token),
     store=Depends(_get_store),
 ):
     """Return the current Hub device token for a Patron agent."""
@@ -89,7 +102,7 @@ async def get_hub_token_link(
 
 @router.delete("/retina/link/{patron_token}")
 async def unlink_hub_token(
-    patron_token: str,
+    patron_token: str = Depends(_validate_token),
     store=Depends(_get_store),
 ):
     """Clear the Hub device token for a Patron agent (unlink)."""

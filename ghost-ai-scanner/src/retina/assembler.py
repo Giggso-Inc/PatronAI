@@ -74,6 +74,8 @@ class RetinaAssembler:
                     stats["unchanged"] += 1
                 elif result == "skipped":
                     stats["skipped_no_token"] += 1
+                elif result == "error":
+                    stats["errors"] += 1
             except Exception as e:
                 _log.error("retina cycle error for agent %s: %s", token[:8], e)
                 stats["errors"] += 1
@@ -113,10 +115,16 @@ class RetinaAssembler:
             dimensions=norm_dims,
         )
         if ok:
-            self._write_last_hash(patron_token, new_hash)
-            _log.info("retina posted for agent %s hash %s",
-                      patron_token[:8], new_hash[:12])
-            return "posted"
+            # Only persist the new hash when the Hub POST succeeded AND the
+            # S3 write succeeded. If _write_last_hash fails silently, we
+            # return "error" so the next cycle re-POSTs rather than skipping.
+            written = self._write_last_hash(patron_token, new_hash)
+            if written:
+                _log.info("retina posted for agent %s hash %s",
+                          patron_token[:8], new_hash[:12])
+                return "posted"
+            _log.warning("retina posted to Hub but hash persist failed for %s",
+                         patron_token[:8])
         return "error"
 
     # ── S3 helpers ────────────────────────────────────────────────────────────
@@ -166,7 +174,8 @@ class RetinaAssembler:
             pass
         return ""
 
-    def _write_last_hash(self, token: str, retina_hash: str) -> None:
+    def _write_last_hash(self, token: str, retina_hash: str) -> bool:
+        """Write the last posted hash to S3. Returns True on success."""
         try:
             payload = json.dumps({"retina_hash": retina_hash}).encode()
             self._store._put(
@@ -174,5 +183,7 @@ class RetinaAssembler:
                 payload,
                 "application/json",
             )
+            return True
         except Exception as e:
             _log.warning("could not persist last hash for %s: %s", token[:8], e)
+            return False
