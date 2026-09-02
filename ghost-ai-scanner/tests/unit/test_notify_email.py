@@ -1,161 +1,151 @@
 # =============================================================
 # FILE: tests/unit/test_notify_email.py
 # PROJECT: PatronAI — Marauder Scan
-# VERSION: 2.0.0
-# UPDATED: 2026-05-02
+# VERSION: 3.0.0
+# UPDATED: 2026-09-02
 # OWNER: Giggso Inc (Ravi Venugopal)
-# PURPOSE: Tests for the unified notify.email module — the single SES
-#          call site for the codebase. Covers:
-#            - ensure_verified() idempotency + error handling
-#            - send() recipient normalisation + auto_verify side effect
+# PURPOSE: Tests for the unified notify.email module — now SMTP-backed.
+#          Covers:
+#            - ensure_verified() is a no-op stub (SMTP needs none)
+#            - send() recipient normalisation + SMTP dispatch
 #            - send_welcome / send_agent_otp / send_alert wrappers
 #            - shim layers (manager_tab_actions.send_alert_email,
 #              render_agent_package._send_email) still call through
+# AUDIT LOG:
+#   v2.0.0  2026-05-02  Initial — SES-backed.
+#   v3.0.0  2026-09-02  Rewritten for SMTP backend (smtplib). Removed
+#                       all SES / boto3 mocking.
 # =============================================================
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
 
-# ── ensure_verified ────────────────────────────────────────────
+def _mock_smtp():
+    """Return a MagicMock that stands in for smtplib.SMTP context manager."""
+    smtp = MagicMock()
+    smtp.__enter__ = MagicMock(return_value=smtp)
+    smtp.__exit__ = MagicMock(return_value=False)
+    return smtp
 
 
-def _mock_ses(verification_status: str = "") -> MagicMock:
-    """Build a MagicMock SES client where the verify-attributes reply
-    says either "Success" / "Pending" / "" (never seen) for x@example.com."""
-    ses = MagicMock()
-    if verification_status:
-        ses.get_identity_verification_attributes.return_value = {
-            "VerificationAttributes": {
-                "x@example.com": {"VerificationStatus": verification_status}
-            }
-        }
-    else:
-        ses.get_identity_verification_attributes.return_value = {
-            "VerificationAttributes": {}
-        }
-    ses.verify_email_identity.return_value = {}
-    ses.send_email.return_value = {}
-    return ses
+# ── ensure_verified (no-op stub for SMTP) ─────────────────────
 
 
 def test_ensure_verified_already_verified_skips_call(monkeypatch):
+    """ensure_verified is a no-op — always returns already_verified."""
     from notify.email import ensure_verified
-    ses = _mock_ses("Success")
-    monkeypatch.setattr("boto3.client", lambda *a, **kw: ses)
     r = ensure_verified("x@example.com", region="us-east-1")
     assert r["action"] == "already_verified"
-    assert ses.verify_email_identity.call_count == 0
 
 
 def test_ensure_verified_unknown_triggers_verification(monkeypatch):
+    """SMTP has no verification — stub returns already_verified regardless."""
     from notify.email import ensure_verified
-    ses = _mock_ses("")
-    monkeypatch.setattr("boto3.client", lambda *a, **kw: ses)
     r = ensure_verified("x@example.com", region="us-east-1")
-    assert r["action"] == "verified"
-    ses.verify_email_identity.assert_called_once_with(EmailAddress="x@example.com")
+    assert r["action"] == "already_verified"
 
 
 def test_ensure_verified_pending_resends(monkeypatch):
     from notify.email import ensure_verified
-    ses = _mock_ses("Pending")
-    monkeypatch.setattr("boto3.client", lambda *a, **kw: ses)
-    r = ensure_verified("x@example.com", region="us-east-1")
-    assert r["action"] == "pending"
-    ses.verify_email_identity.assert_called_once()
+    r = ensure_verified("x@example.com")
+    assert r["action"] == "already_verified"
 
 
 def test_ensure_verified_invalid_short_circuits(monkeypatch):
+    """Stub still returns a valid dict for bad input — no crash."""
     from notify.email import ensure_verified
-    ses = MagicMock()
-    monkeypatch.setattr("boto3.client", lambda *a, **kw: ses)
     for bad in ("", "  ", "no-at", None):
-        r = ensure_verified(bad or "", region="us-east-1")
-        assert r["action"] == "error"
-    assert ses.method_calls == []
+        r = ensure_verified(bad or "")
+        assert "action" in r
 
 
 def test_ensure_verified_aws_error_does_not_raise(monkeypatch):
+    """Stub never calls any network — no errors possible."""
     from notify.email import ensure_verified
-    ses = MagicMock()
-    ses.get_identity_verification_attributes.side_effect = Exception("AccessDenied")
-    monkeypatch.setattr("boto3.client", lambda *a, **kw: ses)
-    r = ensure_verified("x@example.com", region="us-east-1")
-    assert r["action"] == "error"
+    r = ensure_verified("x@example.com")
+    assert r["action"] == "already_verified"
 
 
-# ── send (single SES call site) ────────────────────────────────
+# ── send (SMTP) ────────────────────────────────────────────────
 
 
 def test_send_str_recipient(monkeypatch):
     from notify.email import send
-    ses = _mock_ses("Success")
-    monkeypatch.setattr("boto3.client", lambda *a, **kw: ses)
-    monkeypatch.setenv("SES_SENDER_EMAIL", "noreply@example.com")
-    ok = send("x@example.com", "Subj", "Body")
+    smtp = _mock_smtp()
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "user@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "secret")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@example.com")
+    with patch("smtplib.SMTP", return_value=smtp):
+        ok = send("x@example.com", "Subj", "Body")
     assert ok is True
-    args = ses.send_email.call_args.kwargs
-    assert args["Destination"]["ToAddresses"] == ["x@example.com"]
-    assert args["Source"] == "noreply@example.com"
+    smtp.sendmail.assert_called_once()
+    _, recipients, _ = smtp.sendmail.call_args.args
+    assert recipients == ["x@example.com"]
 
 
 def test_send_list_of_recipients(monkeypatch):
     from notify.email import send
-    ses = _mock_ses("Success")
-    monkeypatch.setattr("boto3.client", lambda *a, **kw: ses)
-    monkeypatch.setenv("SES_SENDER_EMAIL", "noreply@example.com")
-    ok = send(["a@x.com", "b@x.com"], "Subj", "Body")
+    smtp = _mock_smtp()
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "user@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "secret")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@example.com")
+    with patch("smtplib.SMTP", return_value=smtp):
+        ok = send(["a@x.com", "b@x.com"], "Subj", "Body")
     assert ok is True
-    assert ses.send_email.call_args.kwargs["Destination"]["ToAddresses"] == \
-        ["a@x.com", "b@x.com"]
+    _, recipients, _ = smtp.sendmail.call_args.args
+    assert recipients == ["a@x.com", "b@x.com"]
 
 
 def test_send_skips_verification_when_disabled(monkeypatch):
+    """auto_verify=False is accepted and ignored — SMTP has no verification."""
     from notify.email import send
-    ses = _mock_ses("Success")
-    monkeypatch.setattr("boto3.client", lambda *a, **kw: ses)
-    monkeypatch.setenv("SES_SENDER_EMAIL", "noreply@example.com")
-    send("x@example.com", "S", "B", auto_verify=False)
-    # get_identity_verification_attributes should NOT have been called.
-    assert ses.get_identity_verification_attributes.call_count == 0
+    smtp = _mock_smtp()
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "user@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "secret")
+    with patch("smtplib.SMTP", return_value=smtp):
+        ok = send("x@example.com", "S", "B", auto_verify=False)
+    assert ok is True
 
 
 def test_send_failure_returns_false(monkeypatch):
     from notify.email import send
-    ses = _mock_ses("Success")
-    ses.send_email.side_effect = Exception("MessageRejected")
-    monkeypatch.setattr("boto3.client", lambda *a, **kw: ses)
-    monkeypatch.setenv("SES_SENDER_EMAIL", "noreply@example.com")
-    assert send("x@example.com", "S", "B") is False
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "user@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "secret")
+    with patch("smtplib.SMTP", side_effect=Exception("Connection refused")):
+        assert send("x@example.com", "S", "B") is False
 
 
 def test_send_no_recipients_returns_false(monkeypatch):
     from notify.email import send
-    ses = MagicMock()
-    monkeypatch.setattr("boto3.client", lambda *a, **kw: ses)
-    monkeypatch.setenv("SES_SENDER_EMAIL", "noreply@example.com")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     assert send([], "S", "B") is False
     assert send([""], "S", "B") is False
-    assert ses.send_email.call_count == 0
 
 
 def test_send_falls_back_to_PATRONAI_FROM_EMAIL(monkeypatch):
-    """Backwards compat: legacy alert path used PATRONAI_FROM_EMAIL.
-    notify.email reads it as a fallback when SES_SENDER_EMAIL is missing."""
+    """SMTP_FROM_EMAIL replaces SES_SENDER_EMAIL as the canonical From."""
     from notify.email import send
-    ses = _mock_ses("Success")
-    monkeypatch.setattr("boto3.client", lambda *a, **kw: ses)
-    monkeypatch.delenv("SES_SENDER_EMAIL", raising=False)
-    monkeypatch.setenv("PATRONAI_FROM_EMAIL", "alerts@example.com")
-    send("x@example.com", "S", "B")
-    assert ses.send_email.call_args.kwargs["Source"] == "alerts@example.com"
+    smtp = _mock_smtp()
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "alerts@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "secret")
+    monkeypatch.delenv("SMTP_FROM_EMAIL", raising=False)
+    with patch("smtplib.SMTP", return_value=smtp):
+        ok = send("x@example.com", "S", "B")
+    assert ok is True
+    sender, _, _ = smtp.sendmail.call_args.args
+    assert sender == "alerts@example.com"
 
 
 # ── Convenience wrappers ───────────────────────────────────────

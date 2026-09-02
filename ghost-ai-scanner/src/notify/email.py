@@ -1,46 +1,46 @@
 # =============================================================
 # FILE: src/notify/email.py
-# VERSION: 1.0.0
-# UPDATED: 2026-05-02
+# VERSION: 2.0.0
+# UPDATED: 2026-09-02
 # OWNER: Giggso Inc (Ravi Venugopal)
-# PURPOSE: Single home for ALL outbound email. Consolidates three
-#          previously-duplicated SES paths:
+# PURPOSE: Single home for ALL outbound email. Switched from AWS SES
+#          to plain SMTP (smtplib) — no boto3 dependency, no AWS IAM
+#          requirements, no per-recipient sandbox verification dance.
 #
-#            scripts/email_utils.py:send_welcome_email
-#            scripts/render_agent_package.py:_send_email
-#            dashboard/ui/manager_tab_actions.py:send_alert_email
-#
-#          They each had their own boto3 client, their own sender
-#          resolution (one used PATRONAI_FROM_EMAIL, the others
-#          SES_SENDER_EMAIL), their own error logging, and only one
-#          of three called ensure_recipient_verified. That meant the
-#          on-demand action-item email silently failed in SES sandbox
-#          to recipients the welcome flow had never seen.
-#
-#          This module collapses everything to ONE SES call site
-#          (send) plus three thin convenience wrappers that compose
-#          subject + body for each domain (welcome / OTP / alert).
-#
-# Public surface:
+# Public surface (unchanged from v1):
 #    send(recipient, subject, body, *, auto_verify=True)
 #    send_welcome(recipient, name, role, added_by, company)
 #    send_agent_otp(recipient, name, otp, installer_url, company)
 #    send_alert(recipients, events)
-#    ensure_verified(recipient, region=None)
+#    ensure_verified(recipient, region=None)   ← no-op stub (SMTP needs none)
 #
-# DEPENDS: boto3, env vars SES_SENDER_EMAIL / SES_REGION / AWS_REGION /
-#          PATRONAI_DASHBOARD_URL / COMPANY_NAME / PATRONAI_FROM_EMAIL.
-#          IAM: ses:SendEmail, ses:VerifyEmailIdentity,
-#               ses:GetIdentityVerificationAttributes.
+# Required env vars:
+#    SMTP_HOST      — e.g. smtp.gmail.com / smtp.office365.com
+#    SMTP_USERNAME  — login username (usually the sender address)
+#    SMTP_PASSWORD  — login password or app password
+#
+# Optional env vars:
+#    SMTP_PORT        — default 587 (STARTTLS). Use 465 for SSL.
+#    SMTP_FROM_EMAIL  — display From address; falls back to SMTP_USERNAME
+#    SMTP_USE_TLS     — "true" (default) / "false" to disable STARTTLS
+#    SMTP_USE_SSL     — "true" to use SMTP_SSL (port 465); overrides TLS
+#    COMPANY_NAME     — shown in email bodies (default "PatronAI")
+#    PATRONAI_DASHBOARD_URL — link in welcome emails
+#
 # AUDIT LOG:
-#   v1.0.0  2026-05-02  Initial. Replaces three duplicated SES paths.
+#   v1.0.0  2026-05-02  Initial. Consolidates three duplicated SES paths.
+#   v2.0.0  2026-09-02  Switch from AWS SES to plain SMTP (smtplib).
+#                       Public API unchanged. Removes boto3 dependency
+#                       and SES recipient-verification requirement.
 # =============================================================
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import Iterable, Optional, Sequence
+import smtplib
+from email.mime.text import MIMEText
+from typing import Optional, Sequence
 
 log = logging.getLogger("patronai.notify.email")
 
@@ -48,99 +48,58 @@ log = logging.getLogger("patronai.notify.email")
 # ── Internal helpers ─────────────────────────────────────────────
 
 
-def _ses_region() -> str:
-    """SES region: SES_REGION env var, falling back to AWS_REGION."""
-    return (os.environ.get("SES_REGION")
-            or os.environ.get("AWS_REGION", "us-east-1"))
+def _smtp_cfg() -> dict:
+    """Read SMTP config from environment. Raises RuntimeError if host missing."""
+    host = (os.environ.get("SMTP_HOST") or "").strip()
+    if not host:
+        raise RuntimeError(
+            "SMTP_HOST is not set — outbound email is unavailable. "
+            "Set SMTP_HOST, SMTP_USERNAME, and SMTP_PASSWORD."
+        )
+    return {
+        "host":     host,
+        "port":     int(os.environ.get("SMTP_PORT") or "587"),
+        "username": (os.environ.get("SMTP_USERNAME") or "").strip(),
+        "password": (os.environ.get("SMTP_PASSWORD") or "").strip(),
+        "use_ssl":  (os.environ.get("SMTP_USE_SSL") or "").strip().lower() == "true",
+        "use_tls":  (os.environ.get("SMTP_USE_TLS") or "true").strip().lower() != "false",
+    }
 
 
-def _ses_sender(company: str = "") -> str:
-    """Resolve the SES Source address.
+def _smtp_sender(company: str = "") -> str:
+    """Resolve the From address.
 
     Priority:
-      1. SES_SENDER_EMAIL — the canonical setup.sh-managed value.
-      2. PATRONAI_FROM_EMAIL — legacy alias kept for backwards compat
-         with the old send_alert_email path that used it.
-      3. patronai@<company>.com — last-resort fallback that probably
-         won't be SES-verified; logs a WARN.
+      1. SMTP_FROM_EMAIL — explicit display address.
+      2. SMTP_USERNAME   — the login is also the sender in most setups.
+      3. patronai@<company>.com — last-resort fallback; logs a WARN.
     """
-    sender = os.environ.get("SES_SENDER_EMAIL")
-    if sender:
-        return sender
-    legacy = os.environ.get("PATRONAI_FROM_EMAIL")
-    if legacy:
-        return legacy
+    addr = (os.environ.get("SMTP_FROM_EMAIL") or "").strip()
+    if addr:
+        return addr
+    username = (os.environ.get("SMTP_USERNAME") or "").strip()
+    if username:
+        return username
     co = company or os.environ.get("COMPANY_NAME", "PatronAI")
     fallback = f"patronai@{co.lower()}.com"
-    log.warning("SES_SENDER_EMAIL not set; using fallback %s — verify "
-                "this address in SES or set SES_SENDER_EMAIL", fallback)
+    log.warning("SMTP_FROM_EMAIL and SMTP_USERNAME not set; "
+                "using fallback sender %s", fallback)
     return fallback
 
 
-def _ses_err_code(exc: Exception) -> str:
-    """Pull the boto3 ClientError code (MessageRejected,
-    MailFromDomainNotVerifiedException, etc.) out of an exception,
-    falling back to the exception class name."""
-    code = getattr(getattr(exc, "response", {}), "get",
-                   lambda *_: {})("Error", {}).get("Code", "")
-    return code or type(exc).__name__
-
-
-# ── Recipient verification ──────────────────────────────────────
+# ── Recipient verification (no-op for SMTP) ──────────────────────
 
 
 def ensure_verified(recipient: str,
                      region: Optional[str] = None) -> dict:
-    """Trigger SES identity verification for the recipient.
-
-    SES sandbox mode requires both sender AND recipient to be
-    verified. This call is the unblocker: AWS sends the recipient a
-    one-click verification link. After they click, sends to them
-    succeed (sandbox or production).
-
-    Idempotent — checks current verification status first to avoid
-    spamming already-verified addresses.
-
-    Returns a status dict so callers can react:
-        {"action": "already_verified" | "verified" | "pending" | "error",
-         "status": <SES VerificationStatus or "" if unknown>,
-         "recipient": <email>,
-         "region": <region>,
-         "error": <message if action == "error">}
-    """
-    import boto3
-
-    region = region or _ses_region()
+    """No-op stub — SMTP has no per-recipient verification requirement.
+    Kept so callers written for SES don't need to change."""
     addr = (recipient or "").strip()
-    if not addr or "@" not in addr:
-        return {"action": "error", "recipient": addr, "region": region,
-                "status": "", "error": "invalid recipient email"}
-
-    try:
-        ses = boto3.client("ses", region_name=region)
-        attrs = ses.get_identity_verification_attributes(Identities=[addr])
-        status = (attrs.get("VerificationAttributes", {})
-                       .get(addr, {})
-                       .get("VerificationStatus", ""))
-        if status == "Success":
-            log.debug("ensure_verified: %s already verified", addr)
-            return {"action": "already_verified", "status": status,
-                    "recipient": addr, "region": region}
-        ses.verify_email_identity(EmailAddress=addr)
-        log.info("ensure_verified: triggered verification for %s "
-                 "(was status=%s)", addr, status or "unknown")
-        return {"action": "pending" if status == "Pending" else "verified",
-                "status": status or "Pending",
-                "recipient": addr, "region": region}
-    except Exception as exc:
-        err = _ses_err_code(exc)
-        log.warning("ensure_verified failed for %s — region=%s "
-                    "code=%s message=%s", addr, region, err, exc)
-        return {"action": "error", "status": "", "recipient": addr,
-                "region": region, "error": f"{err}: {exc}"}
+    return {"action": "already_verified", "status": "n/a",
+            "recipient": addr, "region": region or ""}
 
 
-# ── Generic send (the one SES call site) ────────────────────────
+# ── Generic send (single SMTP call site) ─────────────────────────
 
 
 def send(recipient,
@@ -149,29 +108,19 @@ def send(recipient,
          *,
          company: str = "",
          auto_verify: bool = True) -> bool:
-    """Send a plain-text email via SES. Single SES call site for the
-    whole codebase.
+    """Send a plain-text email via SMTP.
 
     Args:
-        recipient:    A single address (str) or an iterable of addresses
-                      (list/tuple of str).
+        recipient:    A single address (str) or list/tuple of addresses.
         subject:      Subject line.
         body:         Plain-text body.
         company:      Optional company name; influences sender fallback.
-        auto_verify:  If True (default), call ensure_verified() for each
-                      recipient before sending. Skip with False for
-                      paths that explicitly know recipient is already
-                      verified or where verification cost is unwanted.
+        auto_verify:  Accepted for API compatibility — ignored (SMTP
+                      needs no recipient pre-verification).
 
     Returns:
-        True on SES send success, False on any SES / config error.
-        Verification side-effect failure does NOT change the return.
+        True on success, False on any config or connection error.
     """
-    import boto3
-
-    region = _ses_region()
-    sender = _ses_sender(company)
-
     if isinstance(recipient, str):
         recipients: list = [recipient]
     else:
@@ -180,27 +129,34 @@ def send(recipient,
         log.error("send: no recipients")
         return False
 
-    if auto_verify:
-        for addr in recipients:
-            ensure_verified(addr, region=region)
-
     try:
-        ses = boto3.client("ses", region_name=region)
-        ses.send_email(
-            Source=sender,
-            Destination={"ToAddresses": recipients},
-            Message={
-                "Subject": {"Data": subject},
-                "Body":    {"Text": {"Data": body}},
-            },
-        )
+        cfg    = _smtp_cfg()
+        sender = _smtp_sender(company)
+
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["Subject"] = subject
+        msg["From"]    = sender
+        msg["To"]      = ", ".join(recipients)
+
+        if cfg["use_ssl"]:
+            with smtplib.SMTP_SSL(cfg["host"], cfg["port"]) as conn:
+                if cfg["username"]:
+                    conn.login(cfg["username"], cfg["password"])
+                conn.sendmail(sender, recipients, msg.as_string())
+        else:
+            with smtplib.SMTP(cfg["host"], cfg["port"]) as conn:
+                if cfg["use_tls"]:
+                    conn.starttls()
+                if cfg["username"]:
+                    conn.login(cfg["username"], cfg["password"])
+                conn.sendmail(sender, recipients, msg.as_string())
+
         log.info("notify.email.send → %s (subject=%r, sender=%s, "
-                 "region=%s)", recipients, subject[:60], sender, region)
+                 "host=%s)", recipients, subject[:60], sender, cfg["host"])
         return True
     except Exception as exc:
-        log.error("notify.email.send failed → %s — sender=%s region=%s "
-                  "code=%s message=%s", recipients, sender, region,
-                  _ses_err_code(exc), exc)
+        log.error("notify.email.send failed → %s — %s: %s",
+                  recipients, type(exc).__name__, exc)
         return False
 
 
@@ -228,11 +184,6 @@ def send_welcome(recipient: str, name: str, role: str,
         f"  {dash_url}\n\n"
         f"PatronAI monitors AI tool usage across your organisation "
         f"and surfaces security findings for your team.\n\n"
-        f"You may also receive a separate email from "
-        f"'no-reply-aws@amazon.com' asking you to verify your address "
-        f"with AWS. Click the link in that email — it lets PatronAI "
-        f"send you future notifications (agent installers, alerts, "
-        f"reports) without manual intervention.\n\n"
         f"If you have questions, reply to this email or contact "
         f"your administrator ({added_by}).\n\n"
         f"— PatronAI · {company}\n"
