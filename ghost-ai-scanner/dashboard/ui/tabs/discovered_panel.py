@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: dashboard/ui/tabs/discovered_panel.py
-# VERSION: 1.0.0
-# UPDATED: 2026-04-25
+# VERSION: 1.1.0
+# UPDATED: 2026-09-02
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: Slim L2 review queue — surfaces domains the matcher
 #          flagged UNKNOWN (no allow/deny match) in the last 7 days,
@@ -11,6 +11,8 @@
 # DEPENDS: streamlit, pandas, boto3, matcher.rule_model, audit
 # AUDIT LOG:
 #   v1.0.0  2026-04-25  Initial. Group 2 — sustainable curation on-ramp.
+#   v1.1.0  2026-09-02  Track peak calls_per_10_min per domain so admins can
+#                       see frequency alongside event count.
 # =============================================================
 
 import io
@@ -64,11 +66,12 @@ def render(is_admin: bool, email: str = "") -> None:
 
 
 def _aggregate_unknowns() -> list:
-    """Walk last-7-days findings; return [{domain, events, last_seen, sample_device}]."""
+    """Walk last-7-days findings; return [{domain, events, peak_calls_per_10m, last_seen, sample_device}]."""
     s3 = boto3_s3_client()
     counters: Counter = Counter()
     last_seen: dict   = {}
     sample_dev: dict  = {}
+    peak_rate: dict   = {}
     today = datetime.now(timezone.utc).date()
     paginator = s3.get_paginator("list_objects_v2")
     for offset in range(0, 7):
@@ -77,18 +80,20 @@ def _aggregate_unknowns() -> list:
         try:
             for page in paginator.paginate(Bucket=BUCKET, Prefix=prefix):
                 for obj in page.get("Contents", []):
-                    _ingest_finding(s3, obj["Key"], counters, last_seen, sample_dev)
+                    _ingest_finding(s3, obj["Key"], counters, last_seen,
+                                    sample_dev, peak_rate)
         except Exception as exc:
             log.debug("findings list %s failed: %s", prefix, exc)
     return [
         {"domain": dom, "events": cnt,
+         "peak_calls/10m": round(peak_rate.get(dom, 0), 1),
          "last_seen": last_seen.get(dom, ""), "sample_device": sample_dev.get(dom, "")}
         for dom, cnt in counters.most_common(50)
     ]
 
 
 def _ingest_finding(s3, key: str, counters: Counter,
-                    last_seen: dict, sample_dev: dict) -> None:
+                    last_seen: dict, sample_dev: dict, peak_rate: dict) -> None:
     """Read one finding object; if it's UNKNOWN with a domain, count it."""
     try:
         body = s3.get_object(Bucket=BUCKET, Key=key)["Body"].read()
@@ -105,6 +110,9 @@ def _ingest_finding(s3, key: str, counters: Counter,
     if ts and (domain not in last_seen or ts > last_seen[domain]):
         last_seen[domain] = ts
     sample_dev.setdefault(domain, payload.get("device_id", "") or payload.get("src_ip", ""))
+    rate = payload.get("calls_per_10_min") or 0
+    if rate and rate > peak_rate.get(domain, 0):
+        peak_rate[domain] = rate
 
 
 def _load_dismissed() -> set:

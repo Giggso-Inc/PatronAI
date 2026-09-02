@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: dashboard/ui/manager_tab_logs.py
-# VERSION: 2.1.0
-# UPDATED: 2026-04-28
+# VERSION: 2.2.0
+# UPDATED: 2026-09-02
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: Log View tab — unified table for both network events
 #          (packetbeat / zeek) and endpoint scan findings
@@ -14,6 +14,8 @@
 #   v2.0.0  2026-04-27  Unified network + endpoint rendering; icons;
 #                       type filter; severity colors from theme.
 #   v2.1.0  2026-04-28  Add ?view=user_detail hyperlink on USER column.
+#   v2.2.0  2026-09-02  Show calls_per_10_min / high_frequency_flag in network
+#                       rows; add High-frequency filter.
 # =============================================================
 
 from datetime import date
@@ -55,8 +57,19 @@ def _row(e: dict) -> str:
         detail = (e.get("dst_domain") or "—")[:38]
         dept   = e.get("department", "—")
         kb     = round(e.get("bytes_out", 0) / 1024, 1)
-        extra  = (f'<span style="font-family:JetBrains Mono;font-size:10px;'
-                  f'color:#57606A">{kb} KB</span>')
+        rate   = e.get("calls_per_10_min") or 0
+        hf     = e.get("high_frequency_flag", False)
+        kb_html = (f'<span style="font-family:JetBrains Mono;font-size:10px;'
+                   f'color:#57606A">{kb} KB</span>')
+        if hf:
+            freq_html = (f'&nbsp;<span style="color:#CF222E;font-weight:bold;'
+                         f'font-size:10px">⚡ {rate:.0f}/10m</span>')
+        elif rate:
+            freq_html = (f'&nbsp;<span style="font-family:JetBrains Mono;'
+                         f'font-size:10px;color:#57606A">{rate:.0f}/10m</span>')
+        else:
+            freq_html = ""
+        extra  = kb_html + freq_html
 
     # Link owner email to user detail page when it looks like an email
     who_cell = (
@@ -102,6 +115,8 @@ def render_logs(events: list) -> None:
     f_sev  = c2.selectbox("🔴 Severity",   ["ALL"] + sev_opts,  label_visibility="collapsed")
     f_prov = c3.selectbox("🏷 Provider",   ["ALL"] + prov_opts, label_visibility="collapsed")
     f_dept = c4.selectbox("🏢 Department", ["ALL"] + dept_opts, label_visibility="collapsed")
+    f_hf   = c5.toggle("⚡ High-freq only", value=False,
+                       help="Show only network domains flagged high-frequency (≥50 calls/10 min).")
 
     # ── Apply filters ─────────────────────────────────────────
     filtered = events
@@ -115,6 +130,8 @@ def render_logs(events: list) -> None:
         filtered = [e for e in filtered if e.get("provider")   == f_prov]
     if f_dept != "ALL":
         filtered = [e for e in filtered if e.get("department") == f_dept]
+    if f_hf:
+        filtered = [e for e in filtered if e.get("high_frequency_flag")]
     filtered = apply_search_dicts(filtered, q)[:300]
 
     # ── Empty state ───────────────────────────────────────────

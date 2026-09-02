@@ -1,8 +1,8 @@
 # =============================================================
 # FILE: dashboard/ui/manager_tab_ai_inventory.py
 # PROJECT: PatronAI — Phase 1A
-# VERSION: 1.2.0
-# UPDATED: 2026-04-28
+# VERSION: 1.3.0
+# UPDATED: 2026-09-02
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: New 5th Manager tab — AI INVENTORY. Surfaces the four Phase 1A
 #          finding categories (MCP servers, agent workflows / scheduled,
@@ -18,6 +18,8 @@
 #   v1.1.0  2026-04-28  Replace treemap with mind-map network graph;
 #                       upgrade KPI row from st.metric to clickable_metric.
 #   v1.2.0  2026-04-28  User picker (st.pills) — mind map per selected user.
+#   v1.3.0  2026-09-02  Add KPI tiles for observed_network_target and
+#                       unclassified_software.
 # =============================================================
 
 import streamlit as st
@@ -37,7 +39,7 @@ _PANEL = "mindmap"
 def _render_kpis(events: list) -> None:
     """Top-of-tab counters split by category — each is drillable."""
     counts = kpi_counts(events)
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
     clickable_metric(c1, "MCP Servers",      counts.get("mcp_server", 0),
                      panel_key=_PANEL, drill_field="category",
                      drill_value="mcp_server")
@@ -53,6 +55,12 @@ def _render_kpis(events: list) -> None:
     clickable_metric(c5, "Vector DBs",       counts.get("vector_db", 0),
                      panel_key=_PANEL, drill_field="category",
                      drill_value="vector_db")
+    clickable_metric(c6, "Network Targets",  counts.get("observed_network_target", 0),
+                     panel_key=_PANEL, drill_field="category",
+                     drill_value="observed_network_target")
+    clickable_metric(c7, "Unclassified SW",  counts.get("unclassified_software", 0),
+                     panel_key=_PANEL, drill_field="category",
+                     drill_value="unclassified_software")
 
 
 def _render_filters(events: list) -> dict:

@@ -69,7 +69,7 @@ def _render_generate_form(admin_email: str) -> None:
             ),
         )
         send_email = st.toggle("Send OTP via email", value=True,
-                               help="Uses SES. Disable to copy OTP from the result below.")
+                               help="Disable to copy OTP from the result below.")
         enable_packetbeat = st.toggle(
             "Enable network-target capture (Packetbeat)", value=False,
             help=(

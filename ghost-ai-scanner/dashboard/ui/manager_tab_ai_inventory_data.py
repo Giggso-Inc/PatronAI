@@ -1,8 +1,8 @@
 # =============================================================
 # FILE: dashboard/ui/manager_tab_ai_inventory_data.py
 # PROJECT: PatronAI — Phase 1A
-# VERSION: 1.0.0
-# UPDATED: 2026-04-26
+# VERSION: 1.1.0
+# UPDATED: 2026-09-02
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: Pure-data helpers for the Manager AI Inventory tab — filter,
 #          dedup, KPI counts. Streamlit-free so the helpers are easy to
@@ -13,6 +13,7 @@
 # DEPENDS: stdlib only
 # AUDIT LOG:
 #   v1.0.0  2026-04-26  Initial. Phase 1A.
+#   v1.1.0  2026-09-02  Add observed_network_target + unclassified_software.
 # =============================================================
 
 from collections import defaultdict
@@ -22,15 +23,18 @@ PHASE_1A_CATEGORIES = (
     "mcp_server", "mcp_config_changed",
     "agent_workflow", "agent_scheduled",
     "tool_registration", "vector_db",
+    "observed_network_target", "unclassified_software",
 )
 
 CATEGORY_LABELS = {
-    "mcp_server":          "MCP Server",
-    "mcp_config_changed":  "MCP Change",
-    "agent_workflow":      "Workflow",
-    "agent_scheduled":     "Scheduled",
-    "tool_registration":   "Tools (code)",
-    "vector_db":           "Vector DB",
+    "mcp_server":               "MCP Server",
+    "mcp_config_changed":       "MCP Change",
+    "agent_workflow":           "Workflow",
+    "agent_scheduled":          "Scheduled",
+    "tool_registration":        "Tools (code)",
+    "vector_db":                "Vector DB",
+    "observed_network_target":  "Network Target",
+    "unclassified_software":    "Unclassified SW",
 }
 
 
