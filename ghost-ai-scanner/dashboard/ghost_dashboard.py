@@ -65,7 +65,8 @@ def main() -> None:
 
     # Load data for all data-dependent views (home needs events for chat)
     events, summary = [], {}
-    if view in ("exec", "manager", "providers", "support", "reports", "home", "settings"):
+    if view in ("exec", "manager", "providers", "support", "reports", "home",
+                "settings", "network"):
         events, summary = load_data(email=email, role=role)
     if view != "home":
         _render_header(summary)
@@ -92,6 +93,20 @@ def main() -> None:
         pl_render(is_admin=False, email=email)
     elif view == "support":
         _with_chat("support", _render_support, events, summary, email)
+
+    elif view == "network":
+        # Builds its own store: this view reads the findings store directly
+        # rather than the pre-loaded `events` list, which is scoped to the
+        # endpoint-scan sources and does not carry capture findings.
+        from ui.network_view import render as net_render
+        net_store, net_err = _build_store()
+        if net_err:
+            st.error(net_err)
+        else:
+            # FULL WIDTH, not _with_chat: two side-by-side tables plus a
+            # 24-bar chart do not fit in the 75% the chat panel leaves, and
+            # the right-hand column was being clipped mid-cell.
+            net_render(net_store, email)
 
     elif view == "reports":
         from ui.reports_view import render_reports

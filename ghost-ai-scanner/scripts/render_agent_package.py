@@ -127,6 +127,14 @@ def render_agent_package(
         # both bash and PowerShell installer templates.
         inline_scan_python = load_scan_fragments(TEMPLATE_DIR)
 
+        # THE shared device-side uploader (agent/shared/uploader.py). Read at
+        # render time so the inlined copy can never drift from the file the
+        # capture companion imports - one implementation, two delivery
+        # mechanisms. This is what replaced `aws s3 cp`, which was AWS-only
+        # and needed long-lived credentials on an employee laptop.
+        uploader_source = (TEMPLATE_DIR.parent / "shared" / "uploader.py").read_text(
+            encoding="utf-8")
+
         # Step 0 — recipient-side self-test scripts; baked into the installer
         # so a single artifact carries everything the recipient needs.
         diag_sh_path  = TEMPLATE_DIR / "diagnose.sh"
@@ -152,6 +160,7 @@ def render_agent_package(
             "AUTHORIZED_DOMAINS":  auth_domains_str,
             "ENABLE_PACKETBEAT":   "1" if enable_packetbeat else "0",
             "INLINE_SCAN_PYTHON":  inline_scan_python,
+            "UPLOADER_SOURCE":     uploader_source,
             "INLINE_DIAGNOSE_SH":  inline_diagnose_sh,
             "INLINE_DIAGNOSE_PS1": inline_diagnose_ps1,
         }
@@ -194,6 +203,7 @@ def render_agent_package(
             "AUTHORIZED_DOMAINS": auth_domains_str,  # fallback if URL unreachable
             "ENABLE_PACKETBEAT":  "1" if enable_packetbeat else "0",
             "INLINE_SCAN_PYTHON": inline_scan_python,
+            "UPLOADER_SOURCE":    uploader_source,
             "INLINE_DIAGNOSE_SH":  inline_diagnose_sh,
             "INLINE_DIAGNOSE_PS1": inline_diagnose_ps1,
         }

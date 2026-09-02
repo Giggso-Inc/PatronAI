@@ -18,6 +18,7 @@ from .packetbeat import parse as parse_packetbeat
 from .flow_log   import parse_vpc, parse_zeek
 from .nac        import parse as parse_nac
 from .agent      import parse as parse_agent
+from .tshark     import parse as parse_tshark
 from .schema     import FLAT_SCHEMA, empty_event
 
 log = logging.getLogger("marauder-scan.normalizer")
@@ -59,8 +60,15 @@ def normalize(
         return parse_nac(raw, company)
     if source_hint == "agent":
         return parse_agent(raw, company)
+    if source_hint == "tshark":
+        return parse_tshark(raw, company)
 
-    # Auto-detect from field signatures
+    # Auto-detect from field signatures.
+    # tshark is checked FIRST: its records carry both `parser_version` (unique
+    # to the capture companion) and a `source` key is absent, so they would
+    # otherwise fall through to the packetbeat branch on a `destination` dict.
+    if "parser_version" in raw and "destination_domain" in raw:
+        return parse_tshark(raw, company)
     if "@timestamp" in raw or isinstance(raw.get("source"), dict):
         return parse_packetbeat(raw, company)
     if "id.orig_h" in raw or "orig_h" in raw:

@@ -63,6 +63,14 @@ if ! $PY -c "import bcrypt" 2>/dev/null; then
     # is what PEP 668 is protecting - preferable to --break-system-packages.
     _info "System-wide install refused (PEP 668) - using a private virtualenv instead."
     mkdir -p "$AGENT_DIR"
+
+# The SHARED uploader (agent/shared/uploader.py). Substituted here by the
+# renderer so both agents run byte-identical upload code, and a new storage
+# backend is one change in one file rather than a hunt through every agent.
+cat > "$AGENT_DIR/patronai_upload.py" <<'PATRONAI_UPLOAD_EOF'
+{{UPLOADER_SOURCE}}
+PATRONAI_UPLOAD_EOF
+chmod 600 "$AGENT_DIR/patronai_upload.py"
     python3 -m venv "$AGENT_DIR/.venv" >/dev/null 2>&1 \
       || _die "Cannot create a virtualenv at $AGENT_DIR/.venv. On Debian/Ubuntu: sudo apt-get install -y python3-venv"
     "$AGENT_DIR/.venv/bin/pip" install --quiet "bcrypt>=4.0.0" \
@@ -175,8 +183,24 @@ print(json.dumps({'event_type':'GIT_DIFF_SIGNAL','source':'patronai_git_hook',
   'device_id':'${DEVICE_ID}','company':'${COMPANY}','repo':'${REPO}',
   'branch':'${BRANCH}','timestamp':'${TIMESTAMP}','diff_snippet':sys.argv[1]}))" \
   "$(echo "$DIFF" | head -c 5120)" 2>/dev/null)
-aws s3 cp - "s3://${BUCKET}/ocsf/agent/git-diffs/${DEVICE_ID}-${TIMESTAMP}.json" \
-  --region "$REGION" --content-type "application/json" --quiet <<< "$PAYLOAD" 2>/dev/null &
+# Presigned POST via the SHARED uploader (agent/shared/uploader.py, installed
+# to ~/.patronai/patronai_upload.py). This replaced `aws s3 cp`, which was
+# AWS-ONLY: it hardcoded an s3:// URL so it could never reach MinIO or any
+# other backend, AND it required long-lived AWS credentials on an employee
+# laptop - which every other upload path here avoids by design.
+DEVICE_ID="$DEVICE_ID" TIMESTAMP="$TIMESTAMP" python3 - "$PAYLOAD" <<'UPLOAD_EOF' 2>/dev/null &
+import json, os, sys
+sys.path.insert(0, os.path.expanduser("~/.patronai"))
+try:
+    from patronai_upload import upload_post
+    urls = json.load(open(os.path.expanduser("~/.patronai/urls.json")))
+    upload_post(urls.get("gitdiff_post") or {},
+                "ocsf/agent/git-diffs/%s-%s.json" % (os.environ["DEVICE_ID"],
+                                                     os.environ["TIMESTAMP"]),
+                sys.argv[1].encode(), "application/json")
+except Exception:
+    pass   # a git hook must NEVER block a commit, whatever goes wrong
+UPLOAD_EOF
 exit 0
 HOOK_EOF
 chmod +x "$HOOK_SCRIPT"

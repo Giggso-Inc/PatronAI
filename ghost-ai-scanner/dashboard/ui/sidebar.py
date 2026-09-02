@@ -91,6 +91,7 @@ def render(email: str, role: str, is_admin: bool) -> str:
     if "Support" in choice: return "support"
     if "Manager" in choice: return "manager"
     if "Reports" in choice: return "reports"
+    if "Network" in choice:  return "network"
     if "Settings" in choice: return "settings"
     if "Provider" in choice: return "providers"
     return "exec"
@@ -104,8 +105,12 @@ def _options_for(role: str, is_admin: bool) -> tuple:
     HOME = "🏠  Home"
     EXEC, MGR, SUP = "📊  Exec view", "🔧  Manager view", "🛡  Support view"
     PROV, REP, SET = "📋  Provider Lists", "📄  Reports", "⚙  Settings"
+    # Network sits next to the other investigative views. Admin + support
+    # only: it shows per-user destination history, which is not something a
+    # general exec view should expose by default.
+    NET = "🛰  Network"
     if is_admin:
-        opts    = [HOME, EXEC, MGR, SUP, PROV, REP, SET]
+        opts    = [HOME, EXEC, MGR, SUP, NET, PROV, REP, SET]
         role_i  = {"exec": 1, "manager": 2, "support": 3}.get(role, 2)
         return opts, role_i
     if role == "exec":
@@ -113,7 +118,7 @@ def _options_for(role: str, is_admin: bool) -> tuple:
     if role == "manager":
         return [HOME, MGR, PROV, REP], 1
     if role == "support":
-        return [HOME, SUP, MGR, PROV, REP], 1
+        return [HOME, SUP, MGR, NET, PROV, REP], 1
     return [HOME, EXEC], 1
 
 

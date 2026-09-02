@@ -62,3 +62,11 @@ DOC
 .raven/manifest.secrets.json
 .raven/.cache/
 .model.env
+
+# ── Raven local state (never commit) ─────────────────────────────────────
+# UNANCHORED on purpose. The existing rule in ghost-ai-scanner/.gitignore is
+# written as `ghost-ai-scanner/.raven/`, which git anchors to that ONE path -
+# so nested copies (src/.raven/, dashboard/.raven/, agent/*/.raven/) and the
+# repo-root .raven/ were all still tracked. `.raven/` with no leading slash
+# matches at every depth. Caught staging .raven/xray.json at 1.3 MB.
+.raven/

@@ -1,0 +1,215 @@
+{
+  "_description": "Categorised catalogue of known AI platforms, used by check_metadata_only.py's 'WEB AI PLATFORMS' section. Scope is CONNECTION-LEVEL VISIBILITY ONLY: which AI domain a device reached, when, and how often. No account identity, no request content, no bodies - that is deliberately a different question, answered by the DUAL-USE ACCOUNTS section of the same report.",
+
+  "_why_separate_from_dual_use_platforms_json": "dual_use_platforms.json answers 'could an employee sign in here with a personal account, and can we tell?' - a small list, each entry needing an identity signal. THIS file answers 'what AI is this fleet touching at all?' - a deliberately broad inventory where most entries will never have an identity extractor and do not need one. Merging them would force every baseline-usage domain to carry dual_use/identity_signal fields that are meaningless for it. The two files overlap on a handful of domains on purpose; they are read independently.",
+
+  "_matching": "Suffix match, LONGEST BASE WINS. A domain matches an entry if it equals a listed base or ends with '.' + that base. Longest match wins so a specific host beats a broad parent - e.g. 'mcp-proxy.anthropic.com' resolves to mcp_infrastructure and 'api.anthropic.com' to model_api, even though 'anthropic.com' is also listed under general_assistant. Without longest-match both would be swallowed by the parent domain.",
+
+  "_shared_domain_flag": "shared_domain:true marks a base that carries substantial NON-AI traffic (x.com, notion.so, zoom.us, slack.com, atlassian.net, bing.com, databricks.com, sagemaker). Counting those as AI usage overstates it. The report prints them with a [shared] marker so a reader never mistakes the number for pure AI traffic. This is a known-imprecision label, not a bug.",
+
+  "_status": "Entries marked observed:true were seen in real capture data on this machine (output/capture-pktmon-live.jsonl, 2026-08-28..30). Everything else is catalogue-only - listed so the inventory is useful on a fleet, never verified here. Do not silently promote an entry to observed:true without a real capture backing it.",
+
+  "_maintenance": "Add domains HERE, never inline in a .py file - same standing rule as dual_use_platforms.json. check_metadata_only.py reads this file and needs no code change to learn a new platform or an entire new category.",
+
+  "categories": {
+
+    "general_assistant": {
+      "label": "General-purpose AI assistants",
+      "description": "Consumer/prosumer chat assistants a person uses interactively in a browser or desktop app. Highest shadow-AI relevance: this is where an employee is most likely to paste work content into an unmanaged personal account.",
+      "platforms": {
+        "chatgpt":        { "domains": ["chatgpt.com", "openai.com", "oaiusercontent.com"], "observed": true,  "note": "ws.chatgpt.com is the websocket channel; chatgpt.com covers both." },
+        "claude_browser": { "domains": ["claude.ai", "claude.com"], "observed": true, "note": "claude.com is Anthropic's newer domain and was found UNCLASSIFIED in the reference capture (platform.claude.com) - it has no AI-shaped token in its hostname, so the candidate heuristic would not have surfaced it either. Exactly the blind spot this catalogue exists to close." },
+        "claude_desktop": { "domains": ["anthropic.com"], "observed": true, "note": "Desktop app + Claude Code both terminate on anthropic.com subdomains. api.anthropic.com is listed separately under model_api and wins by longest match." },
+        "claude_cowork":  { "domains": ["bridge.claudeusercontent.com"], "observed": true, "note": "DLP_v2 confirmed 2026-08-05 this bridge subdomain is Cowork's real prompt channel - not claude.ai." },
+        "gemini":         { "domains": ["gemini.google.com", "gemini.gstatic.com", "bard.google.com"], "observed": true },
+        "copilot_consumer": { "domains": ["copilot.microsoft.com"], "observed": false },
+        "grok":           { "domains": ["grok.com", "x.ai"], "observed": false, "note": "x.com deliberately NOT listed - it is overwhelmingly non-AI traffic. Grok web use is on grok.com." },
+        "perplexity":     { "domains": ["perplexity.ai"], "observed": false },
+        "deepseek":       { "domains": ["deepseek.com"], "observed": false },
+        "mistral_lechat": { "domains": ["chat.mistral.ai", "mistral.ai"], "observed": false },
+        "meta_ai":        { "domains": ["meta.ai"], "observed": false },
+        "poe":            { "domains": ["poe.com"], "observed": false },
+        "qwen":           { "domains": ["tongyi.aliyun.com", "qwen.ai"], "observed": false },
+        "kimi":           { "domains": ["kimi.moonshot.cn", "moonshot.cn"], "observed": false },
+        "character_ai":   { "domains": ["character.ai"], "observed": false }
+      }
+    },
+
+    "ai_coding": {
+      "label": "AI coding assistants and app builders",
+      "description": "IDE-integrated assistants and prompt-to-app builders. Distinct from general assistants because the data flowing out is source code, and because these often run headless inside an editor rather than in a browser tab.",
+      "platforms": {
+        "github_copilot": { "domains": ["copilot-proxy.githubusercontent.com", "api.githubcopilot.com", "copilot-telemetry.githubusercontent.com"], "observed": false },
+        "cursor":         { "domains": ["cursor.sh", "cursor.com", "api2.cursor.sh"], "observed": false },
+        "windsurf_codeium": { "domains": ["codeium.com", "windsurf.com"], "observed": false },
+        "tabnine":        { "domains": ["tabnine.com"], "observed": false },
+        "sourcegraph_cody": { "domains": ["sourcegraph.com"], "observed": false },
+        "replit":         { "domains": ["replit.com"], "observed": false },
+        "amazon_q":       { "domains": ["q.us-east-1.amazonaws.com", "codewhisperer.us-east-1.amazonaws.com"], "observed": false },
+        "jetbrains_ai":   { "domains": ["api.jetbrains.ai"], "observed": false },
+        "v0":             { "domains": ["v0.dev", "v0.app"], "observed": false },
+        "bolt_new":       { "domains": ["bolt.new"], "observed": false },
+        "lovable":        { "domains": ["lovable.dev"], "observed": false }
+      }
+    },
+
+    "model_api": {
+      "label": "Model / inference provider APIs",
+      "description": "Programmatic model endpoints. Traffic here is usually a script, service or agent - NOT a person in a browser - so a hit is evidence of an application integration rather than of interactive use. Detecting these is how unmanaged/self-built AI integrations surface.",
+      "platforms": {
+        "openai_api":     { "domains": ["api.openai.com"], "observed": false },
+        "anthropic_console": { "domains": ["platform.claude.com", "console.anthropic.com"], "observed": true, "note": "Developer console / API key management. Longest match keeps it out of claude_browser's claude.com entry." },
+        "anthropic_api":  { "domains": ["api.anthropic.com", "a-api.anthropic.com"], "observed": true, "note": "1,049 calls in the reference capture - Claude Desktop/Claude Code. Longest-match beats the anthropic.com entry under general_assistant." },
+        "google_genai":   { "domains": ["generativelanguage.googleapis.com", "aiplatform.googleapis.com"], "observed": false },
+        "azure_openai":   { "domains": ["openai.azure.com"], "observed": false },
+        "aws_bedrock":    { "domains": ["bedrock.amazonaws.com", "bedrock-runtime.us-east-1.amazonaws.com"], "observed": false, "note": "Region-specific hosts; add regions as they appear. Overlaps the aws entry in dual_use_platforms.json - the two files are read independently, so that is fine." },
+        "cohere":         { "domains": ["api.cohere.ai", "api.cohere.com"], "observed": false },
+        "mistral_api":    { "domains": ["api.mistral.ai"], "observed": false },
+        "groq":           { "domains": ["api.groq.com"], "observed": false },
+        "together":       { "domains": ["api.together.xyz"], "observed": false },
+        "fireworks":      { "domains": ["api.fireworks.ai"], "observed": false },
+        "openrouter":     { "domains": ["openrouter.ai"], "observed": false },
+        "replicate":      { "domains": ["api.replicate.com", "replicate.com"], "observed": false },
+        "huggingface_api": { "domains": ["api-inference.huggingface.co"], "observed": false },
+        "deepseek_api":   { "domains": ["api.deepseek.com"], "observed": false },
+        "perplexity_api": { "domains": ["api.perplexity.ai"], "observed": false },
+        "xai_api":        { "domains": ["api.x.ai"], "observed": false }
+      }
+    },
+
+    "ai_search": {
+      "label": "AI search and research tools",
+      "description": "Answer engines and research assistants. Lower data-exfiltration risk than a chat assistant (queries are usually short) but still an unmanaged destination for work questions.",
+      "platforms": {
+        "perplexity_web": { "domains": ["www.perplexity.ai"], "observed": false },
+        "you_com":        { "domains": ["you.com"], "observed": false },
+        "phind":          { "domains": ["phind.com"], "observed": false },
+        "consensus":      { "domains": ["consensus.app"], "observed": false },
+        "elicit":         { "domains": ["elicit.com", "elicit.org"], "observed": false },
+        "exa":            { "domains": ["exa.ai"], "observed": false },
+        "tavily":         { "domains": ["tavily.com"], "observed": false }
+      }
+    },
+
+    "media_generation": {
+      "label": "AI image / video / audio generation",
+      "description": "Generative media tools. Relevant mainly for licensing and brand-usage policy rather than data loss, though uploaded reference material can be sensitive.",
+      "platforms": {
+        "midjourney":   { "domains": ["midjourney.com"], "observed": false },
+        "stability":    { "domains": ["stability.ai", "api.stability.ai"], "observed": false },
+        "leonardo":     { "domains": ["leonardo.ai"], "observed": false },
+        "ideogram":     { "domains": ["ideogram.ai"], "observed": false },
+        "runway":       { "domains": ["runwayml.com"], "observed": false },
+        "pika":         { "domains": ["pika.art"], "observed": false },
+        "luma":         { "domains": ["lumalabs.ai"], "observed": false },
+        "elevenlabs":   { "domains": ["elevenlabs.io"], "observed": false },
+        "heygen":       { "domains": ["heygen.com"], "observed": false },
+        "synthesia":    { "domains": ["synthesia.io"], "observed": false },
+        "suno":         { "domains": ["suno.com", "suno.ai"], "observed": false },
+        "udio":         { "domains": ["udio.com"], "observed": false },
+        "descript":     { "domains": ["descript.com"], "observed": false }
+      }
+    },
+
+    "meeting_intelligence": {
+      "label": "AI meeting recorders and notetakers",
+      "description": "Records, transcribes and summarises meetings. HIGH sensitivity: a notetaker joining a call sends full meeting audio to a third party, often without every participant's knowledge, and is frequently installed by an individual rather than by IT.",
+      "platforms": {
+        "fathom":     { "domains": ["fathom.video", "api.fathom.ai"], "observed": true, "note": "Seen in the reference capture, including MCP traffic on api.fathom.ai/mcp." },
+        "otter":      { "domains": ["otter.ai"], "observed": false },
+        "fireflies":  { "domains": ["fireflies.ai"], "observed": false },
+        "gong":       { "domains": ["gong.io"], "observed": false },
+        "grain":      { "domains": ["grain.com"], "observed": false },
+        "tldv":       { "domains": ["tldv.io"], "observed": false },
+        "read_ai":    { "domains": ["read.ai"], "observed": false },
+        "avoma":      { "domains": ["avoma.com"], "observed": false },
+        "sembly":     { "domains": ["sembly.ai"], "observed": false },
+        "krisp":      { "domains": ["krisp.ai"], "observed": false }
+      }
+    },
+
+    "writing_productivity": {
+      "label": "AI writing and productivity assistants",
+      "description": "Assistants embedded in writing/document workflows. Often browser extensions, which means they can see page content on any site the user visits.",
+      "platforms": {
+        "grammarly":  { "domains": ["grammarly.com", "grammarly.io"], "observed": false, "note": "Browser-extension traffic - can carry text typed on unrelated sites." },
+        "jasper":     { "domains": ["jasper.ai"], "observed": false },
+        "copy_ai":    { "domains": ["copy.ai"], "observed": false },
+        "writesonic": { "domains": ["writesonic.com"], "observed": false },
+        "quillbot":   { "domains": ["quillbot.com"], "observed": false },
+        "wordtune":   { "domains": ["wordtune.com"], "observed": false },
+        "notion":     { "domains": ["notion.so"], "observed": true, "shared_domain": true, "note": "Notion AI shares the main Notion domain - a hit does NOT prove AI use, only that Notion was used." }
+      }
+    },
+
+    "agent_automation": {
+      "label": "AI agent and low-code automation platforms",
+      "description": "Workflow/agent builders that hold credentials to other systems and act on the user's behalf. Risk is less about what leaves in one request and more about what standing access an unmanaged automation accumulates.",
+      "platforms": {
+        "zapier":     { "domains": ["zapier.com"], "observed": false },
+        "make":       { "domains": ["make.com", "integromat.com"], "observed": false },
+        "n8n":        { "domains": ["n8n.io"], "observed": false },
+        "langsmith":  { "domains": ["smith.langchain.com", "api.smith.langchain.com"], "observed": false },
+        "dify":       { "domains": ["dify.ai"], "observed": false },
+        "flowise":    { "domains": ["flowiseai.com"], "observed": false },
+        "relevance":  { "domains": ["relevanceai.com"], "observed": false },
+        "lindy":      { "domains": ["lindy.ai"], "observed": false },
+        "gumloop":    { "domains": ["gumloop.com"], "observed": false },
+        "pipedream":  { "domains": ["pipedream.com"], "observed": false, "shared_domain": true }
+      }
+    },
+
+    "mcp_infrastructure": {
+      "label": "MCP servers, proxies and registries",
+      "description": "Model Context Protocol infrastructure. Counted here as connection-level baseline usage; the MCP section of the same report analyses these separately and in more depth. mcp-proxy.anthropic.com is the ONLY endpoint-visible trace of a connector-based MCP call - the call itself runs inside Anthropic's infrastructure.",
+      "platforms": {
+        "anthropic_mcp_proxy": { "domains": ["mcp-proxy.anthropic.com"], "observed": true, "note": "Cleartext SNI. 37 calls in the reference capture. Which server and which tool are NOT visible from the endpoint at all - see check_mcp_servers.py." },
+        "deepwiki_mcp":  { "domains": ["mcp.deepwiki.com"], "observed": true },
+        "mcp_registries": { "domains": ["mcpservers.org", "smithery.ai", "mcp.so", "glama.ai"], "observed": true, "note": "Registries/directories - browsing one is discovery intent, not an MCP call." },
+        "composio":      { "domains": ["composio.dev"], "observed": false },
+        "zoho_mcp":      { "domains": ["zohostratus.com"], "observed": true, "note": "zohomcp-development.zohostratus.com seen in the reference capture." }
+      }
+    },
+
+    "ml_platform": {
+      "label": "ML platforms, model hosting and notebooks",
+      "description": "Where models and training data live. A hit means someone is building with AI rather than chatting with it - different risk profile (datasets, weights, compute spend) and different owner.",
+      "platforms": {
+        "huggingface":  { "domains": ["huggingface.co", "hf.co"], "observed": false },
+        "colab":        { "domains": ["colab.research.google.com"], "observed": false },
+        "kaggle":       { "domains": ["kaggle.com"], "observed": false },
+        "weights_biases": { "domains": ["wandb.ai"], "observed": false },
+        "modal":        { "domains": ["modal.com"], "observed": false },
+        "runpod":       { "domains": ["runpod.io"], "observed": false },
+        "vast_ai":      { "domains": ["vast.ai"], "observed": false },
+        "databricks":   { "domains": ["databricks.com", "cloud.databricks.com"], "observed": false, "shared_domain": true },
+        "sagemaker":    { "domains": ["sagemaker.aws"], "observed": false, "shared_domain": true }
+      }
+    },
+
+    "embedded_saas_ai": {
+      "label": "AI embedded inside SaaS the org already uses",
+      "description": "AI features bolted onto approved SaaS. These are the hardest to see and the easiest to under-count, because the AI feature usually shares the host SaaS's domain - so a hit rarely proves AI use on its own. Listed anyway: an under-counted signal beats an invisible one, and where a dedicated AI host DOES exist (Google Workspace's appsgenaiserver-pa) it is precise.",
+      "platforms": {
+        "google_workspace_ai": { "domains": ["appsgenaiserver-pa.clients6.google.com"], "observed": true, "note": "26 calls in the reference capture. A DEDICATED Gemini-in-Workspace host, so unlike most entries in this category it is unambiguous." },
+        "m365_copilot":   { "domains": ["substrate.office.com", "outlook.office.com"], "observed": false, "shared_domain": true },
+        "salesforce_einstein": { "domains": ["salesforce.com", "force.com"], "observed": false, "shared_domain": true },
+        "slack_ai":       { "domains": ["slack.com"], "observed": false, "shared_domain": true },
+        "zoom_ai":        { "domains": ["zoom.us"], "observed": false, "shared_domain": true },
+        "atlassian_intelligence": { "domains": ["atlassian.net"], "observed": false, "shared_domain": true },
+        "bing_copilot":   { "domains": ["bing.com"], "observed": false, "shared_domain": true }
+      }
+    },
+
+    "internal_ai": {
+      "label": "Org-internal / first-party AI services",
+      "description": "AI services this organisation runs itself. Not shadow AI by definition - listed so they are counted as AI usage rather than showing up as unclassified noise, and so a baseline can distinguish sanctioned from unsanctioned traffic.",
+      "platforms": {
+        "patron":  { "domains": ["patronai.giggso.com"], "observed": true },
+        "trinity": { "domains": ["trinity.giggso.com", "redteaming.trinityops.ai"], "observed": false },
+        "lockey":  { "domains": ["lockey.giggso.com"], "observed": true, "note": "Seen serving MCP on /mcp in the reference capture." },
+        "odoo_mcp": { "domains": ["odoo-mcp.giggso.com"], "observed": true }
+      }
+    }
+  }
+}

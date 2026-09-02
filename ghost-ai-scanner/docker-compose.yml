@@ -143,6 +143,14 @@ services:
       - INTEGRATION_API_ENABLED=${INTEGRATION_API_ENABLED:-1}
       - API_KEY=${API_KEY:-mOBakBb4ECT1exikCkkc6QDb}
       - INTEGRATION_API_PORT=${INTEGRATION_API_PORT:-8002}
+      # Capture-companion ingest (ocsf/tshark/{token}/...). Set to 0 to
+      # disable without a redeploy. No-ops on a fleet with no capture
+      # companions enrolled - the scoped lister simply finds nothing.
+      - TSHARK_INGEST_ENABLED=${TSHARK_INGEST_ENABLED:-1}
+      # How often to sweep for new capture objects. Independent of
+      # SCAN_INTERVAL_SECS: devices upload hourly, so sweeping faster than
+      # that only costs list calls.
+      - TSHARK_INGEST_INTERVAL_S=${TSHARK_INGEST_INTERVAL_S:-900}
     volumes:
       - patronai-models:/models
       - patronai-data:/data
@@ -250,6 +258,76 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ── MinIO — S3-compatible storage for local dev ─────────────────────────
+  # Opt-in: `docker compose --profile minio up`. Without the profile this
+  # service does not start, so production compose is unchanged.
+  #
+  # Nothing in the app is MinIO-specific. Every store call already routes
+  # through boto3_s3_client(), which honours LOCAL_STORAGE_ENDPOINT, and
+  # base_store.is_s3_compatible_local() makes findings_store and
+  # hourly_rollup skip S3 Select (MinIO does not implement it) and fall back
+  # to GetObject. Verified against a running MinIO: get/put/delete/exists/
+  # list_keys/paginator all work; Select and lifecycle correctly degrade.
+  # WARNING - PORT 9000 MAY ALREADY BE TAKEN. DLP_v2 runs its own MinIO as
+  # the container `local-storage` (DLP_v2/BEFEDB/docker-compose.minio.yml)
+  # on the same 9000/9001. Starting this alongside it fails with
+  # "Bind for 0.0.0.0:9000 failed: port is already allocated".
+  #
+  # That is the RIGHT failure: two MinIOs on one box = two separate data
+  # sets, and whichever one .env points at silently becomes the only one
+  # holding your data. If `local-storage` is already up, use it (this
+  # repo's .env does) and leave this service stopped. It exists for a
+  # standalone box where DLP_v2 is not running.
+  #
+  # Also note `--profile minio up` interpolates EVERY service's variables
+  # before applying profiles, so POSTGRES_PASSWORD and
+  # GF_SECURITY_ADMIN_PASSWORD must be set in .env even to start MinIO.
+  minio:
+    image: minio/minio:latest
+    container_name: patronai-minio
+    profiles: ["minio"]
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${LOCAL_STORAGE_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${LOCAL_STORAGE_SECRET_KEY:-minioadmin}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - marauder-scan
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Creates the bucket once MinIO is live. Without this the first write
+  # fails with NoSuchBucket, which reads as a credentials problem and sends
+  # you looking in the wrong place.
+  minio-init:
+    image: minio/mc:latest
+    container_name: patronai-minio-init
+    profiles: ["minio"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      - BUCKET=${PATRONAI_BUCKET:-${MARAUDER_SCAN_BUCKET:-patronai-dev}}
+      - AK=${LOCAL_STORAGE_ACCESS_KEY:-minioadmin}
+      - SK=${LOCAL_STORAGE_SECRET_KEY:-minioadmin}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$AK $$SK &&
+      mc mb --ignore-existing local/$$BUCKET &&
+      echo \"bucket ready: $$BUCKET\"
+      "
+    networks:
+      - marauder-scan
+
+
 networks:
   marauder-scan:
     driver: bridge
@@ -262,4 +340,7 @@ volumes:
   patronai-data:
     driver: local
   postgres-data:
+    driver: local
+  # Only used by the `minio` profile; harmless when that profile is off.
+  minio-data:
     driver: local

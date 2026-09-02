@@ -173,9 +173,38 @@ $Payload   = @{event_type="GIT_DIFF_SIGNAL";source="patronai_git_hook_ps";
                device_id=$DeviceId;company=$Company;repo=$Repo;branch=$Branch;
                timestamp=$Timestamp;diff_snippet=$Snippet} | ConvertTo-Json -Compress
 $Key = "ocsf/agent/git-diffs/$DeviceId-$Timestamp.json"
-aws s3 cp - "s3://$Bucket/$Key" --region $Region --content-type "application/json" --quiet 2>$null
+# Presigned POST via the SHARED uploader - see the .sh template for why
+# `aws s3 cp` was removed (AWS-only, and needed AWS creds on the laptop).
+# Passed via env rather than argv: a diff snippet can contain anything, and
+# quoting it through a command line is a reliable way to corrupt it.
+$env:PATRONAI_KEY = $Key
+$env:PATRONAI_PAYLOAD = $Payload
+python "$env:USERPROFILE\.patronai\gitdiff_upload.py" 2>$null
 exit 0
 '@ | Set-Content -Path $HookScript -Encoding UTF8
+
+# ── Shared uploader ──────────────────────────────────────────
+# agent/shared/uploader.py, substituted by the renderer. Both agents run
+# byte-identical upload code; a new storage backend is one file to change.
+Set-Content -Path (Join-Path $AgentDir "patronai_upload.py") -Encoding UTF8 -Value @'
+{{UPLOADER_SOURCE}}
+'@
+
+# Tiny runner: the git hook sets PATRONAI_KEY / PATRONAI_PAYLOAD and calls
+# this. Env vars, not argv - a diff snippet can contain anything, and quoting
+# it through a command line is a reliable way to corrupt it.
+Set-Content -Path (Join-Path $AgentDir "gitdiff_upload.py") -Encoding UTF8 -Value @'
+import json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from patronai_upload import upload_post
+    urls = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                       "urls.json")))
+    upload_post(urls.get("gitdiff_post") or {}, os.environ["PATRONAI_KEY"],
+                os.environ["PATRONAI_PAYLOAD"].encode(), "application/json")
+except Exception:
+    pass   # a git hook must NEVER block a commit
+'@
 
 # ── Hook-chain library (chain-aware pre-commit install) ──────
 # Never clobber a pre-existing hook. Preserve it as

@@ -47,6 +47,7 @@ from threads      import scanner_loop, alerter_backlog, url_refresh_loop, stream
 from jobs.hourly_rollup    import scheduler_loop as rollup_scheduler_loop
 from jobs.docs_refresh     import docs_refresh_loop
 from jobs.findings_compact import scheduler_loop as compact_scheduler_loop
+from jobs.tshark_ingest    import scheduler_loop as tshark_ingest_loop
 
 _HF_REPO  = os.environ.get("LLM_MODEL_REPO", "LiquidAI/LFM2.5-1.2B-Thinking-GGUF")
 _LLM_PORT = int(os.environ.get("LLM_SERVER_PORT", "8080"))
@@ -156,7 +157,22 @@ def main():
     if os.environ.get("INTEGRATION_API_ENABLED", "0") == "1":
         threads.append(
             threading.Thread(target=integration_api_proc, args=(stop,), name="integration_api", daemon=True),
-        ) 
+        )
+
+    # Capture-companion ingest. Reads ocsf/tshark/{token}/... and rolls flows
+    # up to one finding per (device, domain, hour) BEFORE writing, because
+    # findings_store.write() is a full read-modify-write per finding and a
+    # capture segment holds thousands of flows.
+    #
+    # Kill switch, matching this repo's own convention of decoupling
+    # activation from deploy: TSHARK_INGEST_ENABLED=0 disables it without a
+    # redeploy. It no-ops harmlessly on a fleet with no capture companions -
+    # the scoped lister finds nothing and the cycle costs one catalog read.
+    if os.environ.get("TSHARK_INGEST_ENABLED", "1") == "1":
+        threads.append(
+            threading.Thread(target=tshark_ingest_loop, args=(store, stop, settings),
+                             name="tshark_ingest", daemon=True),
+        )
 
     for t in threads:
         t.start()

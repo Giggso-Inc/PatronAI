@@ -49,6 +49,28 @@ log = logging.getLogger("marauder-scan.agent_store")
 
 HOOK_AGENTS_PREFIX = "config/HOOK_AGENTS"
 CATALOG_KEY        = f"{HOOK_AGENTS_PREFIX}/catalog.json"
+# Raw network-capture landing zone, one prefix per device token. The token
+# prefix IS the write-isolation boundary: a presigned POST policy scoped to
+# it cannot touch another device's objects.
+CAPTURE_PREFIX     = "ocsf/tshark"
+# Git-diff signals from the pre-commit hook. Previously uploaded with
+# `aws s3 cp`, which hardcoded s3:// (so it could never reach MinIO) and
+# needed long-lived AWS credentials on an employee laptop. Now a presigned
+# POST like everything else - the device holds no credentials at all.
+#
+# NOT scoped per token, unlike CAPTURE_PREFIX: the existing key layout is
+# ocsf/agent/git-diffs/{device_id}-{timestamp}.json, flat across the fleet.
+# Narrowing it to a per-token prefix would be the stronger isolation, but it
+# changes where these objects live and what already reads them - a separate
+# change, deliberately not smuggled in here.
+GITDIFF_PREFIX     = "ocsf/agent/git-diffs"
+# A diff snippet is capped at 5 KB by the hook itself; 1 MB is generous
+# headroom while still bounding what a buggy or compromised device can push.
+GITDIFF_MAX_BYTES  = 1024 * 1024
+# Upper bound on a single capture batch. An hour of metadata gzips to a few
+# hundred KB, so this is generous - it exists so a buggy or compromised
+# device cannot upload unbounded objects into the bucket.
+CAPTURE_MAX_BYTES  = 50 * 1024 * 1024
 PRESIGN_TTL        = 172800   # 48 hours — installer + meta delivery
 HEARTBEAT_PRESIGN_TTL = 604800  # 7 days  — max AWS IAM presigned PUT TTL
 # Minimum gap between re-mints for the same token via get_url_bundle() (the
@@ -165,6 +187,17 @@ class AgentStore(BaseStore):
                 "scan_put_url":        self._sign_put(f"ocsf/agent/scans/{token}/latest.json",             HEARTBEAT_PRESIGN_TTL),
                 "authorized_get_url":  self._sign_get(f"{HOOK_AGENTS_PREFIX}/{token}/authorized.csv",      HEARTBEAT_PRESIGN_TTL),
                 "urls_refresh_url":    self._sign_get(f"{HOOK_AGENTS_PREFIX}/{token}/urls.json",           HEARTBEAT_PRESIGN_TTL),
+                # Capture companion. A presigned PUT binds one URL to exactly
+                # one key, which is why scans overwrite latest.json - fine for
+                # a snapshot, useless for a stream of hourly batches. POST with
+                # a prefix policy is the mechanism that lifts that.
+                "capture_post":        self._sign_post(f"{CAPTURE_PREFIX}/{token}/", HEARTBEAT_PRESIGN_TTL),
+                "code_manifest_url":   self._sign_get(f"{HOOK_AGENTS_PREFIX}/{token}/code_manifest.json", HEARTBEAT_PRESIGN_TTL),
+                # Scan agent's git-diff hook. JSON, not gzip - the hook posts
+                # a plain JSON document.
+                "gitdiff_post":        self._sign_post(f"{GITDIFF_PREFIX}/", HEARTBEAT_PRESIGN_TTL,
+                                                       max_bytes=GITDIFF_MAX_BYTES,
+                                                       content_prefix="application/json"),
             }
         except Exception as e:
             log.error("get_presigned_urls failed [%s]: %s", token, e)
@@ -184,6 +217,60 @@ class AgentStore(BaseStore):
             ExpiresIn=ttl,
         )
 
+    def _sign_post(self, prefix: str, ttl: int,
+                   max_bytes: int = CAPTURE_MAX_BYTES,
+                   content_prefix: str = "application/") -> dict:
+        """Mint a presigned POST policy authorising MANY keys under `prefix`.
+
+        Returns boto3's {"url": ..., "fields": {...}} verbatim; the client
+        overrides "key" per upload and appends the file part LAST (S3 ignores
+        form fields that appear after the file).
+
+        Why POST rather than PUT: a presigned PUT is bound to one exact key,
+        so it can only ever overwrite. Capture produces a stream of hourly
+        batches with rotating names, which a PUT cannot express without a
+        server round-trip per file.
+
+        Two conditions beyond the prefix, both deliberate:
+          * content-length-range - bounds what a buggy or compromised device
+            can push into the bucket.
+          * Content-Type starts-with "application/" - the companion uploads
+            gzip; this stops the same policy being reused to plant HTML that
+            would be served back from the bucket origin.
+        """
+        return self.s3.generate_presigned_post(
+            Bucket=self.bucket,
+            Key=prefix + "${filename}",
+            Conditions=[
+                ["starts-with", "$key", prefix],
+                ["content-length-range", 1, max_bytes],
+                ["starts-with", "$Content-Type", content_prefix],
+            ],
+            ExpiresIn=ttl,
+        )
+
+    def write_code_manifest(self, token: str, manifest: dict) -> bool:
+        """Publish {filename: sha256} for the capture companion's code.
+
+        The companion verifies its own files against this at every startup and
+        refuses to run on a mismatch. It is served from the object store rather
+        than shipped to disk on purpose: whoever can modify a .py on the device
+        can equally modify a manifest sitting next to it, so a local copy would
+        prove nothing.
+
+        This is integrity assurance, NOT tamper-proofing - a local administrator
+        can also redirect the fetch. It detects accidental and casual
+        modification, which is what it is for.
+        """
+        try:
+            self._put(f"{HOOK_AGENTS_PREFIX}/{token}/code_manifest.json",
+                      json.dumps(manifest, indent=2, sort_keys=True).encode(),
+                      "application/json")
+            return True
+        except Exception as e:
+            log.error("write_code_manifest [%s] failed: %s", token, e)
+            return False
+
     def write_url_bundle(self, token: str, os_type: str) -> bool:
         """Re-mint heartbeat / scan / authorized URLs and write the bundle to S3.
 
@@ -199,6 +286,14 @@ class AgentStore(BaseStore):
             "heartbeat_put_url":  urls["heartbeat_put_url"],
             "scan_put_url":       urls["scan_put_url"],
             "authorized_get_url": urls["authorized_get_url"],
+            # Capture companion. Re-minted on the same 24h cadence as
+            # everything else - no second refresh mechanism, and the 7-day
+            # TTL cliff applies to these exactly as it does to the rest.
+            "capture_post":       urls.get("capture_post", {}),
+            "code_manifest_url":  urls.get("code_manifest_url", ""),
+            # Scan agent's git-diff hook - re-minted on the same 24h cadence
+            # as everything else, so it expires and renews like the rest.
+            "gitdiff_post":       urls.get("gitdiff_post", {}),
         }
         try:
             self._put(f"{HOOK_AGENTS_PREFIX}/{token}/urls.json",
