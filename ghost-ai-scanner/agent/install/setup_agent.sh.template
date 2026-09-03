@@ -16,6 +16,7 @@ AUTHORIZED_GET_URL="{{AUTHORIZED_GET_URL}}"
 URLS_REFRESH_URL="{{URLS_REFRESH_URL}}"
 AUTHORIZED_DOMAINS="{{AUTHORIZED_DOMAINS}}"
 PATRONAI_ENABLE_PACKETBEAT="{{ENABLE_PACKETBEAT}}"
+PATRONAI_ENABLE_CAPTURE="{{ENABLE_CAPTURE}}"
 BUCKET="{{BUCKET}}"
 REGION="{{REGION}}"
 COMPANY="{{COMPANY}}"
@@ -662,6 +663,63 @@ DIAG_EOF
 chmod +x "$DIAG"
 
 echo ""
+# -- tshark capture companion (PatronAI Capture / Capture Sync) -----------
+# Mirror of the Windows block in setup_agent.ps1.template. Opt-in per
+# recipient; the payload is embedded unconditionally but only decoded and
+# run when PATRONAI_ENABLE_CAPTURE=1, so there is ONE rendered artifact per
+# recipient rather than two variants.
+#
+# The 5 companion .py files are embedded BASE64, not as heredocs. The device
+# re-verifies their sha256 against a server-published manifest at every
+# startup; a heredoc round trip can alter a line ending or re-encode a byte,
+# which changes the hash and makes the companion report "code modified since
+# install" and refuse to run. Base64 preserves the exact bytes.
+#
+# We stage the files and RUN the real install-mac.sh / install-linux.sh
+# rather than reimplementing them, so there is one copy of the launchd/
+# systemd, tshark and permissions logic.
+if [ "${PATRONAI_ENABLE_CAPTURE:-}" = "1" ]; then
+  _info "Installing the tshark capture companion..."
+  CAP_STAGE="$(mktemp -d "${TMPDIR:-/tmp}/patronai-cap.XXXXXX")"
+  # Trap, not a plain rm at the end: the staged dir holds a rendered
+  # installer carrying this device's presigned URLs, and an early exit
+  # would otherwise leave it in /tmp.
+  trap 'rm -rf "$CAP_STAGE"' EXIT
+  mkdir -p "$CAP_STAGE/install"
+
+  # base64 -d on Linux, base64 -D on macOS. Detect once rather than
+  # guessing: an unsupported flag here writes a 0-byte .py and the failure
+  # surfaces much later as a confusing integrity mismatch.
+  if base64 --decode </dev/null >/dev/null 2>&1; then B64D="base64 --decode"
+  elif base64 -D    </dev/null >/dev/null 2>&1; then B64D="base64 -D"
+  else B64D="base64 -d"; fi
+
+  # install-*.sh reads its siblings as "$HERE/../<f>", so the .py files go
+  # one level ABOVE the installer.
+  while IFS='|' read -r _capname _capb64; do
+    [ -n "$_capname" ] || continue
+    printf '%s' "$_capb64" | $B64D > "$CAP_STAGE/$_capname"
+  done <<'PATRONAI_CAPTURE_FILES_EOF'
+{{CAPTURE_FILES_B64}}
+PATRONAI_CAPTURE_FILES_EOF
+
+  printf '%s' "{{CAPTURE_INSTALLER_B64}}" | $B64D > "$CAP_STAGE/install/install-capture.sh"
+  chmod +x "$CAP_STAGE/install/install-capture.sh"
+
+  # Non-fatal by design: the scan agent above is already installed and
+  # working, and failing the whole run here would throw that away over an
+  # optional component.
+  if sh "$CAP_STAGE/install/install-capture.sh"; then
+    _info "Capture companion installed (PatronAI Capture + Capture Sync)."
+  else
+    _info "WARNING: capture companion install failed - scan agent is unaffected."
+  fi
+  rm -rf "$CAP_STAGE"
+  trap - EXIT
+else
+  _info "Capture companion not enabled for this recipient - skipping."
+fi
+
 _info "Installation complete."
 _info "If anything looks off later, run:  bash ~/.patronai/diagnose.sh"
 _info "Pre-commit hook installed in $INSTALL_COUNT existing repo(s)."

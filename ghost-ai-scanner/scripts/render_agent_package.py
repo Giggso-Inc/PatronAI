@@ -43,6 +43,7 @@
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -59,6 +60,118 @@ UNINSTALL_SH_TEMPLATE    = TEMPLATE_DIR / "uninstall_agent.sh.template"
 UNINSTALL_PS1_TEMPLATE   = TEMPLATE_DIR / "uninstall_agent.ps1.template"
 
 
+
+# ── Capture companion payload ────────────────────────────────────────────
+# The companion ships as 5 real .py files. Bundling them into the single
+# scan-agent installer means embedding them, and they are embedded BASE64,
+# not as here-strings.
+#
+# That is not cosmetic. The device verifies these files at every startup
+# against a server-side manifest of their sha256. A here-string round trip
+# through PowerShell can normalise line endings or re-encode a non-ASCII
+# byte; the file still "looks" right but its hash changes, and the
+# companion then reports "code modified since install" and refuses to run.
+# Base64 round-trips the exact bytes, so the hash the server published is
+# the hash the device computes. The 33% size cost buys that guarantee.
+#
+# CAPTURE_FILES is the authoritative list and MUST match common.py's
+# VERIFIED_FILES. Never glob *.py here: the source tree also holds dev-only
+# harnesses, and a glob would ship them to every recipient.
+CAPTURE_FILES = ["pktmon_to_jsonl.py", "common.py", "capture_service.py",
+                 "sync_task.py", "uploader.py"]
+
+# Pinned Wireshark 4.6.8 x64 NSIS installer. The .exe, not the .msi:
+# msiexec rejects the /S switch the installer passes, and /S is also what
+# makes Wireshark skip its bundled Npcap.
+WIRESHARK_URL = ("https://2.na.dl.wireshark.org/win64/"
+                 "Wireshark-4.6.8-x64.exe")
+
+
+
+def _urls_json_for_capture(store, token: str) -> str:
+    """The exact urls.json the device should carry, as a JSON string.
+
+    Read back from the bundle we just wrote rather than re-minting: a second
+    mint would produce DIFFERENT presigned signatures, so the installer would
+    bake in URLs that are valid but not the ones the server recorded.
+    """
+    raw = store._get(f"config/HOOK_AGENTS/{token}/urls.json")
+    return raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+
+
+
+def _capture_files_literal(files_b64: dict, os_type: str) -> str:
+    """Render the embedded file table in the syntax its template parses.
+
+    Windows consumes a PowerShell hashtable body; the shells read
+    "name|base64" lines from a quoted heredoc. Emitting the wrong one is
+    silent - PowerShell would see garbage keys, and the shell loop would
+    read nothing and write zero .py files, surfacing much later as an
+    integrity mismatch rather than a parse error.
+    """
+    if os_type == "windows":
+        return chr(10).join("    '%s' = '%s'" % (n, b) for n, b in files_b64.items())
+    return chr(10).join("%s|%s" % (n, b) for n, b in files_b64.items())
+
+
+def _capture_payload(token: str, company: str, urls_json: str,
+                     os_type: str = "windows") -> dict:
+    """Base64 payloads for the capture companion, plus the sha256 manifest
+    computed over the SAME bytes that get embedded.
+
+    Returning the manifest from here - rather than hashing the files again
+    at the call site - is deliberate: two independent reads of the same
+    files can disagree if one is edited mid-render, and the failure mode is
+    a device that refuses to start.
+    """
+    import base64 as _b64
+    import hashlib as _hl
+
+    cap_dir = Path(__file__).resolve().parents[1] / "agent" / "capture"
+    files_b64, manifest = {}, {}
+    for name in CAPTURE_FILES:
+        raw = (cap_dir / name).read_bytes()
+        files_b64[name] = _b64.b64encode(raw).decode("ascii")
+        manifest[name] = _hl.sha256(raw).hexdigest()
+
+    # The capture installer is itself a template. Render it here so the
+    # device never sees an unsubstituted placeholder, then embed it the
+    # same way.
+    # One installer per OS. linux has no WIRESHARK_URL placeholder (it takes
+    # tshark from the distro package manager); replace() on a key the file
+    # does not contain is a harmless no-op, so one map serves all three.
+    inst_name = {"windows": "install-windows.ps1",
+                 "mac":     "install-mac.sh",
+                 "linux":   "install-linux.sh"}.get(os_type, "install-windows.ps1")
+    inst = (cap_dir / "install" / inst_name).read_text(encoding="utf-8")
+    for key, val in {
+        "TOKEN":         token,
+        "DEVICE_ID":     f"{token}-cap",
+        "COMPANY":       company,
+        "URLS_JSON":     urls_json,
+        "WIRESHARK_URL":    WIRESHARK_URL,
+    }.items():
+        inst = inst.replace("{{%s}}" % key, val)
+
+    # Guard, not a comment: an unsubstituted placeholder is invisible until
+    # the device runs the script and fails. {{WIRESHARK_SHA256}} once shipped
+    # exactly that way once - and the check that should have caught it used
+    # the regex [A-Z_]+, which does not match the digits in "SHA256", so it
+    # reported "no placeholders left" while one remained. Hence [A-Z0-9_]+.
+    import re as _re
+    left = _re.findall(r"[{]{2}[A-Z0-9_]+[}]{2}", inst)
+    if left:
+        raise RuntimeError(
+            "capture installer still has unsubstituted placeholders: "
+            + ", ".join(sorted(set(left))))
+
+    return {
+        "files_b64":     files_b64,
+        "manifest":      manifest,
+        "installer_b64": _b64.b64encode(inst.encode("utf-8")).decode("ascii"),
+    }
+
+
 def render_agent_package(
     recipient_name: str,
     recipient_email: str,
@@ -69,6 +182,7 @@ def render_agent_package(
     authorized_domains: list | None = None,
     otp_override: str | None = None,
     enable_packetbeat: bool = False,
+    enable_capture: bool = False,
 ) -> dict:
     """
     Generate a complete agent delivery package.
@@ -80,6 +194,13 @@ def render_agent_package(
       script as PATRONAI_ENABLE_PACKETBEAT. Defaults to off — Packetbeat
       needs admin/root and its own Npcap driver install on Windows, so
       this should only be turned on for recipients where that's wanted.
+    enable_capture: per-recipient decision for the tshark capture
+      companion (PatronAI Capture / PatronAI Capture Sync). Defaults to
+      off: it needs Administrator, installs Wireshark (~90 MB) and runs a
+      boot service, so it is a much heavier ask than the scan agent. When
+      off, the payload is still embedded in the script but never decoded
+      or executed - gating at run time, not at render time, keeps ONE
+      rendered artifact per recipient rather than two variants.
     otp_override: when set, use this string as the OTP instead of
       generating a new one — used by Raven-bundled invites so both
       products validate against the SAME OTP the user entered in
@@ -159,6 +280,9 @@ def render_agent_package(
             "URLS_REFRESH_URL":    "PENDING",
             "AUTHORIZED_DOMAINS":  auth_domains_str,
             "ENABLE_PACKETBEAT":   "1" if enable_packetbeat else "0",
+            "ENABLE_CAPTURE":      "0",
+            "CAPTURE_FILES_B64":   "",
+            "CAPTURE_INSTALLER_B64": "",
             "INLINE_SCAN_PYTHON":  inline_scan_python,
             "UPLOADER_SOURCE":     uploader_source,
             "INLINE_DIAGNOSE_SH":  inline_diagnose_sh,
@@ -185,6 +309,28 @@ def render_agent_package(
         # Seed the first urls.json bundle so the laptop has refreshable URLs from minute 0.
         store.write_url_bundle(token, os_type)
 
+        # ── Capture companion payload + its code manifest ─────
+        # Built ONCE, from a single read of the files: the bytes that get
+        # embedded in the installer are the bytes that get hashed here.
+        # Hashing separately would let the two drift and brick the device.
+        #
+        # The manifest MUST be published even when enable_capture is False.
+        # The URL bundle above always mints a `code_manifest_url`, and if
+        # nothing ever writes to that key it 404s - which the companion's
+        # integrity check cannot tell apart from tampering, so it fails
+        # closed and refuses to start. That was the real state of dev:
+        # every token had a code_manifest_url pointing at nothing.
+        try:
+            _cap_payload = _capture_payload(token, company,
+                                            _urls_json_for_capture(store, token), os_type)
+            if not store.write_code_manifest(token, _cap_payload["manifest"]):
+                log.warning("code manifest publish failed for %s - a capture "
+                            "install on this token will refuse to start", token)
+        except Exception as exc:
+            log.warning("capture payload skipped (%s) - capture installs on "
+                        "token %s will refuse to start", exc, token)
+            _cap_payload = {"files_b64": {}, "manifest": {}, "installer_b64": ""}
+
         # ── Pass 2: re-render both templates with real URLs ───
         final_ctx = {
             "RECIPIENT_NAME":     recipient_name,
@@ -202,6 +348,12 @@ def render_agent_package(
             "URLS_REFRESH_URL":   urls.get("urls_refresh_url", ""),
             "AUTHORIZED_DOMAINS": auth_domains_str,  # fallback if URL unreachable
             "ENABLE_PACKETBEAT":  "1" if enable_packetbeat else "0",
+            "ENABLE_CAPTURE":     "1" if enable_capture else "0",
+            # A PowerShell hashtable literal, name -> base64. Built here
+            # rather than in the template so the template stays a template.
+            "CAPTURE_FILES_B64":  _capture_files_literal(
+                _cap_payload["files_b64"], os_type),
+            "CAPTURE_INSTALLER_B64": _cap_payload["installer_b64"],
             "INLINE_SCAN_PYTHON": inline_scan_python,
             "UPLOADER_SOURCE":    uploader_source,
             "INLINE_DIAGNOSE_SH":  inline_diagnose_sh,

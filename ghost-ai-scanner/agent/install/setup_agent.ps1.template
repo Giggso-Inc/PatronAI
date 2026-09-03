@@ -40,6 +40,7 @@ $AuthorizedGetUrl  = "{{AUTHORIZED_GET_URL}}"
 $UrlsRefreshUrl    = "{{URLS_REFRESH_URL}}"
 $AuthorizedDomains = "{{AUTHORIZED_DOMAINS}}"
 $EnablePacketbeat  = "{{ENABLE_PACKETBEAT}}"
+$EnableCapture     = "{{ENABLE_CAPTURE}}"
 $Bucket            = "{{BUCKET}}"
 $Region            = "{{REGION}}"
 $Company           = "{{COMPANY}}"
@@ -690,6 +691,65 @@ $Diag = Join-Path $AgentDir "diagnose.ps1"
 '@ | Set-Content -Path $Diag -Encoding UTF8
 
 Write-Host ""
+# -- tshark capture companion (PatronAI Capture / Capture Sync) ----------
+# Opt-in per recipient, same as Packetbeat above. The payload is embedded
+# unconditionally but only decoded and run when $EnableCapture is "1", so
+# there is ONE rendered artifact per recipient, not two variants.
+#
+# The 5 companion .py files are embedded BASE64, not as here-strings. The
+# device re-verifies their sha256 against a server-published manifest at
+# every startup; a here-string round trip can normalise line endings or
+# re-encode a byte, changing the hash - and the companion then reports
+# "code modified since install" and refuses to run. Base64 preserves the
+# exact bytes the server hashed.
+#
+# We stage the files and INVOKE the real install-windows.ps1 rather than
+# reimplementing it. That installer already handles Wireshark, the
+# ProgramData ACL lockdown, SSLKEYLOGFILE and task registration; a second
+# copy of that logic would drift from the standalone installer's.
+if ($EnableCapture -eq "1") {
+    Write-Info "Installing the tshark capture companion..."
+    $CapStage = Join-Path $env:TEMP ("patronai-cap-" + [guid]::NewGuid().ToString("N"))
+    try {
+        New-Item -ItemType Directory -Force -Path (Join-Path $CapStage "install") | Out-Null
+
+        # install-windows.ps1 reads its siblings as "$PSScriptRoot\..\<f>",
+        # so the .py files go one level ABOVE the installer.
+        $CapFiles = @{
+{{CAPTURE_FILES_B64}}
+        }
+        foreach ($name in $CapFiles.Keys) {
+            [System.IO.File]::WriteAllBytes(
+                (Join-Path $CapStage $name),
+                [System.Convert]::FromBase64String($CapFiles[$name]))
+        }
+
+        $CapInstaller = Join-Path $CapStage "install\install-windows.ps1"
+        [System.IO.File]::WriteAllBytes($CapInstaller,
+            [System.Convert]::FromBase64String("{{CAPTURE_INSTALLER_B64}}"))
+
+        # -File, not iex: the capture installer uses $PSScriptRoot to locate
+        # the staged .py files, and $PSScriptRoot is empty under iex.
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $CapInstaller
+        if ($LASTEXITCODE -eq 0) {
+            Write-Info "Capture companion installed (PatronAI Capture + Capture Sync)."
+        } else {
+            # Non-fatal by design: the scan agent is already installed and
+            # working, and failing the whole run here would throw that away
+            # over an optional component.
+            Write-Info "WARNING: capture companion install exited $LASTEXITCODE - scan agent is unaffected."
+        }
+    } catch {
+        Write-Info "WARNING: capture companion install failed: $($_.Exception.Message) - scan agent is unaffected."
+    } finally {
+        # Staged dir held a rendered installer carrying this device's
+        # presigned URLs - do not leave it in TEMP.
+        Remove-Item $CapStage -Recurse -Force -ErrorAction SilentlyContinue
+    }
+} else {
+    Write-Info "Capture companion not enabled for this recipient - skipping."
+}
+
 Write-Info "Installation complete."
 Write-Info "Pre-commit hook installed in $InstallCount existing repositories."
 Write-Info "New repos auto-instrumented via init.templateDir — no manual step needed."

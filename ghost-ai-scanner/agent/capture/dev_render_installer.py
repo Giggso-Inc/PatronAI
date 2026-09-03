@@ -53,9 +53,6 @@ os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 WIRESHARK_URL = os.environ.get(
     "WIRESHARK_URL",
     "https://2.na.dl.wireshark.org/win64/Wireshark-4.6.8-x64.exe")
-WIRESHARK_SHA256 = os.environ.get(
-    "WIRESHARK_SHA256",
-    "8eba737cb6875d9b3709228d37893f71125bdc50d7148e24d9cdc755259e9c3a")
 
 
 def main() -> int:
@@ -111,7 +108,6 @@ def main() -> int:
         "COMPANY": args.company,
         "URLS_JSON": json.dumps(bundle),
         "WIRESHARK_URL": WIRESHARK_URL,
-        "WIRESHARK_SHA256": WIRESHARK_SHA256,
     }.items():
         text = text.replace("{{" + key + "}}", value)
 
@@ -141,7 +137,6 @@ def main() -> int:
     print(f"Upload URL : {bundle['capture_post']['url']}")
     print(f"Manifest   : {len(manifest)} files hashed")
     print(f"Wireshark  : {WIRESHARK_URL}")
-    print(f"             sha256 {WIRESHARK_SHA256[:16]}... (verified by download)")
     print("             downloaded only if 4.6.8 is not already installed")
     print()
     print("Read the script before running it. To install (elevated PowerShell):")

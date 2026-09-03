@@ -80,6 +80,18 @@ def _render_generate_form(admin_email: str) -> None:
                 "available."
             ),
         )
+        enable_capture = st.toggle(
+            "Enable full network capture (tshark companion)", value=False,
+            help=(
+                "Installs the tshark capture companion: PatronAI Capture and "
+                "PatronAI Capture Sync. Heavier than Packetbeat - it needs "
+                "Administrator, downloads Wireshark (~90 MB) and runs a boot "
+                "service - but it records URL paths, MCP calls and cloud "
+                "account identity, not just destination domains. Message "
+                "content is never collected. Windows only for now; the "
+                "toggle is ignored on macOS/Linux."
+            ),
+        )
         submitted = st.form_submit_button("Generate Package", type="primary")
 
     if submitted:
@@ -88,13 +100,15 @@ def _render_generate_form(admin_email: str) -> None:
             return
         auth_domains = [d.strip() for d in auth_raw.splitlines() if d.strip()]
         _generate(name.strip(), recipient_email.strip(), os_type,
-                  send_email, admin_email, auth_domains, enable_packetbeat)
+                  send_email, admin_email, auth_domains, enable_packetbeat,
+                  enable_capture)
 
 
 def _generate(name: str, email: str, os_type: str,
               send_email: bool, admin_email: str,
               authorized_domains: list | None = None,
-              enable_packetbeat: bool = False) -> None:
+              enable_packetbeat: bool = False,
+             enable_capture: bool = False) -> None:
     """Run package generation and display the result."""
     from store.agent_store import AgentStore
     from store import agent_renderer
@@ -125,6 +139,7 @@ def _generate(name: str, email: str, os_type: str,
                 send_email         = send_email,
                 authorized_domains = authorized_domains or [],
                 enable_packetbeat  = enable_packetbeat,
+                enable_capture     = enable_capture,
             )
         except Exception as e:
             st.error(f"Generation failed: {e}")
