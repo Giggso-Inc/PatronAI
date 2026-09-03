@@ -65,9 +65,45 @@ if ($pktmonState -notmatch "not running|No active") {
     Info "No pktmon session running"
 }
 
-Get-Process -Name "python", "pythonw" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*capture_service.py*" } |
-    ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue; Ok "Stopped capture_service (PID $($_.Id))" }
+# Get-CimInstance, NOT Get-Process. Get-Process has NO CommandLine property
+# on Windows PowerShell 5.1 - it is $null for every process, so the -like
+# test below was ALWAYS false, the pipeline was always empty, and this loop
+# silently never ran. The uninstaller printed a clean summary while leaving
+# the service alive.
+#
+# That is not theoretical: on 2026-09-03 a service orphaned this way survived
+# an uninstall and a reinstall, kept running for two hours, and held
+# capture.log open - so every new instance died on a sharing violation with
+# no error anywhere. Seven rounds of debugging traced back to this one line.
+#
+# CommandLine is also $null under Win32_Process when the caller lacks rights
+# to the target process, which is why this file requires Administrator: a
+# SYSTEM-owned service is invisible to an unelevated query, and "cannot see"
+# is indistinguishable from "not there".
+$killed = 0
+foreach ($proc in @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue |
+                    Where-Object { $_.CommandLine -and $_.CommandLine -like "*capture_service*" })) {
+    try {
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop
+        # Poll: Stop-Process returns before Windows releases the file handles,
+        # and a reinstall that starts too early hits the very lock we are
+        # clearing here.
+        $deadline = (Get-Date).AddSeconds(20)
+        while ((Get-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 250
+        }
+        if (Get-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue) {
+            Warn "capture_service PID $($proc.ProcessId) did not exit - reboot before reinstalling"
+        } else {
+            Ok "Stopped capture_service (PID $($proc.ProcessId))"
+            $killed++
+        }
+    } catch {
+        Warn "Could not stop capture_service PID $($proc.ProcessId): $($_.Exception.Message)"
+    }
+}
+# Say so out loud. Silence here previously looked identical to success.
+if ($killed -eq 0) { Info "No running capture_service process found" }
 
 # ── 3. Unset SSLKEYLOGFILE ───────────────────────────────────────────────
 # The most important step. Left set, every browser launched afterwards keeps
@@ -119,8 +155,6 @@ if (Test-Path $DataDir) {
 }
 
 Write-Host ""
-Ok "Uninstall complete"
-Info "Wireshark was NOT removed - remove it yourself if you do not want it."
 Write-Host ""
 
 # -- 5. Wireshark (opt-in only) -------------------------------------------
@@ -159,3 +193,5 @@ if ($RemoveWireshark) {
 } else {
     Info "Wireshark left installed (pass -RemoveWireshark to remove it too)"
 }
+
+Ok "Uninstall complete"

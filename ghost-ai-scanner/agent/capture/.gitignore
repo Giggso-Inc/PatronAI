@@ -4,3 +4,7 @@ dev_out/
 
 __pycache__/
 *.pyc
+# Raven Enterprise -- never commit these
+.raven/manifest.secrets.json
+.raven/.cache/
+.model.env
