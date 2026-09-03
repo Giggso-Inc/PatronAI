@@ -1,44 +1,624 @@
 {
-  "__inputs": [],
-  "__requires": [],
-  "annotations": { "list": [] },
-  "description": "PatronAI — AI Traffic Overview",
+  "uid": "marauder-overview",
+  "title": "PatronAI — Overview",
+  "tags": [
+    "ai-scanner",
+    "patronai"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 5,
+  "refresh": "5m",
+  "time": {
+    "from": "now/d",
+    "to": "now/d"
+  },
   "editable": true,
-  "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
-  "id": null,
-  "links": [],
   "panels": [
     {
-      "datasource": { "type": "marcusolsson-json-datasource", "uid": "GhostAI-S3-Summary" },
+      "type": "stat",
+      "title": "Total Events (today)",
+      "datasource": {
+        "type": "marcusolsson-json-datasource",
+        "uid": "patronai-summary"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
       "fieldConfig": {
-        "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } },
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
-      "id": 1,
-      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
-      "title": "AI Alerts (24h)",
-      "type": "stat"
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "marcusolsson-json-datasource",
+            "uid": "patronai-summary"
+          },
+          "urlPath": "/summary/daily/${__to:date:YYYY-MM-DD}.json",
+          "method": "GET",
+          "queryParams": "",
+          "cacheDurationSeconds": 60,
+          "fields": [
+            {
+              "jsonPath": "$.total_events",
+              "name": "Total events",
+              "type": "number"
+            }
+          ]
+        }
+      ]
     },
     {
-      "datasource": { "type": "marcusolsson-json-datasource", "uid": "GhostAI-S3-Findings" },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
-      "id": 2,
-      "options": { "footer": { "show": false }, "showHeader": true },
-      "title": "Recent AI Traffic Findings",
-      "type": "table"
+      "type": "stat",
+      "title": "Alerts Fired",
+      "datasource": {
+        "type": "marcusolsson-json-datasource",
+        "uid": "patronai-summary"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "marcusolsson-json-datasource",
+            "uid": "patronai-summary"
+          },
+          "urlPath": "/summary/daily/${__to:date:YYYY-MM-DD}.json",
+          "method": "GET",
+          "queryParams": "",
+          "cacheDurationSeconds": 60,
+          "fields": [
+            {
+              "jsonPath": "$.alerts_fired",
+              "name": "Alerts",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Critical",
+      "datasource": {
+        "type": "marcusolsson-json-datasource",
+        "uid": "patronai-summary"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "marcusolsson-json-datasource",
+            "uid": "patronai-summary"
+          },
+          "urlPath": "/summary/daily/${__to:date:YYYY-MM-DD}.json",
+          "method": "GET",
+          "queryParams": "",
+          "cacheDurationSeconds": 60,
+          "fields": [
+            {
+              "jsonPath": "$.critical_count",
+              "name": "Critical",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Devices Reporting",
+      "datasource": {
+        "type": "marcusolsson-json-datasource",
+        "uid": "patronai-summary"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "marcusolsson-json-datasource",
+            "uid": "patronai-summary"
+          },
+          "urlPath": "/summary/daily/${__to:date:YYYY-MM-DD}.json",
+          "method": "GET",
+          "queryParams": "",
+          "cacheDurationSeconds": 60,
+          "fields": [
+            {
+              "jsonPath": "$.unique_sources",
+              "name": "Devices",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "AI Providers Seen",
+      "datasource": {
+        "type": "marcusolsson-json-datasource",
+        "uid": "patronai-summary"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "marcusolsson-json-datasource",
+            "uid": "patronai-summary"
+          },
+          "urlPath": "/summary/daily/${__to:date:YYYY-MM-DD}.json",
+          "method": "GET",
+          "queryParams": "",
+          "cacheDurationSeconds": 60,
+          "fields": [
+            {
+              "jsonPath": "$.unique_providers",
+              "name": "Providers",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Findings by Severity",
+      "datasource": {
+        "type": "marcusolsson-json-datasource",
+        "uid": "patronai-summary"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "marcusolsson-json-datasource",
+            "uid": "patronai-summary"
+          },
+          "urlPath": "/summary/daily/${__to:date:YYYY-MM-DD}.json",
+          "method": "GET",
+          "queryParams": "",
+          "cacheDurationSeconds": 60,
+          "fields": [
+            {
+              "jsonPath": "$.by_severity.HIGH",
+              "name": "HIGH",
+              "type": "number"
+            },
+            {
+              "jsonPath": "$.by_severity.MEDIUM",
+              "name": "MEDIUM",
+              "type": "number"
+            },
+            {
+              "jsonPath": "$.by_severity.LOW",
+              "name": "LOW",
+              "type": "number"
+            },
+            {
+              "jsonPath": "$.by_severity.CLEAN",
+              "name": "CLEAN",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Events by Outcome",
+      "datasource": {
+        "type": "marcusolsson-json-datasource",
+        "uid": "patronai-summary"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "marcusolsson-json-datasource",
+            "uid": "patronai-summary"
+          },
+          "urlPath": "/summary/daily/${__to:date:YYYY-MM-DD}.json",
+          "method": "GET",
+          "queryParams": "",
+          "cacheDurationSeconds": 60,
+          "fields": [
+            {
+              "jsonPath": "$.by_outcome.ENDPOINT_FINDING",
+              "name": "Endpoint finding",
+              "type": "number"
+            },
+            {
+              "jsonPath": "$.by_outcome.DOMAIN_ALERT",
+              "name": "Domain alert",
+              "type": "number"
+            },
+            {
+              "jsonPath": "$.by_outcome.HEARTBEAT",
+              "name": "Heartbeat",
+              "type": "number"
+            },
+            {
+              "jsonPath": "$.by_outcome.UNKNOWN",
+              "name": "Unknown",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Pipeline Health",
+      "datasource": {
+        "type": "marcusolsson-json-datasource",
+        "uid": "patronai-summary"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "marcusolsson-json-datasource",
+            "uid": "patronai-summary"
+          },
+          "urlPath": "/summary/daily/${__to:date:YYYY-MM-DD}.json",
+          "method": "GET",
+          "queryParams": "",
+          "cacheDurationSeconds": 60,
+          "fields": [
+            {
+              "jsonPath": "$.date",
+              "name": "Summary date",
+              "type": "string"
+            },
+            {
+              "jsonPath": "$.built_at",
+              "name": "Last aggregated",
+              "type": "string"
+            },
+            {
+              "jsonPath": "$.build_mode",
+              "name": "Mode",
+              "type": "string"
+            },
+            {
+              "jsonPath": "$.build_duration_seconds",
+              "name": "Build secs",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Top Sources (by events)",
+      "datasource": {
+        "type": "marcusolsson-json-datasource",
+        "uid": "patronai-summary"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 0,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "marcusolsson-json-datasource",
+            "uid": "patronai-summary"
+          },
+          "urlPath": "/summary/daily/${__to:date:YYYY-MM-DD}.json",
+          "method": "GET",
+          "queryParams": "",
+          "cacheDurationSeconds": 60,
+          "fields": [
+            {
+              "jsonPath": "$.top_sources[*].owner",
+              "name": "Owner",
+              "type": "string"
+            },
+            {
+              "jsonPath": "$.top_sources[*].src_ip",
+              "name": "Source IP",
+              "type": "string"
+            },
+            {
+              "jsonPath": "$.top_sources[*].count",
+              "name": "Events",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "AI Providers / Tools Detected",
+      "datasource": {
+        "type": "marcusolsson-json-datasource",
+        "uid": "patronai-summary"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 10,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "marcusolsson-json-datasource",
+            "uid": "patronai-summary"
+          },
+          "urlPath": "/summary/daily/${__to:date:YYYY-MM-DD}.json",
+          "method": "GET",
+          "queryParams": "",
+          "cacheDurationSeconds": 60,
+          "fields": [
+            {
+              "jsonPath": "$.providers[*]",
+              "name": "Provider / Tool",
+              "type": "string"
+            }
+          ]
+        }
+      ]
     }
-  ],
-  "refresh": "30s",
-  "schemaVersion": 38,
-  "tags": ["patronai", "ai-scanner"],
-  "templating": { "list": [] },
-  "time": { "from": "now-24h", "to": "now" },
-  "timepicker": {},
-  "timezone": "browser",
-  "title": "PatronAI — Overview",
-  "uid": "marauder-overview",
-  "version": 1
+  ]
 }
