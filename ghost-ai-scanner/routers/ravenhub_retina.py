@@ -91,11 +91,16 @@ async def get_hub_token_link(
     patron_token: str = Depends(_validate_token),
     store=Depends(_get_store),
 ):
-    """Return the current Hub device token for a Patron agent."""
+    """Return whether this Patron agent is linked to a Hub device token.
+
+    Does NOT return the raw token — callers can only verify link state, not
+    retrieve the credential. A bearer token disclosed here would allow any
+    holder of the org-wide API key to forge fingerprint scans on behalf of
+    any device.
+    """
     hub_token = store.get_hub_token_id(patron_token)
     return {
         "patron_token": patron_token,
-        "raven_hub_token_id": hub_token,
         "linked": bool(hub_token),
     }
 
