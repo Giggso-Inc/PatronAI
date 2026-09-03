@@ -117,9 +117,19 @@ def _bind_identity(event: dict, raw: dict) -> None:
     event["src_ip"]       = (ip_set[0] if ip_set else "") or raw.get("device_id", "")
     event["src_hostname"] = raw.get("device_id", "")
     event["mac_address"]  = raw.get("mac_primary", "")
-    event["owner"]        = raw.get("email", "") or raw.get("owner", "") or raw.get("device_id", "")
+    # The agent never sends an email - it does not know who is using the
+    # machine. Resolve it from the device token via the agent catalog, the
+    # same binding jobs/tshark_ingest.catalog_identity() uses for capture
+    # data. Without this every finding reads as a hostname and cannot be
+    # filtered by person, and downstream user sync (identity_resolver,
+    # policy_context_loader) has no email to join on.
+    email = raw.get("email", "")
+    if not email:
+        from .identity_catalog import email_for_token
+        email = email_for_token(raw.get("token", "")) or ""
+    event["owner"]        = email or raw.get("owner", "") or raw.get("device_id", "")
     event["device_uuid"]  = raw.get("device_uuid", "")
-    event["email"]        = raw.get("email", "")
+    event["email"]        = email
     event["ip_set"]       = ip_set
     event["asset_type"]   = "laptop"
     # enrollment_source: constant, not looked up - there is exactly one

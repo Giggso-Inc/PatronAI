@@ -59,3 +59,12 @@ nginx/nginx.conf.pre-*
 nginx/nginx.conf.*-backup
 docker-compose.green.yml
 .env.pre-*
+*.pre-identity
+*.pre-console*
+*.pre-wsfix
+*.pre-bucketfix
+*.pre-summarydeny
+*.pre-smtp
+*.pre-minio
+*.pre-cutover
+*.pre-emails
