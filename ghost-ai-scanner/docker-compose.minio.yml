@@ -1,0 +1,12 @@
+services:
+  minio:
+    ports: !override []
+    environment: !override
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_BROWSER_REDIRECT_URL=https://patronai.giggso.com/minio-console
+  minio-init:
+    environment: !override
+      - BUCKET=${MARAUDER_SCAN_BUCKET}
+      - AK=${MINIO_ROOT_USER}
+      - SK=${MINIO_ROOT_PASSWORD}

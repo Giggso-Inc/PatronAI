@@ -52,3 +52,10 @@ reports/regression-*.html
 .raven/manifest.secrets.json
 .raven/.cache/
 .model.env
+
+# never commit TLS material or local backups
+nginx/domaincert/
+nginx/nginx.conf.pre-*
+nginx/nginx.conf.*-backup
+docker-compose.green.yml
+.env.pre-*
