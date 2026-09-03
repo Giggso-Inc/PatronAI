@@ -9,12 +9,24 @@
 # Run with: powershell -ExecutionPolicy Bypass -File uninstall-windows.ps1
 # REQUIRES: Administrator rights
 #
-# Deliberately does NOT remove Wireshark: the user may have installed it
+# By default this does NOT remove Wireshark: the user may have installed it
 # themselves or rely on it. Removing a general-purpose tool because we once
-# needed it would be a surprise.
+# needed it would be a surprise. Pass -RemoveWireshark to opt in - useful for
+# rehearsing a clean install, where a pre-existing Wireshark would hide a
+# broken download/install step in install-windows.ps1.
+#
+# NPCAP IS NEVER REMOVED, even with -RemoveWireshark. The Npcap on this box
+# belongs to Packetbeat, which bundles and installs its own licensed copy;
+# our installer runs Wireshark with /S precisely so it SKIPS Npcap. Removing
+# it would break a running Packetbeat that has nothing to do with us.
 # =============================================================
 
 #Requires -RunAsAdministrator
+
+param(
+    # Opt-in: also uninstall Wireshark, silently, via its own NSIS uninstaller.
+    [switch]$RemoveWireshark
+)
 
 $ErrorActionPreference = "Continue"   # keep going: a partial install must still clean up
 
@@ -110,3 +122,40 @@ Write-Host ""
 Ok "Uninstall complete"
 Info "Wireshark was NOT removed - remove it yourself if you do not want it."
 Write-Host ""
+
+# -- 5. Wireshark (opt-in only) -------------------------------------------
+if ($RemoveWireshark) {
+    $ws = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                           'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' `
+          -ErrorAction SilentlyContinue |
+          Where-Object { $_.DisplayName -like 'Wireshark*' } | Select-Object -First 1
+    if (-not $ws) {
+        Info "Wireshark is not installed - nothing to remove"
+    } else {
+        $exe = $ws.UninstallString -replace '^"|"$', ''
+        Info "Uninstalling $($ws.DisplayName)..."
+        try {
+            Start-Process -FilePath $exe -ArgumentList '/S' -Wait -ErrorAction Stop
+        } catch {
+            Warn "Could not launch the Wireshark uninstaller: $($_.Exception.Message)"
+        }
+        # POLL for the binary, do not trust the exit code. An NSIS uninstaller
+        # detaches and returns before the files are unlinked, so checking
+        # straight after -Wait reports success while tshark.exe is still there.
+        # tshark.exe specifically: it is what the parser actually invokes.
+        $deadline = (Get-Date).AddSeconds(90)
+        while ((Test-Path "$env:ProgramFiles\Wireshark\tshark.exe") -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+        }
+        if (Test-Path "$env:ProgramFiles\Wireshark\tshark.exe") {
+            Warn "tshark.exe is still present - remove Wireshark manually via Settings > Apps"
+        } else {
+            Ok "Wireshark removed (tshark.exe is gone)"
+        }
+    }
+    # State this explicitly: someone rehearsing a clean install would otherwise
+    # assume -RemoveWireshark took Npcap with it, and be surprised later.
+    Info "Npcap left installed on purpose - it belongs to Packetbeat, not to this companion"
+} else {
+    Info "Wireshark left installed (pass -RemoveWireshark to remove it too)"
+}

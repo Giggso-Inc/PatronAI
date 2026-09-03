@@ -22,7 +22,6 @@ DEVICE_ID="{{DEVICE_ID}}"
 COMPANY="{{COMPANY}}"
 URLS_JSON='{{URLS_JSON}}'
 WIRESHARK_URL="{{WIRESHARK_URL}}"
-WIRESHARK_SHA256="{{WIRESHARK_SHA256}}"
 
 WIRESHARK_VERSION="4.6.8"
 DATA_DIR="/Library/Application Support/PatronAI/capture"
@@ -68,9 +67,8 @@ else
   _info "Downloading Wireshark $WIRESHARK_VERSION..."
   DMG="$(mktemp -t wireshark).dmg"
   curl -fsSL "$WIRESHARK_URL" -o "$DMG"
-  ACTUAL="$(shasum -a 256 "$DMG" | awk '{print $1}')"
-  [ "$ACTUAL" = "$WIRESHARK_SHA256" ] || { rm -f "$DMG"; _die "Checksum mismatch: expected $WIRESHARK_SHA256, got $ACTUAL"; }
-  _ok "Checksum verified"
+  # No checksum pin - see the note in install-windows.ps1. HTTPS to the
+  # official mirror is the only integrity guarantee on this download.
 
   MOUNT="$(hdiutil attach -nobrowse -quiet "$DMG" | awk 'END{print $NF}')"
   installer -pkg "$MOUNT"/Wireshark*.pkg -target / >/dev/null

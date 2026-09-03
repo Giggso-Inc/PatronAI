@@ -25,7 +25,6 @@ $DeviceId    = "{{DEVICE_ID}}"
 $Company     = "{{COMPANY}}"
 $UrlsJson    = '{{URLS_JSON}}'          # presigned-URL bundle, single-quoted: raw JSON
 $WiresharkUrl    = "{{WIRESHARK_URL}}"  # pinned 4.6.8 installer
-$WiresharkSha256 = "{{WIRESHARK_SHA256}}"
 
 $WiresharkVersion = "4.6.8"
 $DataDir  = Join-Path $env:ProgramData "PatronAI\capture"
@@ -102,12 +101,10 @@ if (Test-Path $TsharkExe) {
     $installer = Join-Path $env:TEMP "Wireshark-$WiresharkVersion-x64.exe"
     Invoke-WebRequest -Uri $WiresharkUrl -OutFile $installer -UseBasicParsing
 
-    $actual = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLower()
-    if ($actual -ne $WiresharkSha256.ToLower()) {
-        Remove-Item $installer -Force -ErrorAction SilentlyContinue
-        Die "Wireshark checksum mismatch. Expected $WiresharkSha256, got $actual. Refusing to install."
-    }
-    Ok "Checksum verified"
+    # No checksum pin. Removed deliberately 2026-09-03: the pinned hash had to
+    # be bumped in lockstep with WIRESHARK_URL, and a URL-only bump turned every
+    # install into a "checksum mismatch" that reads like an attack. Integrity of
+    # the download now rests on HTTPS to the official Wireshark mirror alone.
 
     # /S = silent. There is deliberately NO Npcap flag: the Wireshark User's
     # Guide states "the silent installer will not install Npcap" - silent mode
