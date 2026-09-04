@@ -86,6 +86,7 @@ ghost-ai-scanner/config/unauthorized_custom.csv,CONFIG,Customer additions (UI-ed
 ghost-ai-scanner/config/authorized.csv,CONFIG,Customer allow list — suppress alerts for approved endpoints,—,—,—
 ghost-ai-scanner/config/eni_denylist.yaml,CONFIG,VPC ENI types to skip during normalisation,—,—,5-type denylist
 ghost-ai-scanner/agent/install/,CONFIG,Hook-agent fragment templates (sh + ps1),—,scan_fragment_loader,Templates only — never the rendered output
+ghost-ai-scanner/agent/scanners/,CONFIG,"Vendored companion scanners: AI-SDK-Scanner, Extension Searcher, apikey-scanner",—,scan_declared_deps scan_browser_extensions scan_hardcoded_secrets,Source only — no tests/venv/caches; see agent/scanners/README.md
 ghost-ai-scanner/grafana/dashboards/marauder-overview.json,CONFIG,Pre-built Grafana dashboard,—,—,Provisioned on first boot
 ghost-ai-scanner/nginx/nginx.conf,CONFIG,Reverse proxy config (Streamlit + Grafana subpaths),—,—,—
 ghost-ai-scanner/tests/unit/test_chat_tools.py,TEST,Rollup-backed chat tool shapes + citations + no_data,—,chat.tools,Mocks read_dimension_range
