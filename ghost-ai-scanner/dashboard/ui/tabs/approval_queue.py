@@ -17,6 +17,7 @@
 import json
 import logging
 import os
+import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
@@ -29,9 +30,17 @@ from .. import audit as _audit
 log    = logging.getLogger("patronai.ui.approval_queue")
 BUCKET = os.environ.get("MARAUDER_SCAN_BUCKET", "")
 
+_FORMULA_CHARS = re.compile(r"^[=+\-@]")
+
 ALLOW_CUSTOM_KEY = "config/authorized_custom.csv"
 DENY_CUSTOM_KEY  = "config/unauthorized_custom.csv"
 DISMISSED_KEY    = "config/greylist_dismissed.txt"
+
+
+def _safe_csv(value: str) -> str:
+    """Strip control chars and prefix formula-injection characters with a single quote."""
+    s = value.replace("\n", "").replace("\r", "").strip()
+    return f"'{s}" if _FORMULA_CHARS.match(s) else s
 
 
 def render(is_admin: bool, email: str = "") -> None:
@@ -167,7 +176,7 @@ def _promote_to_whitelist(domains: list, email: str) -> None:
     writer = _csv.writer(buf, lineterminator="\n")
     for d in domains:
         # Use exact-match or subdomain-only pattern — never *substring* wildcard
-        safe_d = d.replace("\n", "").replace("\r", "").strip()
+        safe_d = _safe_csv(d)
         pattern = f"*.{safe_d}" if not safe_d.startswith("*.") else safe_d
         writer.writerow([f"Approved {safe_d}", pattern,
                          "Promoted from greylist approval queue"])
@@ -195,7 +204,7 @@ def _demote_to_blacklist(domains: list, email: str) -> None:
     buf = _io_mod.StringIO()
     writer = _csv.writer(buf, lineterminator="\n")
     for d in domains:
-        safe_d = d.replace("\n", "").replace("\r", "").strip()
+        safe_d = _safe_csv(d)
         writer.writerow([f"Denied {safe_d}", "Greylist Denied", safe_d, 443,
                          "HIGH", "Denied from greylist approval queue"])
     existing += buf.getvalue()

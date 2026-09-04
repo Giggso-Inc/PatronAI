@@ -87,7 +87,7 @@ def main() -> None:
         _with_chat("exec", exec_render, events, summary, email)
     elif view == "manager":
         from ui.manager_view import render as mgr_render
-        _with_chat("manager", mgr_render, events, summary, email)
+        _with_chat("manager", mgr_render, events, summary, email, is_admin=is_admin)
     elif view == "providers":
         from ui.tabs.provider_lists import render as pl_render
         pl_render(is_admin=False, email=email)
