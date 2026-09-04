@@ -43,7 +43,7 @@ sys.path.insert(0, "src")
 
 from bootstrap   import validate_env, build_store, load_settings, build_resolver, maybe_backfill, seed_config_files
 from rule_health  import self_check_rules
-from threads      import scanner_loop, alerter_backlog, url_refresh_loop, streamlit_proc, integration_api_proc
+from threads      import scanner_loop, alerter_backlog, url_refresh_loop, streamlit_proc, integration_api_proc, retina_loop
 from jobs.hourly_rollup    import scheduler_loop as rollup_scheduler_loop
 from jobs.docs_refresh     import docs_refresh_loop
 from jobs.findings_compact import scheduler_loop as compact_scheduler_loop
@@ -152,6 +152,9 @@ def main():
         threading.Thread(target=compact_scheduler_loop, args=(store, stop),                   name="findings_compact", daemon=True),
         threading.Thread(target=docs_refresh_loop,   args=(stop,),                           name="docs_refresh",   daemon=True),
         threading.Thread(target=streamlit_proc,      args=(stop,),                           name="streamlit",      daemon=True),
+        # RavenHub Card — retina fingerprint assembler. Runs every 300s,
+        # reads each agent's latest scan, computes hash, posts to Hub when changed.
+        threading.Thread(target=retina_loop,         args=(store, stop),                     name="retina",         daemon=True),
     ]
     if os.environ.get("INTEGRATION_API_ENABLED", "0") == "1":
         threads.append(

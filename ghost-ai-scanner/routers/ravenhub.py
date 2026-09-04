@@ -152,8 +152,37 @@ class UserDetailResponse(BaseModel):
 # Helper functions
 # =============================================================
 
-def _blob_store() -> BlobIndexStore:
-    bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
+def _org_bucket_for(email: str) -> Optional[str]:
+    """Resolve the caller's own org's S3 bucket (Org.s3_bucket) instead of
+    trusting the process-wide MARAUDER_SCAN_BUCKET env var. This DB is
+    genuinely multi-org (see _workforce_total's docstring below) and every
+    org gets its own bucket at provisioning time (raven_enterprise_bootstrap.py,
+    src/db/seeding.py), but MARAUDER_SCAN_BUCKET reflects whichever org was
+    last provisioned/deployed into that env var, not necessarily the
+    caller's own org — an unscoped read here could return another tenant's
+    findings, or nothing at all if the wrong bucket happens to be empty.
+    Falls through (returns None) on any DB failure or unrecognized email —
+    matching _db_is_admin's convention — so single-org/dev setups without a
+    populated Org table keep working via _blob_store's env-var fallback."""
+    if not os.environ.get("DATABASE_URL"):
+        return None
+    try:
+        from db.engine import get_session
+        from db.models_identity import Org
+        from db.policy_queries import get_identity
+        with get_session() as s:
+            _user, org_id, _projects = get_identity(s, email)
+            if org_id is None:
+                return None
+            org = s.get(Org, org_id)
+            return org.s3_bucket if org and org.s3_bucket else None
+    except Exception as exc:                       # noqa: BLE001 — best effort
+        _log.warning("RavenHub org-bucket resolve failed (falling back to MARAUDER_SCAN_BUCKET): %s", exc)
+        return None
+
+
+def _blob_store(email: Optional[str] = None) -> BlobIndexStore:
+    bucket = (_org_bucket_for(email) if email else None) or os.environ.get("MARAUDER_SCAN_BUCKET", "")
     region = os.environ.get("AWS_REGION", "us-east-1")
     if not bucket:
         raise HTTPException(status_code=503, detail="MARAUDER_SCAN_BUCKET not configured")
@@ -323,7 +352,22 @@ def _kpis(events: list, y_summary: dict) -> dict:
     high_sev = [e for e in events if e.get("severity") == "HIGH"]
     n_findings = len(findings)
     n_high = len(high_sev)
-    n_provs = len(set(e.get("provider", "") for e in events if e.get("provider")))
+    # Reuses _shadow_by_tool's own tool-counting rule (distinct _tool_name_of
+    # — provider, falling back to dst_domain — with resolved events excluded)
+    # instead of a second, narrower rule of its own. This field is rendered on
+    # the Exec Overview widget as "Active Shadow Tools" while _shadow_by_tool's
+    # total_tools is rendered on the Shadow AI Detection page as "AI Providers
+    # Detected" — both claim to describe the same count of distinct tools over
+    # the same event set, so they must agree. The old rule here counted
+    # distinct raw `provider` values only: a domain-only detection (provider
+    # empty, dst_domain set) was invisible to it but counted by
+    # _shadow_by_tool, and a resolved finding still counted here after
+    # _shadow_by_tool had already excluded it — either difference alone was
+    # enough to make the two screens disagree (GSD ticket "Shadow AI Detection
+    # - Metric Definition and Data Mapping"). _shadow_by_tool is called again
+    # here rather than inlining its dedup logic so there is exactly one place
+    # that defines "how many distinct tools" for this event set to drift from.
+    n_provs = _shadow_by_tool(events)["total_tools"]
     n_cats = len(set(e.get("category", "") for e in findings if e.get("category")))
     # Same outcome set as ingestor._stats()'s "alerts_fired" (includes
     # ENDPOINT_FINDING, unlike aggregator.aggregate()'s narrower version) —
@@ -338,6 +382,14 @@ def _kpis(events: list, y_summary: dict) -> dict:
     return {
         "ai_findings": {"value": n_findings, "delta": n_findings - yout.get("ENDPOINT_FINDING", 0)},
         "high_severity": {"value": n_high, "delta": n_high - ysev.get("HIGH", 0)},
+        # "value" is now reconciled with the Shadow AI Detection page (see the
+        # n_provs comment above). "delta" is unchanged and stays an
+        # approximation: y_summary["unique_providers"] is yesterday's
+        # aggregator.py rollup, a plain distinct-raw-provider count with no
+        # dst_domain fallback or resolved-status exclusion of its own —
+        # fixing that would mean rewriting the daily aggregation pipeline
+        # every other historical KPI here also leans on, well beyond this
+        # ticket's "today's two screens disagree" scope.
         "ai_providers_detected": {"value": n_provs, "delta": n_provs - y_summary.get("unique_providers", 0)},
         "categories_found": {"value": n_cats},
         "alerts_fired": {"value": n_alerts, "delta": n_alerts - y_alerts},
@@ -826,7 +878,7 @@ def get_exec_overview(
     pipeline, not built yet. Revisit once that FE work lands — this
     endpoint's "scoped to non-admins" claim is aspirational until then,
     not currently enforced."""
-    store = _blob_store()
+    store = _blob_store(email)
     email_norm = email
     is_admin = _resolve_is_admin(email_norm)
 
@@ -884,7 +936,7 @@ def get_inventory_overview(
             message="Not an admin — no inventory data available.",
         )
 
-    store = _blob_store()
+    store = _blob_store(email_norm)
     events, _summary, _y_summary, source_date = _load_events(store, email_norm, is_admin=True)
     posture = _ai_posture(events)
     dev_score = posture.pop("device_scores")
@@ -931,7 +983,7 @@ def get_shadow_by_tool(
             message="Not an admin — no shadow AI data available.",
         )
 
-    store = _blob_store()
+    store = _blob_store(email_norm)
     events, _summary, _y_summary, source_date = _load_events(store, email_norm, is_admin=True)
     return ShadowByToolResponse(
         email=email_norm,
@@ -980,7 +1032,7 @@ def get_user_detail(
             message="Not authorized to view this user's data.",
         )
 
-    store = _blob_store()
+    store = _blob_store(target_norm)
     user_events, _summary, _y_summary, _source_date = _load_events(store, target_norm, is_admin=False)
     policy_ctx = _user_policy_context(target_norm, _org_policy_context())
 

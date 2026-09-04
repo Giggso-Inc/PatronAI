@@ -52,6 +52,7 @@ from routers.ravenhub import (
     _asset_key, _owner_of, _ai_posture, _asset_inventory,
     get_inventory_overview, InventoryOverviewResponse,
     _user_logs, get_user_detail, UserDetailResponse,
+    _shadow_by_tool,
 )
 
 
@@ -101,6 +102,53 @@ def test_kpis_empty_events():
     kpis = _kpis([], y_summary={})
     assert kpis["ai_findings"] == {"value": 0, "delta": 0}
     assert kpis["categories_found"] == {"value": 0}
+
+
+# ── ai_providers_detected vs. Shadow AI Detection page's total_tools ────────
+# GSD ticket "Shadow AI Detection - Metric Definition and Data Mapping": the
+# Exec Overview widget's "Active Shadow Tools" (_kpis' ai_providers_detected)
+# and the Shadow AI Detection page's "AI Providers Detected" (_shadow_by_tool's
+# total_tools) are two different renderings of the same claim over the same
+# event set and must never disagree.
+
+def test_ai_providers_detected_always_matches_shadow_by_tool_total_tools():
+    """The core reconciliation the ticket asked for, run over a mix that
+    exercises both ways the two used to diverge in one event set."""
+    events = [
+        _ev(provider="claude.ai"),
+        _ev(provider="chatgpt.com"),
+        _ev(provider="claude.ai"),  # duplicate provider, not a new tool
+    ]
+    kpis = _kpis(events, y_summary={})
+    assert kpis["ai_providers_detected"]["value"] == _shadow_by_tool(events)["total_tools"]
+    assert kpis["ai_providers_detected"]["value"] == 2
+
+
+def test_ai_providers_detected_excludes_resolved_findings():
+    """The regression: a resolved finding used to still count here even
+    though _shadow_by_tool had already excluded it, so resolving a shadow-AI
+    finding dropped 'Active Shadow Tools' but left 'AI Providers Detected'
+    unchanged."""
+    events = [
+        _ev(provider="claude.ai"),
+        _ev(provider="chatgpt.com", status="resolved"),
+    ]
+    kpis = _kpis(events, y_summary={})
+    assert kpis["ai_providers_detected"]["value"] == 1
+    assert kpis["ai_providers_detected"]["value"] == _shadow_by_tool(events)["total_tools"]
+
+
+def test_ai_providers_detected_counts_dst_domain_fallback_tools():
+    """The other regression: a network detection with no resolved `provider`
+    but a real `dst_domain` used to be invisible here while _shadow_by_tool
+    already counted it via _tool_name_of's fallback."""
+    events = [
+        _ev(provider="claude.ai"),
+        _ev(provider="", dst_domain="sketchy-ai-tool.example.com"),
+    ]
+    kpis = _kpis(events, y_summary={})
+    assert kpis["ai_providers_detected"]["value"] == 2
+    assert kpis["ai_providers_detected"]["value"] == _shadow_by_tool(events)["total_tools"]
 
 
 # ── _data_exposure ─────────────────────────────────────────────
@@ -446,7 +494,7 @@ def test_inventory_overview_unknown_email_returns_200_not_403(monkeypatch):
 
 def test_inventory_overview_admin_returns_full_data(monkeypatch):
     monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: True)
-    monkeypatch.setattr(ravenhub, "_blob_store", lambda: object())
+    monkeypatch.setattr(ravenhub, "_blob_store", lambda email=None: object())
     fake_events = [_ev(src_hostname="box-1", category="browser", severity="HIGH")]
     monkeypatch.setattr(
         ravenhub, "_load_events",
@@ -490,7 +538,7 @@ def test_user_logs_missing_provider_is_none_not_empty_string():
 
 def _stub_user_detail_deps(monkeypatch, events):
     """Stub out identity/S3/DB so get_user_detail runs fully offline."""
-    monkeypatch.setattr(ravenhub, "_blob_store", lambda: object())
+    monkeypatch.setattr(ravenhub, "_blob_store", lambda email=None: object())
     monkeypatch.setattr(
         ravenhub, "_load_events",
         lambda store, email, is_admin: (events, {}, {}, "2026-07-20"),
