@@ -1,0 +1,1004 @@
+{
+  "version": 2,
+  "updated": "2026-08-31",
+  "libraries": [
+    {
+      "name": "openai",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "anthropic",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "cohere",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "mistralai",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "google-generativeai",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "google-genai",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "groq",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "together",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "replicate",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "ai21",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "fireworks-ai",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "huggingface-hub",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "azure-ai-inference",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "openai",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "@anthropic-ai/sdk",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "@google/generative-ai",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "cohere-ai",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "@mistralai/mistralai",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "groq-sdk",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "replicate",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "@huggingface/inference",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "langgraph",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "haystack-ai",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "semantic-kernel",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "autogen",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "crewai",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "dspy-ai",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "litellm",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "instructor",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "pydantic-ai",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "smolagents",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "guidance",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "langchain",
+      "ecosystem": "npm",
+      "category": "agent_framework"
+    },
+    {
+      "name": "llamaindex",
+      "ecosystem": "npm",
+      "category": "agent_framework"
+    },
+    {
+      "name": "ai",
+      "ecosystem": "npm",
+      "category": "agent_framework",
+      "_comment": "Vercel AI SDK. Deliberately kept as an exact match, never a namespace prefix - the bare name 'ai' is far too generic to prefix-match against."
+    },
+    {
+      "name": "pinecone-client",
+      "ecosystem": "pypi",
+      "category": "vector_db"
+    },
+    {
+      "name": "weaviate-client",
+      "ecosystem": "pypi",
+      "category": "vector_db"
+    },
+    {
+      "name": "qdrant-client",
+      "ecosystem": "pypi",
+      "category": "vector_db"
+    },
+    {
+      "name": "chromadb",
+      "ecosystem": "pypi",
+      "category": "vector_db"
+    },
+    {
+      "name": "faiss-cpu",
+      "ecosystem": "pypi",
+      "category": "vector_db"
+    },
+    {
+      "name": "faiss-gpu",
+      "ecosystem": "pypi",
+      "category": "vector_db"
+    },
+    {
+      "name": "pymilvus",
+      "ecosystem": "pypi",
+      "category": "vector_db"
+    },
+    {
+      "name": "lancedb",
+      "ecosystem": "pypi",
+      "category": "vector_db"
+    },
+    {
+      "name": "pgvector",
+      "ecosystem": "pypi",
+      "category": "vector_db"
+    },
+    {
+      "name": "@pinecone-database/pinecone",
+      "ecosystem": "npm",
+      "category": "vector_db"
+    },
+    {
+      "name": "weaviate-ts-client",
+      "ecosystem": "npm",
+      "category": "vector_db"
+    },
+    {
+      "name": "@qdrant/js-client-rest",
+      "ecosystem": "npm",
+      "category": "vector_db"
+    },
+    {
+      "name": "chromadb",
+      "ecosystem": "npm",
+      "category": "vector_db"
+    },
+    {
+      "name": "torch",
+      "ecosystem": "pypi",
+      "category": "ml_framework"
+    },
+    {
+      "name": "tensorflow",
+      "ecosystem": "pypi",
+      "category": "ml_framework"
+    },
+    {
+      "name": "jax",
+      "ecosystem": "pypi",
+      "category": "ml_framework"
+    },
+    {
+      "name": "keras",
+      "ecosystem": "pypi",
+      "category": "ml_framework"
+    },
+    {
+      "name": "scikit-learn",
+      "ecosystem": "pypi",
+      "category": "ml_framework"
+    },
+    {
+      "name": "xgboost",
+      "ecosystem": "pypi",
+      "category": "ml_framework"
+    },
+    {
+      "name": "lightgbm",
+      "ecosystem": "pypi",
+      "category": "ml_framework"
+    },
+    {
+      "name": "catboost",
+      "ecosystem": "pypi",
+      "category": "ml_framework"
+    },
+    {
+      "name": "@tensorflow/tfjs",
+      "ecosystem": "npm",
+      "category": "ml_framework"
+    },
+    {
+      "name": "onnxruntime-node",
+      "ecosystem": "npm",
+      "category": "ml_framework"
+    },
+    {
+      "name": "transformers",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "sentence-transformers",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "tokenizers",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "datasets",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "accelerate",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "peft",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "trl",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "spacy",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "nltk",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "@xenova/transformers",
+      "ecosystem": "npm",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "vllm",
+      "ecosystem": "pypi",
+      "category": "inference_serving"
+    },
+    {
+      "name": "llama-cpp-python",
+      "ecosystem": "pypi",
+      "category": "inference_serving"
+    },
+    {
+      "name": "ctransformers",
+      "ecosystem": "pypi",
+      "category": "inference_serving"
+    },
+    {
+      "name": "onnxruntime",
+      "ecosystem": "pypi",
+      "category": "inference_serving"
+    },
+    {
+      "name": "ollama",
+      "ecosystem": "pypi",
+      "category": "inference_serving"
+    },
+    {
+      "name": "ollama",
+      "ecosystem": "npm",
+      "category": "inference_serving"
+    },
+    {
+      "name": "langsmith",
+      "ecosystem": "pypi",
+      "category": "observability_evals"
+    },
+    {
+      "name": "langfuse",
+      "ecosystem": "pypi",
+      "category": "observability_evals"
+    },
+    {
+      "name": "mlflow",
+      "ecosystem": "pypi",
+      "category": "observability_evals"
+    },
+    {
+      "name": "wandb",
+      "ecosystem": "pypi",
+      "category": "observability_evals"
+    },
+    {
+      "name": "ragas",
+      "ecosystem": "pypi",
+      "category": "observability_evals"
+    },
+    {
+      "name": "deepeval",
+      "ecosystem": "pypi",
+      "category": "observability_evals"
+    },
+    {
+      "name": "arize-phoenix",
+      "ecosystem": "pypi",
+      "category": "observability_evals"
+    },
+    {
+      "name": "langsmith",
+      "ecosystem": "npm",
+      "category": "observability_evals"
+    },
+    {
+      "name": "langfuse",
+      "ecosystem": "npm",
+      "category": "observability_evals"
+    },
+    {
+      "name": "tiktoken",
+      "ecosystem": "pypi",
+      "category": "embeddings_media"
+    },
+    {
+      "name": "diffusers",
+      "ecosystem": "pypi",
+      "category": "embeddings_media"
+    },
+    {
+      "name": "openai-whisper",
+      "ecosystem": "pypi",
+      "category": "embeddings_media"
+    },
+    {
+      "name": "tiktoken",
+      "ecosystem": "npm",
+      "category": "embeddings_media"
+    },
+    {
+      "name": "gpt-tokenizer",
+      "ecosystem": "npm",
+      "category": "embeddings_media"
+    },
+    {
+      "name": "langchain",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "dspy",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "farm-haystack",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "openai-agents",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "mcp",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "langflow",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "outlines",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "agno",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "llama-stack",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "name": "google-cloud-aiplatform",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "vertexai",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "voyageai",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "cerebras-cloud-sdk",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "deepseek",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "openrouter",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "boto3-stubs-bedrock-runtime",
+      "ecosystem": "pypi",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "bitsandbytes",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "optimum",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "sentencepiece",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "unsloth",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "gliner",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "deepspeed",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "flash-attn",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "einops",
+      "ecosystem": "pypi",
+      "category": "ml_framework"
+    },
+    {
+      "name": "torchvision",
+      "ecosystem": "pypi",
+      "category": "ml_framework"
+    },
+    {
+      "name": "torchaudio",
+      "ecosystem": "pypi",
+      "category": "ml_framework"
+    },
+    {
+      "name": "pytorch-lightning",
+      "ecosystem": "pypi",
+      "category": "ml_framework",
+      "aliases": [
+        "lightning"
+      ]
+    },
+    {
+      "name": "jaxlib",
+      "ecosystem": "pypi",
+      "category": "ml_framework"
+    },
+    {
+      "name": "flax",
+      "ecosystem": "pypi",
+      "category": "ml_framework"
+    },
+    {
+      "name": "onnx",
+      "ecosystem": "pypi",
+      "category": "inference_serving"
+    },
+    {
+      "name": "openvino",
+      "ecosystem": "pypi",
+      "category": "inference_serving"
+    },
+    {
+      "name": "tensorrt",
+      "ecosystem": "pypi",
+      "category": "inference_serving"
+    },
+    {
+      "name": "text-generation",
+      "ecosystem": "pypi",
+      "category": "inference_serving"
+    },
+    {
+      "name": "sglang",
+      "ecosystem": "pypi",
+      "category": "inference_serving"
+    },
+    {
+      "name": "guardrails-ai",
+      "ecosystem": "pypi",
+      "category": "observability_evals"
+    },
+    {
+      "name": "opik",
+      "ecosystem": "pypi",
+      "category": "observability_evals"
+    },
+    {
+      "name": "braintrust",
+      "ecosystem": "pypi",
+      "category": "observability_evals"
+    },
+    {
+      "name": "trulens-eval",
+      "ecosystem": "pypi",
+      "category": "observability_evals"
+    },
+    {
+      "name": "giskard",
+      "ecosystem": "pypi",
+      "category": "observability_evals"
+    },
+    {
+      "name": "faster-whisper",
+      "ecosystem": "pypi",
+      "category": "embeddings_media"
+    },
+    {
+      "name": "elevenlabs",
+      "ecosystem": "pypi",
+      "category": "embeddings_media"
+    },
+    {
+      "name": "deepgram-sdk",
+      "ecosystem": "pypi",
+      "category": "embeddings_media"
+    },
+    {
+      "name": "assemblyai",
+      "ecosystem": "pypi",
+      "category": "embeddings_media"
+    },
+    {
+      "name": "@openai/agents",
+      "ecosystem": "npm",
+      "category": "agent_framework"
+    },
+    {
+      "name": "@modelcontextprotocol/sdk",
+      "ecosystem": "npm",
+      "category": "agent_framework"
+    },
+    {
+      "name": "@google/genai",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "@aws-sdk/client-bedrock-runtime",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "@aws-sdk/client-sagemaker-runtime",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "@azure/openai",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "@anthropic-ai/bedrock-sdk",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "@anthropic-ai/vertex-sdk",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "@cerebras/cerebras_cloud_sdk",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "together-ai",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "voyageai",
+      "ecosystem": "npm",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "@huggingface/transformers",
+      "ecosystem": "npm",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "onnxruntime-web",
+      "ecosystem": "npm",
+      "category": "inference_serving"
+    },
+    {
+      "name": "@lancedb/lancedb",
+      "ecosystem": "npm",
+      "category": "vector_db"
+    },
+    {
+      "name": "@zilliz/milvus2-sdk-node",
+      "ecosystem": "npm",
+      "category": "vector_db"
+    },
+    {
+      "name": "@deepgram/sdk",
+      "ecosystem": "npm",
+      "category": "embeddings_media"
+    },
+    {
+      "name": "elevenlabs",
+      "ecosystem": "npm",
+      "category": "embeddings_media"
+    },
+    {
+      "name": "assemblyai",
+      "ecosystem": "npm",
+      "category": "embeddings_media"
+    },
+    {
+      "name": "@vercel/otel",
+      "ecosystem": "npm",
+      "category": "observability_evals"
+    },
+    {
+      "name": "braintrust",
+      "ecosystem": "npm",
+      "category": "observability_evals"
+    },
+    {
+      "name": "gliner2",
+      "ecosystem": "pypi",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "com.openai:openai-java",
+      "ecosystem": "maven",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "com.theokanning.openai-gpt3-java:service",
+      "ecosystem": "maven",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "dev.langchain4j:langchain4j",
+      "ecosystem": "maven",
+      "category": "agent_framework"
+    },
+    {
+      "name": "io.qdrant:client",
+      "ecosystem": "maven",
+      "category": "vector_db"
+    },
+    {
+      "name": "io.weaviate:client",
+      "ecosystem": "maven",
+      "category": "vector_db"
+    },
+    {
+      "name": "org.apache.opennlp:opennlp-tools",
+      "ecosystem": "maven",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "org.deeplearning4j:deeplearning4j-core",
+      "ecosystem": "maven",
+      "category": "ml_framework"
+    },
+    {
+      "name": "org.nd4j:nd4j-api",
+      "ecosystem": "maven",
+      "category": "ml_framework"
+    },
+    {
+      "name": "ai.djl:api",
+      "ecosystem": "maven",
+      "category": "ml_framework"
+    },
+    {
+      "name": "org.tensorflow:tensorflow-core-platform",
+      "ecosystem": "maven",
+      "category": "ml_framework"
+    },
+    {
+      "name": "github.com/sashabaranov/go-openai",
+      "ecosystem": "go",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "github.com/pinecone-io/go-pinecone",
+      "ecosystem": "go",
+      "category": "vector_db"
+    },
+    {
+      "name": "github.com/qdrant/go-client",
+      "ecosystem": "go",
+      "category": "vector_db"
+    },
+    {
+      "name": "github.com/milvus-io/milvus-sdk-go",
+      "ecosystem": "go",
+      "category": "vector_db"
+    },
+    {
+      "name": "async-openai",
+      "ecosystem": "cargo",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "qdrant-client",
+      "ecosystem": "cargo",
+      "category": "vector_db"
+    },
+    {
+      "name": "tokenizers",
+      "ecosystem": "cargo",
+      "category": "nlp_transformers"
+    },
+    {
+      "name": "candle-core",
+      "ecosystem": "cargo",
+      "category": "ml_framework"
+    },
+    {
+      "name": "ort",
+      "ecosystem": "cargo",
+      "category": "inference_serving"
+    },
+    {
+      "name": "OpenAI",
+      "ecosystem": "nuget",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "Azure.AI.OpenAI",
+      "ecosystem": "nuget",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "Microsoft.SemanticKernel",
+      "ecosystem": "nuget",
+      "category": "agent_framework"
+    },
+    {
+      "name": "Microsoft.ML",
+      "ecosystem": "nuget",
+      "category": "ml_framework"
+    },
+    {
+      "name": "TensorFlow.NET",
+      "ecosystem": "nuget",
+      "category": "ml_framework"
+    },
+    {
+      "name": "ruby-openai",
+      "ecosystem": "rubygems",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "langchainrb",
+      "ecosystem": "rubygems",
+      "category": "agent_framework"
+    },
+    {
+      "name": "tiktoken_ruby",
+      "ecosystem": "rubygems",
+      "category": "embeddings_media"
+    },
+    {
+      "name": "openai-php/client",
+      "ecosystem": "composer",
+      "category": "llm_sdk"
+    },
+    {
+      "name": "theodo-group/llphant",
+      "ecosystem": "composer",
+      "category": "agent_framework"
+    }
+  ],
+  "namespaces": [
+    {
+      "pattern": "langchain-",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "pattern": "llama-index",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "pattern": "autogen-",
+      "ecosystem": "pypi",
+      "category": "agent_framework"
+    },
+    {
+      "pattern": "@langchain/",
+      "ecosystem": "npm",
+      "category": "agent_framework"
+    },
+    {
+      "pattern": "@llamaindex/",
+      "ecosystem": "npm",
+      "category": "agent_framework"
+    },
+    {
+      "pattern": "@ai-sdk/",
+      "ecosystem": "npm",
+      "category": "agent_framework"
+    },
+    {
+      "pattern": "dev.langchain4j:",
+      "ecosystem": "maven",
+      "category": "agent_framework"
+    },
+    {
+      "pattern": "ai.djl.",
+      "ecosystem": "maven",
+      "category": "ml_framework"
+    },
+    {
+      "pattern": "github.com/tmc/langchaingo",
+      "ecosystem": "go",
+      "category": "agent_framework"
+    },
+    {
+      "pattern": "github.com/anthropics/",
+      "ecosystem": "go",
+      "category": "llm_sdk"
+    }
+  ],
+  "excluded": [
+    {
+      "name": "boto3",
+      "ecosystem": "pypi",
+      "reason": "General-purpose AWS SDK. S3/EC2/etc usage is indistinguishable from Bedrock usage at the manifest level - including it would generate false evidence at scale. Bedrock usage is only detectable from client-construction code, which is out of scope for a manifest scanner. See PLAN.md section 5.4. Note: the Bedrock-SPECIFIC npm client @aws-sdk/client-bedrock-runtime IS catalogued, because naming that package does imply AI usage; boto3 does not."
+    },
+    {
+      "name": "requests",
+      "ecosystem": "pypi",
+      "reason": "General-purpose HTTP client. Too generic to imply AI usage; every OpenAI-calling script could equally be calling any REST API."
+    },
+    {
+      "name": "httpx",
+      "ecosystem": "pypi",
+      "reason": "Same reasoning as requests."
+    },
+    {
+      "name": "numpy",
+      "ecosystem": "pypi",
+      "reason": "General-purpose numerical computing, used far beyond ML contexts."
+    },
+    {
+      "name": "pandas",
+      "ecosystem": "pypi",
+      "reason": "General-purpose data manipulation, used far beyond ML contexts."
+    },
+    {
+      "name": "scipy",
+      "ecosystem": "pypi",
+      "reason": "General-purpose scientific computing, used far beyond ML contexts."
+    },
+    {
+      "name": "pillow",
+      "ecosystem": "pypi",
+      "reason": "General-purpose image handling, used far beyond ML contexts."
+    }
+  ]
+}
