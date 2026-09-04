@@ -20,6 +20,9 @@
 #   v1.2.0  2026-04-28  User picker (st.pills) — mind map per selected user.
 #   v1.3.0  2026-09-02  Add KPI tiles for observed_network_target and
 #                       unclassified_software.
+#   v1.4.0  2026-09-04  Scanner-graft Phase 6. Add KPI tiles for
+#                       hardcoded_secret, browser_extension,
+#                       declared_dependency.
 # =============================================================
 
 import streamlit as st
@@ -61,6 +64,17 @@ def _render_kpis(events: list) -> None:
     clickable_metric(c7, "Unclassified SW",  counts.get("unclassified_software", 0),
                      panel_key=_PANEL, drill_field="category",
                      drill_value="unclassified_software")
+
+    c8, c9, c10 = st.columns(3)
+    clickable_metric(c8, "Hardcoded Secrets", counts.get("hardcoded_secret", 0),
+                     panel_key=_PANEL, drill_field="category",
+                     drill_value="hardcoded_secret")
+    clickable_metric(c9, "Browser Extensions", counts.get("browser_extension", 0),
+                     panel_key=_PANEL, drill_field="category",
+                     drill_value="browser_extension")
+    clickable_metric(c10, "Declared Dependencies", counts.get("declared_dependency", 0),
+                     panel_key=_PANEL, drill_field="category",
+                     drill_value="declared_dependency")
 
 
 def _render_filters(events: list) -> dict:
