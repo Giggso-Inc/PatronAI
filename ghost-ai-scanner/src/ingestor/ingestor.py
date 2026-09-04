@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: src/ingestor/ingestor.py
-# VERSION: 2.0.0
-# UPDATED: 2026-04-26
+# VERSION: 2.1.0
+# UPDATED: 2026-09-04
 # OWNER: Ravi Venugopal, Giggso Inc
 # PURPOSE: Main ingestor coordinator. Runs one scan cycle.
 #          Wakes, reads timestamp cursor, walks S3 for files modified
@@ -58,9 +58,10 @@ class Ingestor:
         log.info("Scan cycle starting...")
 
         # Load provider lists fresh every cycle — picks up CSV edits
-        from matcher.loader import load_authorized, load_unauthorized
+        from matcher.loader import load_authorized, load_unauthorized, load_greylist
         authorized   = load_authorized(self._bucket)
         unauthorized = load_unauthorized(self._bucket)
+        greylist     = load_greylist(self._bucket)
 
         if not unauthorized:
             log.error("Unauthorized list empty — scan aborted")
@@ -71,6 +72,7 @@ class Ingestor:
             store=self._store,
             authorized=authorized,
             unauthorized=unauthorized,
+            greylist=greylist,
             company=self._company,
         )
 

@@ -108,7 +108,8 @@ def _ingest(s3, key: str, counters: Counter, last_seen: dict,
     try:
         body = s3.get_object(Bucket=BUCKET, Key=key)["Body"].read()
         payload = json.loads(body)
-    except Exception:
+    except Exception as exc:
+        log.debug("skip finding %s: %s", key, exc)
         return
     if payload.get("outcome") != "GREYLIST":
         return
@@ -153,6 +154,8 @@ def _persist_dismissed(domains: set, email: str) -> None:
 
 
 def _promote_to_whitelist(domains: list, email: str) -> None:
+    import csv as _csv
+    import io as _io_mod
     s3 = boto3_s3_client()
     try:
         existing = s3.get_object(Bucket=BUCKET, Key=ALLOW_CUSTOM_KEY)["Body"].read().decode()
@@ -160,8 +163,15 @@ def _promote_to_whitelist(domains: list, email: str) -> None:
         existing = "name,domain_pattern,notes\n"
     if not existing.endswith("\n"):
         existing += "\n"
+    buf = _io_mod.StringIO()
+    writer = _csv.writer(buf, lineterminator="\n")
     for d in domains:
-        existing += f"Approved {d},*{d}*,Promoted from greylist approval queue\n"
+        # Use exact-match or subdomain-only pattern — never *substring* wildcard
+        safe_d = d.replace("\n", "").replace("\r", "").strip()
+        pattern = f"*.{safe_d}" if not safe_d.startswith("*.") else safe_d
+        writer.writerow([f"Approved {safe_d}", pattern,
+                         "Promoted from greylist approval queue"])
+    existing += buf.getvalue()
     try:
         s3.put_object(Bucket=BUCKET, Key=ALLOW_CUSTOM_KEY,
                       Body=existing.encode(), ContentType="text/csv")
@@ -173,6 +183,8 @@ def _promote_to_whitelist(domains: list, email: str) -> None:
 
 
 def _demote_to_blacklist(domains: list, email: str) -> None:
+    import csv as _csv
+    import io as _io_mod
     s3 = boto3_s3_client()
     try:
         existing = s3.get_object(Bucket=BUCKET, Key=DENY_CUSTOM_KEY)["Body"].read().decode()
@@ -180,8 +192,13 @@ def _demote_to_blacklist(domains: list, email: str) -> None:
         existing = "name,category,domain,port,severity,notes\n"
     if not existing.endswith("\n"):
         existing += "\n"
+    buf = _io_mod.StringIO()
+    writer = _csv.writer(buf, lineterminator="\n")
     for d in domains:
-        existing += f"Denied {d},Greylist Denied,{d},443,HIGH,Denied from greylist approval queue\n"
+        safe_d = d.replace("\n", "").replace("\r", "").strip()
+        writer.writerow([f"Denied {safe_d}", "Greylist Denied", safe_d, 443,
+                         "HIGH", "Denied from greylist approval queue"])
+    existing += buf.getvalue()
     try:
         s3.put_object(Bucket=BUCKET, Key=DENY_CUSTOM_KEY,
                       Body=existing.encode(), ContentType="text/csv")

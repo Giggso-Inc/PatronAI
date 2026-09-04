@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: src/ingestor/pipeline.py
-# VERSION: 2.0.0
-# UPDATED: 2026-04-26
+# VERSION: 2.2.0
+# UPDATED: 2026-09-04
 # OWNER: Ravi Venugopal, Giggso Inc
 # PURPOSE: Per-event processing pipeline. Takes raw event dict,
 #          normalises to flat schema, matches against provider lists,
@@ -34,12 +34,14 @@ class Pipeline:
     Stateless — safe to call concurrently.
     """
 
-    def __init__(self, store, authorized: list, unauthorized: list, company: str = ""):
+    def __init__(self, store, authorized: list, unauthorized: list,
+                 greylist: list = None, company: str = ""):
         # store: BlobIndexStore instance
-        # authorized / unauthorized: loaded once per cycle by loader.py
+        # authorized / unauthorized / greylist: loaded once per cycle by loader.py
         self._store        = store
         self._authorized   = authorized
         self._unauthorized = unauthorized
+        self._greylist     = greylist or []
         self._company      = company
 
     def process(self, raw: dict) -> Optional[str]:
@@ -87,7 +89,7 @@ class Pipeline:
             return None
 
         # Step 3: match
-        verdict = match(event, self._authorized, self._unauthorized)
+        verdict = match(event, self._authorized, self._unauthorized, self._greylist)
 
         # Step 4: merge verdict into flat event
         event.update(verdict)
