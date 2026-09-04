@@ -35,6 +35,8 @@ EXPECTED_FUNCTIONS = (
     "scan_mcp_configs", "scan_agents_workflows",
     "scan_tools_code", "scan_vector_dbs", "scan_vector_db_ports", "scan_meeting_bots",
     "scan_network_capture", "scan_unclassified_processes",
+    # scanner-graft adapters
+    "scan_declared_deps", "scan_browser_extensions", "scan_hardcoded_secrets",
 )
 
 

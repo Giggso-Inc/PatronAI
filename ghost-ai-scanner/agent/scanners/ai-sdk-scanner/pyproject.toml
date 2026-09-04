@@ -1,0 +1,39 @@
+[project]
+name = "ai-sdk-scanner"
+version = "0.1.0"
+description = "Scan a repository's dependency manifests for AI/ML library references"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = []
+
+[project.scripts]
+ai-sdk-scanner = "ai_sdk_scanner.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ai_sdk_scanner*"]
+
+[tool.setuptools.package-data]
+ai_sdk_scanner = ["catalog/*.json"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["ai_sdk_scanner"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: opt-in test that scans a real repo (deselected by default)",
+]
+addopts = "-m \"not live\""

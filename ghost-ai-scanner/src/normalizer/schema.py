@@ -14,6 +14,10 @@
 #                       registrations, vector DBs, repo + scan metadata.
 #                       Backward-compatible: every new field has a default
 #                       so legacy events still serialize cleanly.
+#   v2.1.0  2026-09-04  Scanner-graft Phase 3 — added 23 optional fields
+#                       for declared_dependency, browser_extension, and
+#                       hardcoded_secret findings. Same backward-
+#                       compatible-default rule as v2.0.0.
 # =============================================================
 
 import uuid
@@ -87,6 +91,33 @@ FLAT_SCHEMA = {
     "kind":            "",   # vector DB kind: chroma | faiss | lancedb | …
     "scan_kind":       "",   # baseline | recurring (set by agent footer)
     "scan_id":         "",   # groups every event from one scan together
+    # Scanner-graft — declared_dependency findings (AI-SDK-Scanner adapter)
+    "repo_safe":            "",    # redacted repo path (~/... form) the finding came from
+    "dependency_name":      "",    # raw package/library name as declared
+    "dependency_version":   "",    # raw declared version string
+    "normalized_name":      "",    # dependency_name normalised for cross-ecosystem matching
+    "ecosystem":            "",    # python | node | java_maven | java_gradle | go | rust | dotnet | ruby | php
+    "is_ai_related":        False, # matched the AI/ML catalog
+    "is_direct":            False, # direct dependency vs transitive (lockfile-resolved)
+    "manifest_kind":        "",    # requirements.txt | pyproject.toml | package.json | …
+    "line_number":          None,  # line in the source manifest/file the finding was on
+    # Scanner-graft — browser_extension findings (Extension Searcher adapter)
+    "extension_id":         "",    # store/profile extension id
+    "name":                 "",    # generic display name — also used by vector_db, unclassified_software
+    "version":              "",    # extension version string
+    "browser":              "",    # Google Chrome | Mozilla Firefox | Safari | …
+    "browser_profile":      "",    # profile name within the browser
+    "enabled":              False, # extension enabled state
+    "install_origin":       "",    # web_store | sideloaded | policy | unknown
+    "host_permissions":     [],    # requested host match patterns
+    "permissions":          [],    # requested extension permissions
+    "high_privilege_host_access": False,  # near-total host access (<all_urls> etc.)
+    # Scanner-graft — hardcoded_secret findings (apikey-scanner adapter)
+    "secret_pattern":       "",    # matched pattern type, e.g. aws_access_key_id — never the secret itself
+    "confidence":           "",    # apikey-scanner's own confidence tier for the match
+    "blame_commit":         "",    # git blame commit sha for the matched line
+    "blame_author":         "",    # git blame author name for the matched line
+    "provenance_state":     "",    # committed | uncommitted_change | not_a_repo | unknown
 }
 
 

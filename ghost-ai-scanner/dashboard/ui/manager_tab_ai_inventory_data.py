@@ -14,6 +14,8 @@
 # AUDIT LOG:
 #   v1.0.0  2026-04-26  Initial. Phase 1A.
 #   v1.1.0  2026-09-02  Add observed_network_target + unclassified_software.
+#   v1.2.0  2026-09-04  Scanner-graft Phase 6. Add declared_dependency,
+#                       browser_extension, hardcoded_secret.
 # =============================================================
 
 from collections import defaultdict
@@ -24,6 +26,7 @@ PHASE_1A_CATEGORIES = (
     "agent_workflow", "agent_scheduled",
     "tool_registration", "vector_db",
     "observed_network_target", "unclassified_software",
+    "declared_dependency", "browser_extension", "hardcoded_secret",
 )
 
 CATEGORY_LABELS = {
@@ -35,6 +38,9 @@ CATEGORY_LABELS = {
     "vector_db":                "Vector DB",
     "observed_network_target":  "Network Target",
     "unclassified_software":    "Unclassified SW",
+    "declared_dependency":      "Declared Dependency",
+    "browser_extension":        "Browser Extension",
+    "hardcoded_secret":         "Hardcoded Secret",
 }
 
 

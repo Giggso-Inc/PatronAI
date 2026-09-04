@@ -15,6 +15,21 @@
 #                       scanners so they expose helpers + globals; added
 #                       4 new emitter scanners (mcp_configs, agents_
 #                       workflows, tools_code, vector_dbs) BEFORE footer.
+#   v2.1.0  2026-09-04  Scanner graft Phase 2. Three companion-package
+#                       adapters (declared_deps, browser_extensions,
+#                       hardcoded_secrets) appended after the existing
+#                       Phase 1A emitters, before the footer — same
+#                       ordering constraint as scan_tools_code /
+#                       scan_vector_dbs: they consume DISCOVERED_REPOS
+#                       and _safe_finding, both set up earlier in the
+#                       list.
+#   v2.2.0  2026-09-04  Scanner graft Phase 4. Inserted
+#                       scan_mcp_configs_extra_hosts.py.frag right
+#                       after scan_mcp_configs.py.frag — a companion
+#                       file (not a new emitter call in the footer;
+#                       scan_mcp_configs() itself calls into it) kept
+#                       out of scan_mcp_configs.py.frag to respect its
+#                       150-LOC cap.
 # =============================================================
 
 from pathlib import Path
@@ -38,6 +53,7 @@ FRAGMENT_ORDER = (
     "scan_shell_history.py.frag",
     # --- Phase 1A new emitters ---
     "scan_mcp_configs.py.frag",
+    "scan_mcp_configs_extra_hosts.py.frag",
     "scan_agents_workflows.py.frag",
     "scan_tools_code.py.frag",
     "scan_vector_dbs.py.frag",
@@ -49,6 +65,11 @@ FRAGMENT_ORDER = (
     # _MEETING_BOT_RE globals to avoid double-counting an already
     # AI-matched process under the generic unclassified bucket too.
     "scan_unclassified_processes.py.frag",
+    # --- scanner-graft companion adapters (must follow scan_redactor
+    #     and scan_repo_discovery above) ---
+    "scan_declared_deps.py.frag",
+    "scan_browser_extensions.py.frag",
+    "scan_hardcoded_secrets.py.frag",
     # --- footer last (aggregates all scan_*) ---
     "scan_footer.py.frag",
 )

@@ -41,6 +41,7 @@ $UrlsRefreshUrl    = "{{URLS_REFRESH_URL}}"
 $AuthorizedDomains = "{{AUTHORIZED_DOMAINS}}"
 $EnablePacketbeat  = "{{ENABLE_PACKETBEAT}}"
 $EnableCapture     = "{{ENABLE_CAPTURE}}"
+$EnableScanners    = "{{ENABLE_SCANNERS}}"
 $Bucket            = "{{BUCKET}}"
 $Region            = "{{REGION}}"
 $Company           = "{{COMPANY}}"
@@ -748,6 +749,41 @@ if ($EnableCapture -eq "1") {
     }
 } else {
     Write-Info "Capture companion not enabled for this recipient - skipping."
+}
+
+# -- companion scanners (declared deps / browser extensions / hardcoded
+#    secrets) -----------------------------------------------------------
+# Same opt-in-per-recipient shape as capture above. Packed as one base64
+# ZIP per package rather than a per-file hashtable - see
+# render_agent_package.py's v1.8.0 audit-log entry for why. No integrity
+# self-check here (unlike capture): these run as a subprocess invoked
+# from within scan.ps1, not a standing privileged daemon.
+if ($EnableScanners -eq "1") {
+    Write-Info "Installing companion scanners (declared deps / browser extensions / hardcoded secrets)..."
+    $ScanPkgStage = Join-Path $env:TEMP ("patronai-scanpkg-" + [guid]::NewGuid().ToString("N"))
+    try {
+        New-Item -ItemType Directory -Force -Path $ScanPkgStage | Out-Null
+        $ScanDir = Join-Path $AgentDir "scanners"
+        New-Item -ItemType Directory -Force -Path $ScanDir | Out-Null
+
+        function Expand-ScannerPackage($Base64Zip, $DestName) {
+            $ZipPath = Join-Path $ScanPkgStage "$DestName.zip"
+            [System.IO.File]::WriteAllBytes($ZipPath, [System.Convert]::FromBase64String($Base64Zip))
+            $DestPath = Join-Path $ScanDir $DestName
+            New-Item -ItemType Directory -Force -Path $DestPath | Out-Null
+            Expand-Archive -Path $ZipPath -DestinationPath $DestPath -Force
+        }
+        Expand-ScannerPackage "{{SCANNERS_AI_SDK_ZIP_B64}}" "ai_sdk_scanner"
+        Expand-ScannerPackage "{{SCANNERS_EXTENSION_ZIP_B64}}" "extension_searcher"
+        Expand-ScannerPackage "{{SCANNERS_APIKEY_ZIP_B64}}" "apikey_scanner"
+        Write-Info "Companion scanners installed."
+    } catch {
+        Write-Info "WARNING: companion scanner install failed: $($_.Exception.Message) - scan agent is unaffected."
+    } finally {
+        Remove-Item $ScanPkgStage -Recurse -Force -ErrorAction SilentlyContinue
+    }
+} else {
+    Write-Info "Companion scanners not enabled for this recipient - skipping."
 }
 
 Write-Info "Installation complete."

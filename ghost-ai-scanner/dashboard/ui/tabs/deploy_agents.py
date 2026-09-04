@@ -16,6 +16,10 @@
 #                       silently always-off (installer read a bare env var
 #                       nothing in this pipeline ever set); now a real
 #                       per-recipient choice baked into the rendered script.
+#   v1.5.0  2026-09-04  enable_scanners toggle - opts a recipient into the
+#                       three companion scanners (declared dependencies,
+#                       browser extensions, hardcoded secrets), same
+#                       default-off / per-recipient shape as capture.
 # =============================================================
 
 import os
@@ -92,6 +96,18 @@ def _render_generate_form(admin_email: str) -> None:
                 "toggle is ignored on macOS/Linux."
             ),
         )
+        enable_scanners = st.toggle(
+            "Enable companion scanners (declared deps / browser extensions / hardcoded secrets)",
+            value=False,
+            help=(
+                "Installs three lightweight companion scanners alongside the "
+                "scan agent: declared AI/ML dependencies across every repo on "
+                "the device, browser extension inventory (flagging near-total "
+                "host access), and hardcoded-secret detection with git "
+                "provenance — never the secret value itself. Stdlib only, no "
+                "install footprint beyond the scan agent's own."
+            ),
+        )
         submitted = st.form_submit_button("Generate Package", type="primary")
 
     if submitted:
@@ -101,14 +117,15 @@ def _render_generate_form(admin_email: str) -> None:
         auth_domains = [d.strip() for d in auth_raw.splitlines() if d.strip()]
         _generate(name.strip(), recipient_email.strip(), os_type,
                   send_email, admin_email, auth_domains, enable_packetbeat,
-                  enable_capture)
+                  enable_capture, enable_scanners)
 
 
 def _generate(name: str, email: str, os_type: str,
               send_email: bool, admin_email: str,
               authorized_domains: list | None = None,
               enable_packetbeat: bool = False,
-             enable_capture: bool = False) -> None:
+              enable_capture: bool = False,
+              enable_scanners: bool = False) -> None:
     """Run package generation and display the result."""
     from store.agent_store import AgentStore
     from store import agent_renderer
@@ -140,6 +157,7 @@ def _generate(name: str, email: str, os_type: str,
                 authorized_domains = authorized_domains or [],
                 enable_packetbeat  = enable_packetbeat,
                 enable_capture     = enable_capture,
+                enable_scanners    = enable_scanners,
             )
         except Exception as e:
             st.error(f"Generation failed: {e}")
