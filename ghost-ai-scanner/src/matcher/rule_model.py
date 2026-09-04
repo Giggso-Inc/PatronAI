@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: src/matcher/rule_model.py
-# VERSION: 1.0.0
-# UPDATED: 2026-04-25
+# VERSION: 1.1.0
+# UPDATED: 2026-09-04
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: Single source of truth for rule shape and hygiene.
 #          Forgive-input, store-strict: normalise aggressively at
@@ -11,6 +11,8 @@
 # DEPENDS: stdlib (csv, io, fnmatch)
 # AUDIT LOG:
 #   v1.0.0  2026-04-25  Initial. Group 6 ruleset hardening.
+#   v1.1.0  2026-09-04  Add OUTCOMES constant + validate_greylist_rule
+#                       for three-tier whitelist/blacklist/greylist.
 # =============================================================
 
 import csv
@@ -22,6 +24,7 @@ from typing import Callable, Iterable, List, Tuple
 log = logging.getLogger("marauder-scan.matcher.rule_model")
 
 SEVERITIES = ("HIGH", "MEDIUM", "LOW")
+OUTCOMES   = ("AUTHORIZED", "UNAUTHORIZED", "GREYLIST", "UNKNOWN")
 TOO_BROAD = {
     "*", "*.*",
     "*.com", "*.org", "*.net", "*.io", "*.ai",
@@ -97,6 +100,18 @@ def validate_allow_rule(row: dict) -> dict:
         raise ValueError(f"invalid glob: {pattern!r}")
     if is_too_broad(pattern):
         raise ValueError(f"allow pattern too broad: {pattern!r}")
+    return {"name": _g(row, "name"), "domain_pattern": pattern, "notes": _g(row, "notes")}
+
+
+def validate_greylist_rule(row: dict) -> dict:
+    """Validate + normalise a greylist row (same shape as allow-list)."""
+    pattern = normalize_domain(_g(row, "domain_pattern"))
+    if not pattern:
+        raise ValueError("domain_pattern empty")
+    if not valid_glob(pattern):
+        raise ValueError(f"invalid glob: {pattern!r}")
+    if is_too_broad(pattern):
+        raise ValueError(f"greylist pattern too broad: {pattern!r}")
     return {"name": _g(row, "name"), "domain_pattern": pattern, "notes": _g(row, "notes")}
 
 

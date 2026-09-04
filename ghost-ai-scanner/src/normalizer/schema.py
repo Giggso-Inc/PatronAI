@@ -57,7 +57,7 @@ FLAT_SCHEMA = {
     "provider":        "",   # matched AI provider name
     "category":        "",   # matched category from unauthorized.csv
     "severity":        "",   # CRITICAL | HIGH | MEDIUM | LOW | UNKNOWN
-    "outcome":         "",   # AUTHORIZED | UNAUTHORIZED | UNKNOWN
+    "outcome":         "",   # AUTHORIZED | UNAUTHORIZED | GREYLIST | UNKNOWN
     # Marauder Scan — code signal fields (empty for network events)
     "code_snippet":    "",   # first 80 lines of triggering file
     "file_path":       "",   # path of triggering file on device
