@@ -23,6 +23,13 @@
 #                       scan_vector_dbs: they consume DISCOVERED_REPOS
 #                       and _safe_finding, both set up earlier in the
 #                       list.
+#   v2.2.0  2026-09-04  Scanner graft Phase 4. Inserted
+#                       scan_mcp_configs_extra_hosts.py.frag right
+#                       after scan_mcp_configs.py.frag — a companion
+#                       file (not a new emitter call in the footer;
+#                       scan_mcp_configs() itself calls into it) kept
+#                       out of scan_mcp_configs.py.frag to respect its
+#                       150-LOC cap.
 # =============================================================
 
 from pathlib import Path
@@ -46,6 +53,7 @@ FRAGMENT_ORDER = (
     "scan_shell_history.py.frag",
     # --- Phase 1A new emitters ---
     "scan_mcp_configs.py.frag",
+    "scan_mcp_configs_extra_hosts.py.frag",
     "scan_agents_workflows.py.frag",
     "scan_tools_code.py.frag",
     "scan_vector_dbs.py.frag",
