@@ -1,0 +1,17 @@
+# =============================================================
+# FILE: config/greylist.csv
+# VERSION: 1.0.0
+# UPDATED: 2026-09-04
+# PURPOSE: Greylist — domains allowed but monitored. Every hit is
+#          logged and queued in the Approval Queue for admin review.
+#          Admins promote to whitelist (authorized_custom.csv) or
+#          blacklist (unauthorized_custom.csv) from the UI.
+# OWNER: Customer IT / Security team
+# FORMAT: name, domain_pattern, notes
+# =============================================================
+name,domain_pattern,notes
+Perplexity AI,perplexity.ai,AI search — review usage before allowing
+You.com,you.com,AI search engine — monitoring
+Poe,poe.com,Multi-model AI chat — review
+Cohere API,api.cohere.ai,LLM API — review if used by dev teams
+Mistral AI,api.mistral.ai,LLM API — review

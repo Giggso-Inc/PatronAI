@@ -29,7 +29,8 @@ from .time_fmt       import fmt as fmt_time
 
 _AGENT_SOURCES = {"agent_endpoint_scan", "patronai_scan_agent"}
 _TYPE_LABELS   = {"ALL": "🔎 All types", "network": "🌐 Network",
-                  "endpoint": "💻 Endpoint scan"}
+                  "endpoint": "💻 Endpoint scan",
+                  "greylist": "🟡 Greylist"}
 
 
 def _is_endpoint(e: dict) -> bool:
@@ -53,7 +54,13 @@ def _row(e: dict) -> str:
     else:
         who    = e.get("owner", "—")
         origin = e.get("src_ip", "—")
-        what   = e.get("provider", "—")
+        prov   = e.get("provider", "—")
+        gl_badge = (
+            '<span style="background:#FEF3C7;color:#92400E;border-radius:4px;'
+            'padding:1px 5px;font-size:10px;font-weight:bold">🟡 GREYLIST</span>&nbsp;'
+            if e.get("outcome") == "GREYLIST" else ""
+        )
+        what   = gl_badge + prov
         detail = (e.get("dst_domain") or "—")[:38]
         dept   = e.get("department", "—")
         kb     = round(e.get("bytes_out", 0) / 1024, 1)
@@ -124,6 +131,8 @@ def render_logs(events: list) -> None:
         filtered = [e for e in filtered if not _is_endpoint(e)]
     elif type_choice == "endpoint":
         filtered = [e for e in filtered if _is_endpoint(e)]
+    elif type_choice == "greylist":
+        filtered = [e for e in filtered if e.get("outcome") == "GREYLIST"]
     if f_sev  != "ALL":
         filtered = [e for e in filtered if e.get("severity")   == f_sev]
     if f_prov != "ALL":

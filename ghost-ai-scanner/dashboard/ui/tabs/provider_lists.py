@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: dashboard/ui/tabs/provider_lists.py
-# VERSION: 2.2.0
-# UPDATED: 2026-04-25
+# VERSION: 2.3.0
+# UPDATED: 2026-09-04
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: Provider Lists tab — orchestration only. Composes baseline
 #          read-only views, custom editors (bulk-import + search +
@@ -13,6 +13,7 @@
 #   v2.0.0  2026-04-25  Group 6 — custom editors, conflict gate, banner, tail.
 #   v2.1.0  2026-04-25  Group 6.5 — bulk import, search filter, clear button.
 #   v2.2.0  2026-04-25  Group 2 — discovered AI tools review queue.
+#   v2.3.0  2026-09-04  Three-tier: add Greylist editor section.
 # =============================================================
 
 import logging
@@ -22,7 +23,7 @@ import streamlit as st
 
 from matcher.rule_model import (
     parse_csv_text, find_conflicts,
-    validate_rule, validate_allow_rule, validate_code_rule,
+    validate_rule, validate_allow_rule, validate_code_rule, validate_greylist_rule,
 )
 from .. import audit_tail as _tail
 from . import provider_lists_io     as _io
@@ -34,6 +35,7 @@ log = logging.getLogger("patronai.ui.provider_lists")
 DENY_KEY              = "config/unauthorized.csv"
 DENY_CUSTOM_KEY       = "config/unauthorized_custom.csv"
 ALLOW_KEY             = "config/authorized.csv"
+GREYLIST_KEY          = "config/greylist.csv"
 CODE_DENY_KEY         = "config/unauthorized_code.csv"
 CODE_DENY_CUSTOM_KEY  = "config/unauthorized_code_custom.csv"
 STATUS_KEY            = "config/load_status.json"
@@ -60,7 +62,7 @@ def render(is_admin: bool, email: str = "") -> None:
     # different system from the scoring-layer policy DB. It no longer feeds
     # a separate "Giggso baseline" scoring tier; that content was folded into
     # each org's own org-deny list at DB-seed time (src/db/seeding.py).
-    st.markdown("**Network denylist — Ingestion baseline**")
+    st.markdown("**Blacklist — Network denylist (ingestion baseline)**")
     with st.expander("Show baseline rules", expanded=False):
         _io.render_readonly_csv(DENY_KEY)
     st.divider()
@@ -78,9 +80,23 @@ def render(is_admin: bool, email: str = "") -> None:
                        "denylist.code", dedup_keys=("pattern",))
         st.divider()
 
-    st.markdown("**Allow list**")
-    st.caption("Domains listed here suppress alerts.")
+    st.markdown("**Allow list (Whitelist)**")
+    st.caption("Domains listed here suppress alerts entirely — no finding is generated.")
     _allow_editor(is_admin, email)
+    st.divider()
+
+    st.markdown("**Greylist — monitored domains**")
+    st.caption(
+        "Domains here are allowed but every hit is logged and queued in the "
+        "🟡 Approval Queue for admin review. Admins can promote to Whitelist "
+        "or demote to Blacklist from there."
+    )
+    if is_admin:
+        _custom_editor(email, GREYLIST_KEY, validate_greylist_rule, ALLOW_COLS,
+                       "greylist", dedup_keys=("domain_pattern",))
+    else:
+        st.dataframe(_io.read_csv_df(GREYLIST_KEY, ALLOW_COLS),
+                     use_container_width=True, hide_index=True)
     st.divider()
     _disc.render(is_admin, email)
     st.divider()
