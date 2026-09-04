@@ -34,6 +34,11 @@
 #                       visibility beyond the known-AI catalog, LOW
 #                       severity, tiered separately from the specific
 #                       AI-category findings so it doesn't drown them out.
+#   v2.6.0  2026-09-04  Scanner-graft adapters (declared_deps,
+#                       browser_extensions, hardcoded_secrets) -
+#                       no-op ([]) when their companion isn't installed,
+#                       same optional-module contract as
+#                       scan_network_capture().
 # =============================================================
 
 _findings: list = []
@@ -53,6 +58,10 @@ _findings += scan_vector_db_ports()
 _findings += scan_meeting_bots()
 _findings += scan_network_capture()
 _findings += scan_unclassified_processes()
+# --- scanner-graft companion adapters ---
+_findings += scan_declared_deps()
+_findings += scan_browser_extensions()
+_findings += scan_hardcoded_secrets()
 
 
 def _count(kind: str) -> int:
@@ -71,10 +80,16 @@ def _snapshot_hash(findings_list):
     keys = []
     for _f in findings_list:
         _t = _f.get("type", "")
-        # Pick the most stable distinguishing field per category.
+        # Pick the most stable distinguishing field per category. The
+        # file_path+line_number fallback is scoped to hardcoded_secret
+        # only, so it can't shadow declared_dependency's own file_path.
         _k = (_f.get("domain") or _f.get("name") or _f.get("plugin_id")
               or _f.get("image") or _f.get("server_name")
-              or _f.get("filename") or _f.get("signal") or "")
+              or _f.get("filename") or _f.get("signal")
+              or _f.get("dependency_name")
+              or (f"{_f.get('file_path','')}:{_f.get('line_number','')}"
+                  if _t == "hardcoded_secret" else "")
+              or "")
         keys.append(f"{_t}|{_k}")
     keys.sort()
     return hashlib.sha256("\n".join(keys).encode()).hexdigest()[:16]
@@ -118,6 +133,9 @@ _payload = {
         "observed_network_targets": _count("observed_network_target"),
         "unclassified_software": _count("unclassified_software"),
         "repos_discovered":      len(DISCOVERED_REPOS),
+        "declared_dependencies": _count("declared_dependency"),
+        "browser_extensions":    _count("browser_extension"),
+        "hardcoded_secrets":     _count("hardcoded_secret"),
     },
 }
 
