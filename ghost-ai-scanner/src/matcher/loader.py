@@ -1,9 +1,9 @@
 # =============================================================
 # FILE: src/matcher/loader.py
-# VERSION: 2.0.0
-# UPDATED: 2026-04-25
+# VERSION: 2.1.0
+# UPDATED: 2026-09-04
 # OWNER: Giggso Inc (Ravi Venugopal)
-# PURPOSE: Load deny + allow lists from S3, merge baseline (Giggso)
+# PURPOSE: Load deny + allow + greylist from S3, merge baseline (Giggso)
 #          with customer custom lists, validate via rule_model, and
 #          return clean rows + a load_report for diagnostics.
 #          Reload on every scan cycle — no restart needed after edit.
@@ -13,6 +13,7 @@
 #   v2.0.0  2026-04-25  Group 6 — rule_model validation + baseline/custom merge.
 #                       Custom additions win on (domain,port) collision.
 #                       Returns (rows, report) via *_full() variants.
+#   v2.1.0  2026-09-04  Add load_greylist() for three-tier list system.
 # =============================================================
 
 import logging
@@ -22,7 +23,7 @@ from store.object_store import boto3_s3_client
 
 from .rule_model import (
     parse_csv_text, dedupe,
-    validate_rule, validate_allow_rule,
+    validate_rule, validate_allow_rule, validate_greylist_rule,
 )
 
 log = logging.getLogger("marauder-scan.matcher.loader")
@@ -30,6 +31,7 @@ log = logging.getLogger("marauder-scan.matcher.loader")
 UNAUTH_KEY        = "config/unauthorized.csv"
 UNAUTH_CUSTOM_KEY = "config/unauthorized_custom.csv"
 AUTH_KEY          = "config/authorized.csv"
+GREYLIST_KEY      = "config/greylist.csv"
 
 
 def load_authorized(bucket: str, key: str = AUTH_KEY) -> list:
@@ -94,6 +96,28 @@ def load_unauthorized_full(bucket: str, key: str = UNAUTH_KEY) -> Tuple[List[dic
         "custom_valid":    len(cust_clean),
         "custom_errors":   cust_errs,
         "merged_count":    len(merged),
+    }
+
+
+def load_greylist(bucket: str, key: str = GREYLIST_KEY) -> list:
+    """Backward-compatible wrapper. Returns the validated greylist rows only."""
+    rows, _ = load_greylist_full(bucket, key)
+    return rows
+
+
+def load_greylist_full(bucket: str, key: str = GREYLIST_KEY) -> Tuple[List[dict], dict]:
+    """Load + validate greylist.csv. Returns (rows, report) for UI/audit use."""
+    raw = _fetch(bucket, key)
+    clean, errors = parse_csv_text(raw, validate_greylist_rule)
+    if not raw:
+        log.info("greylist.csv absent — greylist matching disabled")
+    if errors:
+        log.warning("greylist.csv: %d invalid row(s) skipped", len(errors))
+    log.info("Greylist: %d valid entries", len(clean))
+    return clean, {
+        "total":  len(clean) + len(errors),
+        "valid":  len(clean),
+        "errors": errors,
     }
 
 

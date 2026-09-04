@@ -1,13 +1,14 @@
 # =============================================================
 # FILE: tests/unit/test_rule_model.py
 # PROJECT: PatronAI
-# VERSION: 1.0.0
-# UPDATED: 2026-04-25
+# VERSION: 1.1.0
+# UPDATED: 2026-09-04
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: Pure-data tests for src/matcher/rule_model.py.
 #          No AWS, no LocalStack — runs in any environment with src/ on sys.path.
 # AUDIT LOG:
 #   v1.0.0  2026-04-25  Initial. Group 6.
+#   v1.1.0  2026-09-04  Add OUTCOMES + validate_greylist_rule tests (three-tier).
 # =============================================================
 
 import os
@@ -19,8 +20,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from matcher.rule_model import (  # noqa: E402
     normalize_domain, normalize_severity, is_too_broad, valid_glob,
-    validate_rule, validate_allow_rule, validate_code_rule,
+    validate_rule, validate_allow_rule, validate_code_rule, validate_greylist_rule,
     parse_csv_text, dedupe, find_conflicts,
+    OUTCOMES,
 )
 
 
@@ -147,3 +149,72 @@ def test_find_conflicts_none_when_no_overlap():
     allow = [{"domain_pattern": "*.example.com"}]
     deny  = [{"domain": "api.openai.com", "port": 443}]
     assert find_conflicts(allow, deny) == []
+
+
+# ── OUTCOMES constant ────────────────────────────────────────────
+def test_outcomes_contains_greylist():
+    assert "GREYLIST" in OUTCOMES
+
+
+def test_outcomes_contains_all_expected():
+    for expected in ("AUTHORIZED", "UNAUTHORIZED", "GREYLIST", "UNKNOWN"):
+        assert expected in OUTCOMES
+
+
+# ── validate_greylist_rule ───────────────────────────────────────
+def test_validate_greylist_rule_happy_path():
+    out = validate_greylist_rule({
+        "name": "Perplexity AI",
+        "domain_pattern": "perplexity.ai",
+        "notes": "AI search — review usage",
+    })
+    assert out["domain_pattern"] == "perplexity.ai"
+    assert out["name"] == "Perplexity AI"
+    assert out["notes"] == "AI search — review usage"
+
+
+def test_validate_greylist_rule_glob_pattern():
+    out = validate_greylist_rule({
+        "name": "Cohere API",
+        "domain_pattern": "api.cohere.ai",
+        "notes": "",
+    })
+    assert out["domain_pattern"] == "api.cohere.ai"
+
+
+def test_validate_greylist_rule_rejects_empty_domain():
+    with pytest.raises(ValueError, match="empty"):
+        validate_greylist_rule({"name": "X", "domain_pattern": "", "notes": ""})
+
+
+def test_validate_greylist_rule_rejects_too_broad():
+    with pytest.raises(ValueError, match="too broad"):
+        validate_greylist_rule({"name": "X", "domain_pattern": "*.ai", "notes": ""})
+
+
+def test_validate_greylist_rule_rejects_bare_wildcard():
+    with pytest.raises(ValueError, match="too broad"):
+        validate_greylist_rule({"name": "X", "domain_pattern": "*", "notes": ""})
+
+
+def test_validate_greylist_rule_normalizes_domain():
+    out = validate_greylist_rule({
+        "name": "Poe",
+        "domain_pattern": "https://poe.com/",
+        "notes": "",
+    })
+    assert out["domain_pattern"] == "poe.com"
+
+
+# ── parse_csv_text with greylist validator ───────────────────────
+def test_parse_csv_greylist_aggregates_errors():
+    raw = (
+        "name,domain_pattern,notes\n"
+        "Perplexity AI,perplexity.ai,ok\n"
+        "Too Broad,*.ai,too broad\n"
+        "Empty,,no domain\n"
+    )
+    clean, errors = parse_csv_text(raw, validate_greylist_rule)
+    assert len(clean) == 1
+    assert clean[0]["domain_pattern"] == "perplexity.ai"
+    assert len(errors) == 2
