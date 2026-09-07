@@ -48,8 +48,9 @@ SPOOL_NAME_RE = re.compile(
     r"^(?P<ts>\d{8}T\d{6}Z)-(?P<run>[0-9a-f]+)-(?P<seq>\d+)\.jsonl\.gz$")
 
 
-def log(msg: str) -> None:
-    print(f"{datetime.now(timezone.utc).isoformat()} [sync] {msg}", flush=True)
+# Writes the log file itself rather than relying on the scheduled task's
+# cmd.exe redirect - see common.make_logger for why that mattered.
+log = common.make_logger("sync")
 
 
 # ── Key derivation ───────────────────────────────────────────────────────

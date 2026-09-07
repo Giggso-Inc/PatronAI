@@ -40,6 +40,57 @@ Write-Host "PatronAI Capture Companion - Windows"
 Write-Host "===================================="
 Write-Host ""
 
+# ── 0. Clear any previous install FIRST ──────────────────────────────────
+# An install over a live install is the normal case on a real fleet - every
+# upgrade is one - and it was completely unhandled until 2026-09-03.
+#
+# What went wrong: Unregister-ScheduledTask removes the REGISTRATION, not the
+# running process. The old service kept running, kept holding capture.log
+# open through its own cmd.exe redirect, and the freshly registered task then
+# could not open that file for append. cmd reported the failure on the stderr
+# it had just failed to redirect, a scheduled task has no console, so it was
+# discarded - leaving "LastTaskResult=1" and a completely empty log.
+#
+# So: stop the tasks, kill the process, stop pktmon, and WAIT for each to
+# actually be gone, before touching anything else.
+foreach ($t in @("PatronAI Capture", "PatronAI Capture Sync")) {
+    if (Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue) {
+        Stop-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
+        Info "Stopped existing task: $t"
+    }
+}
+
+# Get-CimInstance, NOT Get-Process: Get-Process has no CommandLine property on
+# PowerShell 5.1, so a -like filter on it silently matches nothing. That exact
+# bug in the uninstaller is what let a service survive an uninstall for two
+# hours. CommandLine is also $null without rights to the target process, hence
+# #Requires -RunAsAdministrator above.
+foreach ($proc in @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue |
+                    Where-Object { $_.CommandLine -and $_.CommandLine -like "*capture_service*" })) {
+    try {
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop
+        # Poll: Stop-Process returns before Windows releases the file handles.
+        $deadline = (Get-Date).AddSeconds(20)
+        while ((Get-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 250
+        }
+        if (Get-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue) {
+            Die "A previous capture_service (PID $($proc.ProcessId)) will not exit. Reboot, then re-run this installer."
+        }
+        Ok "Stopped a previous capture_service (PID $($proc.ProcessId))"
+    } catch {
+        Die "Could not stop a previous capture_service (PID $($proc.ProcessId)): $($_.Exception.Message)"
+    }
+}
+
+# pktmon is a system-wide session, not a child process - killing Python above
+# does not stop it, and a leftover session makes the new one fail to start.
+$pktmonState = (pktmon status 2>&1 | Out-String)
+if ($pktmonState -notmatch "not running|No active") {
+    pktmon stop 2>&1 | Out-Null
+    Info "Stopped a leftover pktmon capture session"
+}
+
 # ── 1. Prerequisites ─────────────────────────────────────────────────────
 # Hard-fail rather than install a half-working agent. A capture companion
 # that reports healthy while collecting nothing is the failure worth avoiding
@@ -232,11 +283,18 @@ Ok "Locked down $DataDir (SYSTEM/Administrators only, SYSTEM read verified)"
 # failed install never leaves key logging switched on.
 $Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
-# Run through cmd.exe so stdout/stderr can be redirected to a file. A bare
-# -Execute python.exe sends output nowhere on Windows, which left the mac and
-# Linux units (which DO redirect) as the only platforms where a crash could be
-# diagnosed at all. Without this there is no capture.err to read when the
-# service dies on startup.
+# Run through cmd.exe so stdout/stderr land in a file. A bare -Execute
+# python.exe sends output nowhere on Windows, so a crash before the service
+# opens its own log would be undiagnosable.
+#
+# This redirect is now a BACKSTOP, not the primary log. As of 2026-09-03 the
+# services write their log file directly (common.make_logger), because relying
+# on this redirect alone made one file handle a single point of failure for
+# every diagnostic: an orphaned service holding capture.log made cmd.exe fail
+# to open it, and the error went to the stderr it had just failed to redirect.
+# Result was "exit 1" with a completely empty log.
+#
+# NOTE the stream merges into capture.log via 2>&1 - there is no capture.err.
 # ABSOLUTE path to cmd.exe. Not strictly required - a bare "cmd.exe" was
 # confirmed to resolve fine, so this was NOT the cause of any failure here -
 # but naming it explicitly removes one variable, and the bare "python" action
@@ -311,7 +369,7 @@ if ($state -eq "Running" -or $info.LastTaskResult -eq 267009) {
     Ok "Capture started and still running"
 } else {
     Write-Host "[capture] X Capture task is NOT running (state=$state, LastTaskResult=$($info.LastTaskResult))" -ForegroundColor Red
-    Write-Host "[capture]   Check: $DataDir\logs\capture.err" -ForegroundColor Red
+    Write-Host "[capture]   Check: $DataDir\logs\capture.log" -ForegroundColor Red
     # Interpret the ACTUAL code. This previously printed a fixed explanation
     # regardless of the value, which sends the reader after the wrong error.
     switch ($info.LastTaskResult) {

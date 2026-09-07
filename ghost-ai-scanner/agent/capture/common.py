@@ -29,6 +29,7 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 # ── Paths ────────────────────────────────────────────────────────────────
@@ -71,6 +72,57 @@ def ensure_dirs() -> dict:
     for key, path in p.items():
         path.mkdir(parents=True, exist_ok=True)
     return p
+
+
+
+# ── Logging ──────────────────────────────────────────────────────────────
+
+def make_logger(name: str):
+    """A logger that writes the file ITSELF, and also prints.
+
+    Previously each service logged with a bare print() and relied entirely on
+    the scheduled task's `cmd.exe ... >> capture.log 2>&1` redirect to put it
+    on disk. That made one file handle a single point of failure for every
+    diagnostic the companion produces.
+
+    It failed exactly that way on 2026-09-03: an orphaned service from an
+    earlier install still held capture.log open, so cmd.exe could not open it
+    for append, reported the error on the stderr it had just failed to
+    redirect (discarded - a scheduled task has no console), and exited 1. The
+    service was completely mute: no integrity line, no traceback, nothing.
+    "exit 1 and an empty log" took seven rounds to diagnose.
+
+    Now the process opens its own handle in "a" mode. If that ALSO fails
+    (which is the interesting case), we fall back to a pid-suffixed file
+    rather than losing the message - two live services then write two files
+    instead of fighting over one, and the second file is itself the evidence
+    that something else holds the first.
+
+    print() is kept so a foreground run still shows output, and so the task
+    redirect keeps working as a backstop for crashes before this is set up.
+    """
+    log_dir = paths()["logs"]
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    primary = log_dir / f"{name}.log"
+
+    def _write(line: str) -> None:
+        for target in (primary, log_dir / f"{name}.{os.getpid()}.log"):
+            try:
+                with target.open("a", encoding="utf-8") as fh:
+                    fh.write(line + chr(10))
+                return
+            except OSError:
+                continue   # locked or unwritable - try the pid-suffixed one
+
+    def log(msg: str) -> None:
+        line = f"{datetime.now(timezone.utc).isoformat()} [{name}] {msg}"
+        print(line, flush=True)
+        _write(line)
+
+    return log
 
 
 # ── Config ───────────────────────────────────────────────────────────────
