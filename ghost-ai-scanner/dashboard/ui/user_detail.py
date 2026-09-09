@@ -12,13 +12,16 @@
 # AUDIT LOG:
 #   v1.0.0  2026-04-27  Initial. Mega-PR.
 #   v1.1.0  2026-04-28  Replace treemap with render_user_mindmap.
+#   v1.2.0  2026-09-09  _CATEGORY_LABEL now sourced from
+#                       helpers.CATEGORY_LABELS (single source of truth)
+#                       instead of a stale local copy.
 # =============================================================
 
 import streamlit as st
 
 from .ai_inventory_mindmap import render_user_mindmap
 from .time_fmt             import fmt as fmt_time
-from .helpers          import sev_badge, geo_flag
+from .helpers          import sev_badge, geo_flag, CATEGORY_LABELS as _CATEGORY_LABEL
 from .filtered_table   import search_box, apply_search_dicts
 
 
@@ -60,14 +63,7 @@ _TIER_LABEL = {
 _SEV_DOT = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵", "CLEAN": "🟢"}
 
 # Human-readable category titles (e.g. ide_plugin -> "IDE Plugin").
-_CATEGORY_LABEL = {
-    "ide_plugin": "IDE Plugin", "mcp_server": "MCP Server", "vector_db": "Vector DB",
-    "browser": "Browser (AI)", "package": "Package", "process": "Process",
-    "shell_history": "Shell History", "tool_registration": "Tool Registration",
-    "agent_workflow": "Agent Workflow", "agent_scheduled": "Scheduled Agent",
-    "container_image": "Container Image", "container_log_signal": "Container Log",
-    "unknown": "Unknown",
-}
+# Sourced from helpers.CATEGORY_LABELS — see import above.
 
 
 def _render_score_breakdown(user_events: list, email: str = "") -> None:

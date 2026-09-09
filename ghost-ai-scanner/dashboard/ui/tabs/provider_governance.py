@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: dashboard/ui/tabs/provider_governance.py
-# VERSION: 5.0.0
-# UPDATED: 2026-07-31
+# VERSION: 5.1.0
+# UPDATED: 2026-09-09
 # OWNER: Giggso Inc
 # PURPOSE: Provider Governance tab. DB mode has two sub-tabs:
 #   • Overview — every provider by category with its status at EVERY scope
@@ -44,6 +44,12 @@
 #                       and every giggso_*/deny_override_* tag/state. Added a
 #                       distinct "Unclassified" tag (OQ-3) so a brand-new
 #                       provider never reads the same as an explicit deny.
+#   v5.1.0  2026-09-09  _CAT_LABEL now sourced from helpers.CATEGORY_LABELS
+#                       (single source of truth, was a stale local copy).
+#                       Configured-only provider rows now infer category from
+#                       ANY known provider-prefix (dep:/ext:/secret:), not
+#                       just mcp: — previously fell through to "unknown" for
+#                       the three scanner-graft categories.
 # =============================================================
 
 import os
@@ -58,6 +64,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "sr
 from scoring.provider_views import all_providers, newly_found     # noqa: E402
 from scoring.provider_family import is_family, provider_family    # noqa: E402
 from . import provider_lists_io as _io                            # noqa: E402
+from ..helpers import CATEGORY_LABELS as _CAT_LABEL               # noqa: E402
 
 _TAG = {
     "org_deny": "🔴 Org deny", "project_deny": "🔴 Project deny",
@@ -67,14 +74,28 @@ _TAG = {
     # must never be visually confused with a reviewed, explicit denial.
     "unknown": "⚪ Unclassified — pending review",
 }
-_CAT_LABEL = {
-    "ide_plugin": "IDE Plugin", "mcp_server": "MCP Server", "vector_db": "Vector DB",
-    "browser": "Browser (AI)", "package": "Package", "process": "Process",
-    "shell_history": "Shell History", "tool_registration": "Tool Registration",
-    "agent_workflow": "Agent Workflow", "agent_scheduled": "Scheduled Agent",
-    "container_image": "Container Image", "container_log_signal": "Container Log",
-    "unknown": "Unknown",
+# Category label lookup sourced from helpers.CATEGORY_LABELS — see import above.
+
+# Synthetic-provider prefix -> category, for rows with a real policy rule but
+# zero observed findings (see _augment_with_configured_only /
+# _configured_only_providers below). Every _provider_for() composite key
+# format in agent_explode.py needs an entry here or it falls through to
+# "unknown" even though the category is known from the prefix alone.
+_PREFIX_CATEGORY = {
+    "mcp:":    "mcp_server",
+    "dep:":    "declared_dependency",
+    "ext:":    "browser_extension",
+    "secret:": "hardcoded_secret",
 }
+
+
+def _category_for_prefix(name: str) -> str:
+    for prefix, cat in _PREFIX_CATEGORY.items():
+        if name.startswith(prefix):
+            return cat
+    return "unknown"
+
+
 _ALLOW_KEY = "config/authorized.csv"; _ALLOW_COLS = ["name", "domain_pattern", "notes"]
 _DENY_KEY = "config/unauthorized_custom.csv"
 _DENY_COLS = ["name", "category", "domain", "port", "severity", "notes"]
@@ -201,7 +222,7 @@ def _augment_with_configured_only(providers: list, ctx) -> list:
     new_names = patterns - observed
     return providers + [{
         "provider": name,
-        "category": "mcp_server" if name.startswith("mcp:") else "unknown",
+        "category": _category_for_prefix(name),
         "max_severity": "", "finding_count": 0,
         "tier": policy_tier(name, ctx),
     } for name in sorted(new_names)]
@@ -236,7 +257,7 @@ def _configured_only_providers(provs: list, ap: list, dn: list) -> list:
             cat_by_pattern.setdefault(r.domain_pattern, None)
     return [{
         "provider": name,
-        "category": cat or ("mcp_server" if name.startswith("mcp:") else "unknown"),
+        "category": cat or _category_for_prefix(name),
         "max_severity": "", "finding_count": 0,
     } for name, cat in sorted(cat_by_pattern.items())]
 

@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: tests/unit/test_provider_governance_overview.py
-# VERSION: 1.0.0
-# UPDATED: 2026-07-27
+# VERSION: 1.1.0
+# UPDATED: 2026-09-09
 # OWNER: Giggso Inc
 # PURPOSE: Unit tests for dashboard/ui/tabs/provider_governance.py's
 #          Overview-visibility fix (2026-07-27) — a configured
@@ -10,6 +10,10 @@
 #          and project/org-scope APPROVALS must be included in the
 #          "Inherited" tiers shown at narrower scopes, not just denials.
 #          Pure functions / plain dicts — no Streamlit or DB needed.
+# AUDIT LOG:
+#   v1.0.0  2026-07-27  Initial.
+#   v1.1.0  2026-09-09  Cover the dep:/ext:/secret: provider-prefix category
+#                       inference fix (previously only mcp: was recognised).
 # =============================================================
 
 import sys
@@ -48,6 +52,21 @@ class TestConfiguredOnlyProviders:
         ap = [_tool("domain_pattern", "slack.com")]
         result = _configured_only_providers([], ap, [])
         assert result[0]["category"] == "unknown"
+
+    def test_dep_prefix_pattern_gets_declared_dependency_category(self):
+        ap = [_tool("domain_pattern", "dep:python:langchain")]
+        result = _configured_only_providers([], ap, [])
+        assert result[0]["category"] == "declared_dependency"
+
+    def test_ext_prefix_pattern_gets_browser_extension_category(self):
+        dn = [_tool("domain", "ext:Google Chrome:fcoeoabg")]
+        result = _configured_only_providers([], [], dn)
+        assert result[0]["category"] == "browser_extension"
+
+    def test_secret_prefix_pattern_gets_hardcoded_secret_category(self):
+        ap = [_tool("domain_pattern", "secret:aws:repo:x")]
+        result = _configured_only_providers([], ap, [])
+        assert result[0]["category"] == "hardcoded_secret"
 
     def test_already_observed_provider_is_not_duplicated(self):
         """If all_providers() already produced a row for this provider
@@ -101,6 +120,16 @@ class TestAugmentWithConfiguredOnly:
         ctx = PolicyContext(org_approve={"mcp:*:notion"})
         result = _augment_with_configured_only([], ctx)
         assert result[0]["tier"] == "org_approve"
+
+    def test_dep_prefix_pattern_gets_declared_dependency_category(self):
+        ctx = PolicyContext(org_approve={"dep:python:langchain"})
+        result = _augment_with_configured_only([], ctx)
+        assert result[0]["category"] == "declared_dependency"
+
+    def test_secret_prefix_pattern_gets_hardcoded_secret_category(self):
+        ctx = PolicyContext(org_deny={"secret:aws:repo:x"})
+        result = _augment_with_configured_only([], ctx)
+        assert result[0]["category"] == "hardcoded_secret"
 
     def test_user_rule_beats_project_in_computed_tier(self):
         """Sanity check that we reuse the real waterfall (policy_tier), not

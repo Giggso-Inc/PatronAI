@@ -11,6 +11,11 @@
 # DEPENDS: streamlit, scoring.risk_score
 # AUDIT LOG:
 #   v1.0.0  2026-05-11  Initial.
+#   v1.1.0  2026-09-09  Add descriptive labels for the three scanner-graft
+#                       categories (declared_dependency, browser_extension,
+#                       hardcoded_secret) — posture_breakdown() is category-
+#                       generic and was already grouping them, just with no
+#                       label to show.
 # =============================================================
 
 import os
@@ -36,6 +41,9 @@ _CATEGORY_LABEL = {
     "agent_scheduled":      "Scheduled agents (cron / launchd)",
     "tool_registration":    "@tool decorators in code",
     "vector_db":            "Local vector DBs",
+    "declared_dependency":  "AI/ML dependencies declared in repos",
+    "browser_extension":    "Browser extensions installed",
+    "hardcoded_secret":     "Hardcoded secrets found in repos",
 }
 
 

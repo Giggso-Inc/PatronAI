@@ -12,6 +12,13 @@
 #                       theme.plotly_layout(); SEV_COLOURS rebased.
 #   v2.1.0  2026-04-27  sev_badge adds icons (🔴/🟡/🔵/🚨); geo_flag
 #                       extended. Imports SEV_ICON from theme.
+#   v2.2.0  2026-09-09  Add CATEGORY_LABELS — single source of truth for
+#                       category short-labels, consolidating the
+#                       previously-duplicated _CATEGORY_LABEL (user_detail.py)
+#                       and _CAT_LABEL (provider_governance.py) copies, both
+#                       of which were missing the three scanner-graft
+#                       categories (and, before that, observed_network_target
+#                       / unclassified_software / mcp_config_changed too).
 # =============================================================
 
 from .theme import (
@@ -46,6 +53,32 @@ COUNTRY_ISO: dict = {
     "USA": "USA", "UK": "GBR", "Germany": "DEU", "India": "IND",
     "China": "CHN", "Russia": "RUS", "France": "FRA",
     "Canada": "CAN", "Australia": "AUS", "Brazil": "BRA",
+}
+
+# Short human labels for every finding category the platform emits — legacy
+# endpoint categories, Phase 1A, and the scanner-graft additions alike. Any
+# view that needs to render a category as a short label should import this
+# instead of keeping its own copy.
+CATEGORY_LABELS: dict = {
+    "ide_plugin":               "IDE Plugin",
+    "mcp_server":               "MCP Server",
+    "mcp_config_changed":       "MCP Change",
+    "vector_db":                "Vector DB",
+    "browser":                  "Browser (AI)",
+    "package":                  "Package",
+    "process":                  "Process",
+    "shell_history":            "Shell History",
+    "tool_registration":        "Tool Registration",
+    "agent_workflow":           "Agent Workflow",
+    "agent_scheduled":          "Scheduled Agent",
+    "container_image":          "Container Image",
+    "container_log_signal":     "Container Log",
+    "observed_network_target":  "Network Target",
+    "unclassified_software":    "Unclassified SW",
+    "declared_dependency":      "Declared Dependency",
+    "browser_extension":        "Browser Extension",
+    "hardcoded_secret":         "Hardcoded Secret",
+    "unknown":                  "Unknown",
 }
 
 
