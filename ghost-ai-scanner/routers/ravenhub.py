@@ -148,6 +148,15 @@ class UserDetailResponse(BaseModel):
     logs: Optional[list] = None
 
 
+class AgentVersionResponse(BaseModel):
+    viewer_email: str
+    target_email: str
+    authorized: bool
+    message: Optional[str] = None
+    agent_version: Optional[str] = None
+    last_seen_at: Optional[str] = None
+
+
 # =============================================================
 # Helper functions
 # =============================================================
@@ -343,6 +352,43 @@ def _load_events(store: BlobIndexStore, email: str, is_admin: bool) -> tuple:
         y_summary = {}
 
     return events, summary, y_summary, source_date
+
+
+def _latest_heartbeat_version(store: BlobIndexStore, email: str) -> tuple:
+    """Most recent agent_heartbeat's reported version for `email`, walking
+    back up to 7 days — same window as _load_events, but deliberately NOT
+    reusing it: _load_events exists specifically to walk PAST heartbeat-only
+    days to find substantive findings, while a HEARTBEAT row is exactly what
+    this function is looking for.
+
+    See src/normalizer/agent.py::_parse_heartbeat — the reported version is
+    written into event["process_name"] ("reuse field for version"; also
+    duplicated inside the "notes" JSON blob, not read here since
+    process_name is simpler and always present on a HEARTBEAT row).
+
+    Returns (version, timestamp) for the newest matching HEARTBEAT row in
+    the window, or (None, None) if none found.
+    """
+    em = email.lower()
+    best_version: Optional[str] = None
+    best_ts: Optional[str] = None
+    for days_back in range(0, 8):
+        check_date = (date.today() - timedelta(days=days_back)).isoformat()
+        df = store.findings.read(check_date, limit=500)
+        if df.is_empty():
+            continue
+        for e in df.to_dicts():
+            if e.get("outcome") != "HEARTBEAT":
+                continue
+            if (e.get("owner", "") or "").lower() != em and (e.get("email", "") or "").lower() != em:
+                continue
+            ts = e.get("timestamp") or ""
+            if best_ts is None or ts > best_ts:
+                best_ts = ts
+                best_version = e.get("process_name") or None
+        if best_version is not None:
+            break
+    return best_version, best_ts
 
 
 def _kpis(events: list, y_summary: dict) -> dict:
@@ -1041,4 +1087,50 @@ def get_user_detail(
         total_events=len(user_events),
         score=score_detail(user_events, policy_ctx),
         logs=_user_logs(user_events),
+    )
+
+
+@router.get("/agent-version", response_model=AgentVersionResponse)
+def get_agent_version(
+    target_email: EmailStr = Query(..., description="Email of the user whose installed agent version to look up"),
+    viewer_email: str = Depends(_verify_ravenhub_identity),
+) -> AgentVersionResponse:
+    """The version most recently reported by this user's deployed hook agent
+    in its periodic HEARTBEAT check-in (see src/normalizer/agent.py::
+    _parse_heartbeat) — for a caller (raven-enterprise's Hub) that wants to
+    show "what PatronAI agent version is this seat running" alongside
+    Raven's and Cowork's own version fields, without needing PatronAI's
+    dashboard UI.
+
+    Same access model as GET /user/detail (mirrors it deliberately — same
+    kind of per-user lookup a non-admin has no business making for anyone
+    but themselves): admins may look up anyone; non-admins may only look up
+    themselves (viewer_email == target_email). Otherwise 200 OK with
+    authorized=false and no data — a privilege gate, not an auth failure.
+
+    agent_version/last_seen_at are None (not an error) when no HEARTBEAT
+    event has landed for this email in the last 7 days — a real, expected
+    state (never installed, or offline longer than the lookup window), not
+    a service failure.
+    """
+    viewer_norm = viewer_email
+    target_norm = str(target_email).strip().lower()
+
+    try:
+        viewer_is_admin = _resolve_is_admin(viewer_norm)
+    except HTTPException:
+        viewer_is_admin = False
+
+    if not (viewer_is_admin or viewer_norm == target_norm):
+        return AgentVersionResponse(
+            viewer_email=viewer_norm, target_email=target_norm, authorized=False,
+            message="Not authorized to view this user's data.",
+        )
+
+    store = _blob_store(target_norm)
+    agent_version, last_seen_at = _latest_heartbeat_version(store, target_norm)
+
+    return AgentVersionResponse(
+        viewer_email=viewer_norm, target_email=target_norm, authorized=True,
+        agent_version=agent_version, last_seen_at=last_seen_at,
     )

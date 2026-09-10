@@ -35,6 +35,7 @@
 # =============================================================
 
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -52,7 +53,8 @@ from routers.ravenhub import (
     _asset_key, _owner_of, _ai_posture, _asset_inventory,
     get_inventory_overview, InventoryOverviewResponse,
     _user_logs, get_user_detail, UserDetailResponse,
-    _shadow_by_tool,
+    _shadow_by_tool, _latest_heartbeat_version,
+    get_agent_version, AgentVersionResponse,
 )
 
 
@@ -602,3 +604,145 @@ def test_user_detail_unresolvable_viewer_denied_for_cross_view(monkeypatch):
 
     result = get_user_detail(viewer_email="ghost@giggso.com", target_email="someone-else@giggso.com")
     assert result.authorized is False
+
+
+# ── _latest_heartbeat_version ────────────────────────────────────
+
+class _FakeDF:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def is_empty(self):
+        return not self._rows
+
+    def to_dicts(self):
+        return self._rows
+
+
+class _FakeFindings:
+    def __init__(self, by_date):
+        self._by_date = by_date  # {date_str: [row, ...]}
+
+    def read(self, check_date, limit=500):
+        return _FakeDF(self._by_date.get(check_date, []))
+
+
+class _FakeStore:
+    def __init__(self, by_date):
+        self.findings = _FakeFindings(by_date)
+
+
+def _hb(**kw) -> dict:
+    base = {
+        "outcome": "HEARTBEAT", "owner": "a@giggso.com", "email": "a@giggso.com",
+        "process_name": "2.0.0", "timestamp": "2026-07-20T08:00:00+00:00",
+    }
+    base.update(kw)
+    return base
+
+
+def test_latest_heartbeat_version_returns_newest_matching_row():
+    today = date.today().isoformat()
+    store = _FakeStore({
+        today: [
+            _hb(timestamp="2026-01-01T08:00:00+00:00", process_name="1.9.0"),
+            _hb(timestamp="2026-01-02T08:00:00+00:00", process_name="2.0.0"),
+        ],
+    })
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version == "2.0.0"
+    assert ts == "2026-01-02T08:00:00+00:00"
+
+
+def test_latest_heartbeat_version_ignores_other_users():
+    today = date.today().isoformat()
+    store = _FakeStore({today: [_hb(owner="other@giggso.com", email="other@giggso.com")]})
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version is None
+    assert ts is None
+
+
+def test_latest_heartbeat_version_ignores_non_heartbeat_outcomes():
+    today = date.today().isoformat()
+    store = _FakeStore({today: [_ev(outcome="ENDPOINT_FINDING", owner="a@giggso.com", email="a@giggso.com")]})
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version is None
+
+
+def test_latest_heartbeat_version_walks_back_when_today_empty():
+    """Unlike _load_events, this must NOT skip a heartbeat-only day looking
+    for something "more substantive" — a HEARTBEAT row IS the target here."""
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    store = _FakeStore({yesterday: [_hb(process_name="1.5.0")]})
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version == "1.5.0"
+
+
+def test_latest_heartbeat_version_none_when_nothing_in_window():
+    store = _FakeStore({})
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version is None
+    assert ts is None
+
+
+# ── get_agent_version: admin-or-self access gate ─────────────────
+
+def _stub_agent_version_deps(monkeypatch, version, ts="2026-07-20T08:00:00+00:00"):
+    """Stub out identity/S3/DB so get_agent_version runs fully offline."""
+    monkeypatch.setattr(ravenhub, "_blob_store", lambda email=None: object())
+    monkeypatch.setattr(
+        ravenhub, "_latest_heartbeat_version",
+        lambda store, email: (version, ts if version is not None else None),
+    )
+
+
+def test_agent_version_admin_can_view_anyone(monkeypatch):
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: True)
+    _stub_agent_version_deps(monkeypatch, "2.0.0")
+
+    result = get_agent_version(viewer_email="admin@giggso.com", target_email="target@giggso.com")
+    assert isinstance(result, AgentVersionResponse)
+    assert result.authorized is True
+    assert result.message is None
+    assert result.agent_version == "2.0.0"
+    assert result.last_seen_at == "2026-07-20T08:00:00+00:00"
+
+
+def test_agent_version_non_admin_can_view_self(monkeypatch):
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: False)
+    _stub_agent_version_deps(monkeypatch, "2.0.0")
+
+    result = get_agent_version(viewer_email="me@giggso.com", target_email="me@giggso.com")
+    assert result.authorized is True
+    assert result.agent_version == "2.0.0"
+
+
+def test_agent_version_non_admin_cannot_view_someone_else(monkeypatch):
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: False)
+
+    result = get_agent_version(viewer_email="me@giggso.com", target_email="someone-else@giggso.com")
+    assert result.authorized is False
+    assert result.message == "Not authorized to view this user's data."
+    assert result.agent_version is None
+
+
+def test_agent_version_none_when_no_heartbeat_seen(monkeypatch):
+    """A real, expected state (never installed, or offline past the lookup
+    window) — must come back 200/authorized with null fields, not an error."""
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: True)
+    _stub_agent_version_deps(monkeypatch, None)
+
+    result = get_agent_version(viewer_email="admin@giggso.com", target_email="target@giggso.com")
+    assert result.authorized is True
+    assert result.agent_version is None
+    assert result.last_seen_at is None
+
+
+def test_agent_version_unresolvable_viewer_still_allows_self_view(monkeypatch):
+    def _deny(email):
+        raise HTTPException(status_code=403, detail="Access denied")
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", _deny)
+    _stub_agent_version_deps(monkeypatch, "2.0.0")
+
+    result = get_agent_version(viewer_email="ghost@giggso.com", target_email="ghost@giggso.com")
+    assert result.authorized is True
