@@ -27,8 +27,14 @@ def _infer_kind(tool: str, outcome: str = "") -> str:
 def _emit(org: str, code: str, event_id: str, detail: str = "",
           payload: dict | None = None,
           user: str = "", device: str = "") -> None:
-    base = os.environ.get("RAVEN_HUB_URL", "").rstrip("/")
-    if not base:
+    # Prefer raven_be when cut over; fall back to Hub (which may forward).
+    be = (os.environ.get("RAVEN_AUTH_URL") or os.environ.get("RAVEN_BE_URL") or "").rstrip("/")
+    hub = (os.environ.get("RAVEN_HUB_URL") or "").rstrip("/")
+    if be:
+        base, path = be, "/auth/api/v1/alerts/events"
+    elif hub:
+        base, path = hub, "/api/v1/alerts/events"
+    else:
         return
     key = os.environ.get("RAVEN_AGENT_KEY", "")
     pl = dict(payload or {})
@@ -48,7 +54,7 @@ def _emit(org: str, code: str, event_id: str, detail: str = "",
     }
     try:
         req = urllib.request.Request(
-            f"{base}/api/v1/alerts/events",
+            f"{base}{path}",
             data=json.dumps(body).encode(), method="POST",
             headers={"Content-Type": "application/json",
                      **({"X-Raven-Agent": key} if key else {})},
@@ -80,6 +86,47 @@ def emit_shadow_discovered(
     )
 
 
+def emit_user_first_use(
+    org: str, event_id: str, tool: str,
+    user: str = "", device: str = "",
+    outcome: str = "", domain: str = "", hostname: str = "",
+) -> None:
+    """Email the workforce user on first sighting of a shadow tool for them."""
+    kind = _infer_kind(tool, outcome or "UNKNOWN")
+    _emit(
+        org, "shadow_ai_user_first_use", event_id,
+        detail=f"First use of shadow tool {tool} by {user or 'user'}",
+        payload={
+            "tool": tool,
+            "resource": tool,
+            "resource_kind": kind,
+            "tool_kind": kind,
+            "outcome": outcome or "UNKNOWN",
+            "domain": domain or tool,
+            "hostname": hostname or device,
+            "messaging_event": "shadow_ai_user_first_use",
+        },
+        user=user, device=device or hostname,
+    )
+
+
+def emit_continued_use(
+    org: str, event_id: str, tool: str, *,
+    user_count: int = 0, users: list | None = None,
+) -> None:
+    _emit(
+        org, "shadow_ai_continued_use", event_id,
+        detail=f"Continued use of shadow tool {tool} ({user_count or len(users or [])} user(s))",
+        payload={
+            "tool": tool,
+            "resource": tool,
+            "user_count": user_count or len(users or []),
+            "users": list(users or []),
+            "messaging_event": "shadow_ai_continued_use",
+        },
+    )
+
+
 def emit_denylisted(
     org: str, event_id: str, tool: str,
     user: str = "", device: str = "",
@@ -102,7 +149,10 @@ def emit_denylisted(
     )
 
 
-def emit_pending_decisions(org: str, event_id: str, count: int) -> None:
-    _emit(org, "shadow_ai_pending_decisions", event_id,
-          f"{count} shadow AI decisions pending >3 days",
-          payload={"count": count, "resource_kind": "shadow_ai"})
+def emit_pending_decisions(org: str, event_id: str, count: int, *, days: int = 3) -> None:
+    code = "shadow_ai_pending_7d" if days >= 7 else "shadow_ai_pending_72h"
+    label = f">{days} days" if days >= 7 else "72 hrs"
+    _emit(org, code, event_id,
+          f"{count} shadow AI decisions pending >{label}",
+          payload={"count": count, "resource_kind": "shadow_ai",
+                   "threshold_days": days, "messaging_event": code})
