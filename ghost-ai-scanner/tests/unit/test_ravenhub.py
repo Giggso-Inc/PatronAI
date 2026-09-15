@@ -52,7 +52,8 @@ from routers.ravenhub import (
     _asset_key, _owner_of, _ai_posture, _asset_inventory,
     get_inventory_overview, InventoryOverviewResponse,
     _user_logs, get_user_detail, UserDetailResponse,
-    _shadow_by_tool,
+    _shadow_by_tool, _latest_heartbeat_version,
+    get_agent_version, AgentVersionResponse,
 )
 
 
@@ -602,3 +603,213 @@ def test_user_detail_unresolvable_viewer_denied_for_cross_view(monkeypatch):
 
     result = get_user_detail(viewer_email="ghost@giggso.com", target_email="someone-else@giggso.com")
     assert result.authorized is False
+
+
+# ── _latest_heartbeat_version ────────────────────────────────────
+#
+# Replaces a prior implementation that scanned store.findings.read(date,
+# limit=500) — unordered, and on an append-ordered file a 500-row cap
+# returns the OLDEST rows of the day, not the newest, so on any tenant with
+# more than ~2 devices the lookup silently returned a stale-or-null version.
+# These tests exercise the fixed implementation: a single overwritten
+# heartbeat blob per agent token (AgentStore.get_heartbeat), no cap, no
+# day-walk, and a PARSED timestamp comparison (not the raw-string compare
+# api.py::_freshest_heartbeat uses, which breaks across the two installers'
+# incompatible timestamp formats).
+
+class _FakeAgentStore:
+    def __init__(self, catalog, heartbeats):
+        self._catalog = catalog              # list of {"recipient_email", "token"}
+        self._heartbeats = heartbeats         # {token: {"agent_version", "timestamp"} | None}
+
+    def list_catalog(self):
+        return self._catalog
+
+    def get_heartbeat(self, token):
+        return self._heartbeats.get(token)
+
+
+class _FakeStore:
+    def __init__(self, catalog, heartbeats):
+        self.agent = _FakeAgentStore(catalog, heartbeats)
+
+
+def _entry(email="a@giggso.com", token="tok-a") -> dict:
+    return {"recipient_email": email, "token": token}
+
+
+def _hb(**kw) -> dict:
+    base = {"agent_version": "2.0.0", "timestamp": "2026-07-20T08:00:00+00:00"}
+    base.update(kw)
+    return base
+
+
+def test_latest_heartbeat_version_single_device():
+    store = _FakeStore([_entry()], {"tok-a": _hb(agent_version="2.0.0")})
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version == "2.0.0"
+    assert ts == "2026-07-20T08:00:00+00:00"
+
+
+def test_latest_heartbeat_version_picks_freshest_across_multiple_devices():
+    """The exact case the endpoint exists for — a user with a mac and a
+    windows device, whose installers emit different timestamp shapes
+    (mac: offset-aware ISO with microseconds; windows: a literal "Z"
+    suffix — setup_agent.ps1.template's own quirk). This reproduces the
+    reviewer's M1 finding verbatim: RAW STRING comparison
+    (api.py::_freshest_heartbeat's approach) picks the WRONG device here
+    — "2026-07-20T20:00:00Z" sorts ABOVE "2026-07-20T20:00:00.900000+00:00"
+    because "Z" (0x5A) sorts above "." (0x2E), even though the .900000
+    timestamp is the later instant by parsed value (20:00:00.9 > 20:00:00.0
+    UTC). A parsed comparison must return the .900000 entry; a raw string
+    comparison would return the Z entry instead."""
+    store = _FakeStore(
+        [_entry(token="tok-mac"), _entry(token="tok-win")],
+        {
+            "tok-mac": _hb(agent_version="2.0.0", timestamp="2026-07-20T20:00:00.900000+00:00"),
+            "tok-win": _hb(agent_version="1.0.0", timestamp="2026-07-20T20:00:00Z"),
+        },
+    )
+    assert "2026-07-20T20:00:00Z" > "2026-07-20T20:00:00.900000+00:00", (
+        "sanity check: raw string comparison really does sort the Z entry higher"
+    )
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version == "2.0.0", "parsed comparison must pick the later instant, not the higher-sorting string"
+
+
+def test_latest_heartbeat_version_ignores_other_users_tokens():
+    store = _FakeStore(
+        [_entry(email="other@giggso.com", token="tok-other")],
+        {"tok-other": _hb()},
+    )
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version is None
+    assert ts is None
+
+
+def test_latest_heartbeat_version_none_when_no_tokens():
+    store = _FakeStore([], {})
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version is None
+    assert ts is None
+
+
+def test_latest_heartbeat_version_none_when_no_heartbeat_blob_yet():
+    """A catalog entry with no heartbeat blob written yet (never checked
+    in) must not raise or be treated as a match."""
+    store = _FakeStore([_entry()], {"tok-a": None})
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version is None
+    assert ts is None
+
+
+def test_latest_heartbeat_version_empty_version_leaves_version_none_but_keeps_timestamp():
+    """A heartbeat that arrived but did not carry a version string is
+    "seen, version not reported" — last_seen_at is real, agent_version is
+    not, and that combination must be preserved rather than discarded."""
+    store = _FakeStore([_entry()], {"tok-a": _hb(agent_version="")})
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version is None
+    assert ts == "2026-07-20T08:00:00+00:00"
+
+
+def test_latest_heartbeat_version_unparseable_timestamp_is_skipped():
+    store = _FakeStore(
+        [_entry(token="tok-bad"), _entry(token="tok-good")],
+        {
+            "tok-bad":  _hb(agent_version="9.9.9", timestamp="not-a-timestamp"),
+            "tok-good": _hb(agent_version="2.0.0", timestamp="2026-07-20T08:00:00+00:00"),
+        },
+    )
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version == "2.0.0"
+
+
+def test_latest_heartbeat_version_far_future_timestamp_is_rejected():
+    """A compromised/misconfigured agent reporting a far-future timestamp
+    must not permanently win every future comparison."""
+    store = _FakeStore(
+        [_entry(token="tok-future"), _entry(token="tok-real")],
+        {
+            "tok-future": _hb(agent_version="9.9.9", timestamp="2099-01-01T00:00:00+00:00"),
+            "tok-real":   _hb(agent_version="2.0.0", timestamp="2026-07-20T08:00:00+00:00"),
+        },
+    )
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version == "2.0.0"
+
+
+def test_parse_heartbeat_timestamp_handles_both_installer_formats():
+    mac_ts = ravenhub._parse_heartbeat_timestamp("2026-07-20T20:00:00.900000+00:00")
+    win_ts = ravenhub._parse_heartbeat_timestamp("2026-07-20T20:00:00Z")
+    assert mac_ts is not None and win_ts is not None
+    assert mac_ts > win_ts, "the .900000 instant is later, regardless of which string sorts higher"
+
+
+def test_parse_heartbeat_timestamp_none_on_garbage():
+    assert ravenhub._parse_heartbeat_timestamp("") is None
+    assert ravenhub._parse_heartbeat_timestamp(None) is None
+    assert ravenhub._parse_heartbeat_timestamp("not-a-timestamp") is None
+
+
+# ── get_agent_version: admin-or-self access gate ─────────────────
+
+def _stub_agent_version_deps(monkeypatch, version, ts="2026-07-20T08:00:00+00:00"):
+    """Stub out identity/S3/DB so get_agent_version runs fully offline."""
+    monkeypatch.setattr(ravenhub, "_blob_store", lambda email=None: object())
+    monkeypatch.setattr(
+        ravenhub, "_latest_heartbeat_version",
+        lambda store, email: (version, ts if version is not None else None),
+    )
+
+
+def test_agent_version_admin_can_view_anyone(monkeypatch):
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: True)
+    _stub_agent_version_deps(monkeypatch, "2.0.0")
+
+    result = get_agent_version(viewer_email="admin@giggso.com", target_email="target@giggso.com")
+    assert isinstance(result, AgentVersionResponse)
+    assert result.authorized is True
+    assert result.message is None
+    assert result.agent_version == "2.0.0"
+    assert result.last_seen_at == "2026-07-20T08:00:00+00:00"
+
+
+def test_agent_version_non_admin_can_view_self(monkeypatch):
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: False)
+    _stub_agent_version_deps(monkeypatch, "2.0.0")
+
+    result = get_agent_version(viewer_email="me@giggso.com", target_email="me@giggso.com")
+    assert result.authorized is True
+    assert result.agent_version == "2.0.0"
+
+
+def test_agent_version_non_admin_cannot_view_someone_else(monkeypatch):
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: False)
+
+    result = get_agent_version(viewer_email="me@giggso.com", target_email="someone-else@giggso.com")
+    assert result.authorized is False
+    assert result.message == "Not authorized to view this user's data."
+    assert result.agent_version is None
+
+
+def test_agent_version_none_when_no_heartbeat_seen(monkeypatch):
+    """A real, expected state (never installed, or offline past the lookup
+    window) — must come back 200/authorized with null fields, not an error."""
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", lambda email: True)
+    _stub_agent_version_deps(monkeypatch, None)
+
+    result = get_agent_version(viewer_email="admin@giggso.com", target_email="target@giggso.com")
+    assert result.authorized is True
+    assert result.agent_version is None
+    assert result.last_seen_at is None
+
+
+def test_agent_version_unresolvable_viewer_still_allows_self_view(monkeypatch):
+    def _deny(email):
+        raise HTTPException(status_code=403, detail="Access denied")
+    monkeypatch.setattr(ravenhub, "_resolve_is_admin", _deny)
+    _stub_agent_version_deps(monkeypatch, "2.0.0")
+
+    result = get_agent_version(viewer_email="ghost@giggso.com", target_email="ghost@giggso.com")
+    assert result.authorized is True
