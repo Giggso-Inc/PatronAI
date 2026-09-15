@@ -35,7 +35,6 @@
 # =============================================================
 
 import sys
-from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -607,82 +606,150 @@ def test_user_detail_unresolvable_viewer_denied_for_cross_view(monkeypatch):
 
 
 # ── _latest_heartbeat_version ────────────────────────────────────
+#
+# Replaces a prior implementation that scanned store.findings.read(date,
+# limit=500) — unordered, and on an append-ordered file a 500-row cap
+# returns the OLDEST rows of the day, not the newest, so on any tenant with
+# more than ~2 devices the lookup silently returned a stale-or-null version.
+# These tests exercise the fixed implementation: a single overwritten
+# heartbeat blob per agent token (AgentStore.get_heartbeat), no cap, no
+# day-walk, and a PARSED timestamp comparison (not the raw-string compare
+# api.py::_freshest_heartbeat uses, which breaks across the two installers'
+# incompatible timestamp formats).
 
-class _FakeDF:
-    def __init__(self, rows):
-        self._rows = rows
+class _FakeAgentStore:
+    def __init__(self, catalog, heartbeats):
+        self._catalog = catalog              # list of {"recipient_email", "token"}
+        self._heartbeats = heartbeats         # {token: {"agent_version", "timestamp"} | None}
 
-    def is_empty(self):
-        return not self._rows
+    def list_catalog(self):
+        return self._catalog
 
-    def to_dicts(self):
-        return self._rows
-
-
-class _FakeFindings:
-    def __init__(self, by_date):
-        self._by_date = by_date  # {date_str: [row, ...]}
-
-    def read(self, check_date, limit=500):
-        return _FakeDF(self._by_date.get(check_date, []))
+    def get_heartbeat(self, token):
+        return self._heartbeats.get(token)
 
 
 class _FakeStore:
-    def __init__(self, by_date):
-        self.findings = _FakeFindings(by_date)
+    def __init__(self, catalog, heartbeats):
+        self.agent = _FakeAgentStore(catalog, heartbeats)
+
+
+def _entry(email="a@giggso.com", token="tok-a") -> dict:
+    return {"recipient_email": email, "token": token}
 
 
 def _hb(**kw) -> dict:
-    base = {
-        "outcome": "HEARTBEAT", "owner": "a@giggso.com", "email": "a@giggso.com",
-        "process_name": "2.0.0", "timestamp": "2026-07-20T08:00:00+00:00",
-    }
+    base = {"agent_version": "2.0.0", "timestamp": "2026-07-20T08:00:00+00:00"}
     base.update(kw)
     return base
 
 
-def test_latest_heartbeat_version_returns_newest_matching_row():
-    today = date.today().isoformat()
-    store = _FakeStore({
-        today: [
-            _hb(timestamp="2026-01-01T08:00:00+00:00", process_name="1.9.0"),
-            _hb(timestamp="2026-01-02T08:00:00+00:00", process_name="2.0.0"),
-        ],
-    })
+def test_latest_heartbeat_version_single_device():
+    store = _FakeStore([_entry()], {"tok-a": _hb(agent_version="2.0.0")})
     version, ts = _latest_heartbeat_version(store, "a@giggso.com")
     assert version == "2.0.0"
-    assert ts == "2026-01-02T08:00:00+00:00"
+    assert ts == "2026-07-20T08:00:00+00:00"
 
 
-def test_latest_heartbeat_version_ignores_other_users():
-    today = date.today().isoformat()
-    store = _FakeStore({today: [_hb(owner="other@giggso.com", email="other@giggso.com")]})
+def test_latest_heartbeat_version_picks_freshest_across_multiple_devices():
+    """The exact case the endpoint exists for — a user with a mac and a
+    windows device, whose installers emit different timestamp shapes
+    (mac: offset-aware ISO with microseconds; windows: a literal "Z"
+    suffix — setup_agent.ps1.template's own quirk). This reproduces the
+    reviewer's M1 finding verbatim: RAW STRING comparison
+    (api.py::_freshest_heartbeat's approach) picks the WRONG device here
+    — "2026-07-20T20:00:00Z" sorts ABOVE "2026-07-20T20:00:00.900000+00:00"
+    because "Z" (0x5A) sorts above "." (0x2E), even though the .900000
+    timestamp is the later instant by parsed value (20:00:00.9 > 20:00:00.0
+    UTC). A parsed comparison must return the .900000 entry; a raw string
+    comparison would return the Z entry instead."""
+    store = _FakeStore(
+        [_entry(token="tok-mac"), _entry(token="tok-win")],
+        {
+            "tok-mac": _hb(agent_version="2.0.0", timestamp="2026-07-20T20:00:00.900000+00:00"),
+            "tok-win": _hb(agent_version="1.0.0", timestamp="2026-07-20T20:00:00Z"),
+        },
+    )
+    assert "2026-07-20T20:00:00Z" > "2026-07-20T20:00:00.900000+00:00", (
+        "sanity check: raw string comparison really does sort the Z entry higher"
+    )
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version == "2.0.0", "parsed comparison must pick the later instant, not the higher-sorting string"
+
+
+def test_latest_heartbeat_version_ignores_other_users_tokens():
+    store = _FakeStore(
+        [_entry(email="other@giggso.com", token="tok-other")],
+        {"tok-other": _hb()},
+    )
     version, ts = _latest_heartbeat_version(store, "a@giggso.com")
     assert version is None
     assert ts is None
 
 
-def test_latest_heartbeat_version_ignores_non_heartbeat_outcomes():
-    today = date.today().isoformat()
-    store = _FakeStore({today: [_ev(outcome="ENDPOINT_FINDING", owner="a@giggso.com", email="a@giggso.com")]})
-    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
-    assert version is None
-
-
-def test_latest_heartbeat_version_walks_back_when_today_empty():
-    """Unlike _load_events, this must NOT skip a heartbeat-only day looking
-    for something "more substantive" — a HEARTBEAT row IS the target here."""
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
-    store = _FakeStore({yesterday: [_hb(process_name="1.5.0")]})
-    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
-    assert version == "1.5.0"
-
-
-def test_latest_heartbeat_version_none_when_nothing_in_window():
-    store = _FakeStore({})
+def test_latest_heartbeat_version_none_when_no_tokens():
+    store = _FakeStore([], {})
     version, ts = _latest_heartbeat_version(store, "a@giggso.com")
     assert version is None
     assert ts is None
+
+
+def test_latest_heartbeat_version_none_when_no_heartbeat_blob_yet():
+    """A catalog entry with no heartbeat blob written yet (never checked
+    in) must not raise or be treated as a match."""
+    store = _FakeStore([_entry()], {"tok-a": None})
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version is None
+    assert ts is None
+
+
+def test_latest_heartbeat_version_empty_version_leaves_version_none_but_keeps_timestamp():
+    """A heartbeat that arrived but did not carry a version string is
+    "seen, version not reported" — last_seen_at is real, agent_version is
+    not, and that combination must be preserved rather than discarded."""
+    store = _FakeStore([_entry()], {"tok-a": _hb(agent_version="")})
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version is None
+    assert ts == "2026-07-20T08:00:00+00:00"
+
+
+def test_latest_heartbeat_version_unparseable_timestamp_is_skipped():
+    store = _FakeStore(
+        [_entry(token="tok-bad"), _entry(token="tok-good")],
+        {
+            "tok-bad":  _hb(agent_version="9.9.9", timestamp="not-a-timestamp"),
+            "tok-good": _hb(agent_version="2.0.0", timestamp="2026-07-20T08:00:00+00:00"),
+        },
+    )
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version == "2.0.0"
+
+
+def test_latest_heartbeat_version_far_future_timestamp_is_rejected():
+    """A compromised/misconfigured agent reporting a far-future timestamp
+    must not permanently win every future comparison."""
+    store = _FakeStore(
+        [_entry(token="tok-future"), _entry(token="tok-real")],
+        {
+            "tok-future": _hb(agent_version="9.9.9", timestamp="2099-01-01T00:00:00+00:00"),
+            "tok-real":   _hb(agent_version="2.0.0", timestamp="2026-07-20T08:00:00+00:00"),
+        },
+    )
+    version, ts = _latest_heartbeat_version(store, "a@giggso.com")
+    assert version == "2.0.0"
+
+
+def test_parse_heartbeat_timestamp_handles_both_installer_formats():
+    mac_ts = ravenhub._parse_heartbeat_timestamp("2026-07-20T20:00:00.900000+00:00")
+    win_ts = ravenhub._parse_heartbeat_timestamp("2026-07-20T20:00:00Z")
+    assert mac_ts is not None and win_ts is not None
+    assert mac_ts > win_ts, "the .900000 instant is later, regardless of which string sorts higher"
+
+
+def test_parse_heartbeat_timestamp_none_on_garbage():
+    assert ravenhub._parse_heartbeat_timestamp("") is None
+    assert ravenhub._parse_heartbeat_timestamp(None) is None
+    assert ravenhub._parse_heartbeat_timestamp("not-a-timestamp") is None
 
 
 # ── get_agent_version: admin-or-self access gate ─────────────────
