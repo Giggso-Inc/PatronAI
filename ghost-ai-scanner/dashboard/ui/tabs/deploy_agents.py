@@ -35,6 +35,8 @@ def render(email: str) -> None:
     st.markdown("<hr>", unsafe_allow_html=True)
     from ui.tabs.deploy_agents_table import render_status_table
     render_status_table()
+    st.markdown("<hr>", unsafe_allow_html=True)
+    _render_auto_update_section()
 
 
 def _render_generate_form(admin_email: str) -> None:
@@ -167,5 +169,71 @@ def _generate(name: str, email: str, os_type: str,
                 st.markdown(f"[Download DMG (Mac)]({result['dmg_url']})")
             if other_exe:
                 st.markdown(f"[Download EXE (Windows)]({result['exe_url']})")
+
+
+def _get_store():
+    """Same AgentStore construction as _generate() above - shared here so
+    the auto-update section doesn't need its own bucket/region resolution."""
+    from store.agent_store import AgentStore
+    bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    if not bucket:
+        return None
+    try:
+        return AgentStore(bucket, region)
+    except Exception:
+        return None
+
+
+def _render_auto_update_section() -> None:
+    """Agent Auto-Update — org-wide toggle + "publish current build" action.
+
+    Reads/writes AgentStore.get_update_settings()/set_update_settings()
+    (config/HOOK_AGENTS/_updates/settings.json). Publishing never flips
+    auto_update_enabled itself - an admin explicitly opts in with the
+    toggle below, matching Raven's own default-off auto_update_agents.
+    """
+    st.markdown("**Agent Auto-Update**")
+    st.caption(
+        "Devices already have apply_update.ps1/.sh installed (hourly check). "
+        "Enable below to let them actually download and apply a published "
+        "build; leave off to only let admins see what's available."
+    )
+
+    store = _get_store()
+    if store is None:
+        st.info("Tenant storage not configured.")
+        return
+
+    settings = store.get_update_settings()
+    current_version = settings.get("latest_agent_version") or "(none published yet)"
+
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        st.markdown(f"Latest published version: **{current_version}**")
+        enabled = st.toggle(
+            "Auto-update enabled for this org",
+            value=bool(settings.get("auto_update_enabled")),
+            key="auto_update_enabled_toggle",
+            help="Off = visibility only (devices log 'update available' but never apply it).",
+        )
+        if enabled != bool(settings.get("auto_update_enabled")):
+            settings["auto_update_enabled"] = enabled
+            if store.set_update_settings(settings):
+                st.success("Updated.")
+                st.rerun()
+            else:
+                st.error("Failed to save auto-update setting.")
+
+    with c2:
+        if st.button("Publish current agent scripts as latest version"):
+            from build_agent_update_bundle import build_and_publish
+            with st.spinner("Building and publishing update bundle..."):
+                result = build_and_publish(store)
+            if result["success"]:
+                st.success(f"Published version {result['version']}.")
+                st.rerun()
+            else:
+                st.error(f"Publish failed: {result['error']}")
 
 
