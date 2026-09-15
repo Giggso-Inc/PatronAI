@@ -6,6 +6,21 @@
 #
 # USAGE: powershell -ExecutionPolicy Bypass -File setup_agent.ps1
 # REQUIRES: PowerShell 5.1+, Python 3 (with bcrypt installed)
+#
+# NOTE ON NON-ASCII CHARACTERS: this raw template file has no UTF-8 BOM
+# (source-controlled text). Windows PowerShell 5.1 falls back to the system
+# ANSI codepage when reading a script with no BOM, which can misread a
+# multi-byte UTF-8 character (e.g. an em-dash) inside a double-quoted string
+# and corrupt the rest of the parse - confirmed live against this exact file
+# with [System.Management.Automation.Language.Parser]::ParseFile(). The
+# actual SHIPPED installer is unaffected: render_agent_package.py re-encodes
+# the rendered output as utf-8-sig (BOM) before upload specifically because
+# of this issue (see that file's v1.6.1 changelog). Comments are free to use
+# em-dashes/curly quotes/etc. (the parser ignores comment content either
+# way) - but any string literal actually reachable by PowerShell's tokenizer
+# (Write-Host/Write-Info calls, variable values) MUST stay plain ASCII here,
+# so this template is also correctly parseable on its own without depending
+# on that downstream BOM re-encoding step.
 # =============================================================
 $ErrorActionPreference = "Stop"
 
@@ -184,7 +199,7 @@ if ($ExistingTpl -and $ExistingTpl -ne $TemplateDir) {
     New-Item -ItemType Directory -Force -Path $TemplateHooks | Out-Null
     Copy-Item -Path $HookScript -Destination (Join-Path $TemplateHooks "pre-commit") -Force
     & git config --global init.templateDir $TemplateDir | Out-Null
-    Write-Info "init.templateDir set — every new git init/clone gets the hook."
+    Write-Info "init.templateDir set - every new git init/clone gets the hook."
 }
 
 # ── Write endpoint scan script ────────────────────────────────
@@ -292,11 +307,11 @@ $Diag = Join-Path $AgentDir "diagnose.ps1"
 Write-Host ""
 Write-Info "Installation complete."
 Write-Info "Pre-commit hook installed in $InstallCount existing repositories."
-Write-Info "New repos auto-instrumented via init.templateDir — no manual step needed."
-Write-Info "Endpoint scan every 30 min — packages, processes, browsers, IDE plugins, containers, shell history,"
+Write-Info "New repos auto-instrumented via init.templateDir - no manual step needed."
+Write-Info "Endpoint scan every 30 min - packages, processes, browsers, IDE plugins, containers, shell history,"
 Write-Info "                              MCP servers, agent workflows, scheduled agents, tool registrations, vector DBs."
 Write-Info "First scan runs in baseline mode (wider walk); subsequent scans run lighter."
-Write-Info "Heartbeat every 5 min — refreshes presigned URLs AND auto-installs the pre-commit hook"
+Write-Info "Heartbeat every 5 min - refreshes presigned URLs AND auto-installs the pre-commit hook"
 Write-Info "                       in any new git repo cloned/init-ed since the last cycle."
 Write-Info "AI framework signals in git commits will be forwarded for analysis."
 Write-Info "If anything looks off later, run:  powershell -File ~/.patronai/diagnose.ps1"
