@@ -236,4 +236,21 @@ def _render_auto_update_section() -> None:
             else:
                 st.error(f"Publish failed: {result['error']}")
 
+        if st.button("Publish common installer bundle (catalog)"):
+            from build_agent_installer_bundle import build_and_publish as build_installer_bundle
+            with st.spinner("Building and registering the common installer bundle..."):
+                result = build_installer_bundle(store)
+            if result["success"]:
+                st.success(f"Installer bundle v{result['version']} published -> {result['key']}")
+            else:
+                st.error(f"Publish failed: {result['error']}")
+    st.caption(
+        "The installer bundle is a single, versioned, checksum-tracked zip of "
+        "everything under agent/install/ - Patron's counterpart to Cowork's "
+        "coworkdlp_v<version>.zip - registered with the super-admin catalog when "
+        "SUPERADMIN_URL/SUPERADMIN_JWT are set. It does not change how recipients "
+        "receive their personalized OTP-based installer; it gives that payload a "
+        "tracked, common artifact the way Cowork and Raven already have."
+    )
+
 
