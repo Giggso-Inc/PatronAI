@@ -34,6 +34,15 @@
 #                       connection frequency, not per-process
 #                       api_call_frequency (Packetbeat has no local PID
 #                       for the connection).
+#   v1.9.0  2026-09-04  Scanner-graft Phase 3. Add "declared_dependency",
+#                       "browser_extension", "hardcoded_secret". None of
+#                       the three whitelist "provider" or "category" -
+#                       agent_explode.py sets both as synthetic dedup-key
+#                       fields (_provider_for(), ftype) BEFORE calling
+#                       copy_phase_1a_fields(), same reason no existing
+#                       entry above does either; the raw tool-supplied
+#                       provider/category values still ride along in
+#                       `notes` for detail views.
 # =============================================================
 
 # Field whitelist per Phase 1A finding category. Anything outside this
@@ -58,6 +67,14 @@ PHASE_1A_FIELD_MAP = {
     "observed_network_target": ("domain", "observation_count", "first_seen", "last_seen",
                           "calls_per_10_min", "high_frequency_flag"),
     "unclassified_software": ("name", "root_pid", "instance_process_count"),
+    "declared_dependency": ("repo_safe", "dependency_name", "dependency_version",
+                          "normalized_name", "ecosystem", "is_ai_related",
+                          "is_direct", "manifest_kind", "file_path", "line_number"),
+    "browser_extension": ("extension_id", "name", "version", "browser",
+                          "browser_profile", "enabled", "install_origin",
+                          "host_permissions", "permissions", "high_privilege_host_access"),
+    "hardcoded_secret":  ("repo_safe", "file_path", "line_number", "secret_pattern",
+                          "confidence", "blame_commit", "blame_author", "provenance_state"),
 }
 
 

@@ -48,10 +48,24 @@ reports/regression-*.html
 
 .codex-security-venv/
 .venv/
+venv/
+.mypy_cache/
+.ruff_cache/
 # Raven Enterprise -- never commit these
 .raven/manifest.secrets.json
 .raven/.cache/
 .model.env
+
+# ── Vendored companion scanners (agent/scanners/) ─────────────
+# Each was developed as its own standalone repo under
+# D:\giggso_intern\Patron features with its own .raven/ session state
+# and (for apikey-scanner) a findings database that names exactly
+# which file/line on this machine holds a live secret. Neither should
+# ever exist inside this tree — see agent/scanners/README.md.
+agent/scanners/*/.raven/
+agent/scanners/*/.apikey-scanner/
+agent/scanners/*/*.egg-info/
+agent/scanners/*/scan.json
 
 # never commit TLS material or local backups
 nginx/domaincert/

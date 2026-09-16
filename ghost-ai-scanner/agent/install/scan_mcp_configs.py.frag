@@ -1,16 +1,14 @@
 # =============================================================
 # FRAGMENT: scan_mcp_configs.py.frag
 # PROJECT: PatronAI — Phase 1A
-# VERSION: 1.0.0
-# UPDATED: 2026-04-26
+# VERSION: 1.3.0
+# UPDATED: 2026-09-04
 # OWNER: Giggso Inc (Ravi Venugopal)
-# PURPOSE: Real MCP-server inventory. Reads the MCP config JSONs that
-#          AI clients (Claude Desktop, Cursor, Continue, Cline) keep
-#          on disk. Emits one `mcp_server` finding per server defined,
-#          with redacted metadata (server name + command basename + arg
-#          FLAGS only — no values) and a SHA-256 of the parent file for
-#          change detection. Privacy: every finding passes through the
-#          shared redactor; any finding still carrying a secret after
+# PURPOSE: Real MCP-server inventory. Reads the MCP config JSONs AI
+#          clients keep on disk; emits one `mcp_server` finding per
+#          server, redacted (name + command basename + arg FLAGS only,
+#          no values) with a SHA-256 of the parent file for change
+#          detection. Any finding still carrying a secret after
 #          redaction is dropped entirely.
 # AUDIT LOG:
 #   v1.0.0  2026-04-26  Initial. Phase 1A.
@@ -20,6 +18,8 @@
 #   v1.2.0  2026-08-31  process_running: correlate each stdio-type server's
 #                       command against the real process table - config-
 #                       only findings no longer imply a phantom process.
+#   v1.3.0  2026-09-04  +5 hosts (vscode, windsurf, zed, lmstudio,
+#                       generic) via scan_mcp_configs_extra_hosts.py.frag.
 # =============================================================
 
 import hashlib
@@ -146,4 +146,5 @@ def scan_mcp_configs() -> list:
             findings.extend(_parse_one_config(host, path, running))
         except Exception:
             continue                                  # never crash a scan
+    findings.extend(scan_mcp_extra_hosts(running))    # vscode/windsurf/zed/lmstudio/generic
     return findings

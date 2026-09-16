@@ -14,6 +14,14 @@
 # AUDIT LOG:
 #   v1.0.0  2026-04-26  Initial. Phase 1A.
 #   v1.1.0  2026-09-02  Add observed_network_target + unclassified_software.
+#   v1.2.0  2026-09-04  Scanner-graft Phase 6. Add declared_dependency,
+#                       browser_extension, hardcoded_secret.
+#   v1.2.1  2026-09-09  apply_filters() search now also reaches `name`
+#                       (browser_extension) and `file_path` (secrets/deps).
+#   v1.2.2  2026-09-09  phase_1a_only() drops non-AI declared_dependency
+#                       rows (matches posture_score.py's is_ai_related
+#                       filter) so this tab only ever shows AI/ML
+#                       packages, not every dependency in a repo.
 # =============================================================
 
 from collections import defaultdict
@@ -24,6 +32,7 @@ PHASE_1A_CATEGORIES = (
     "agent_workflow", "agent_scheduled",
     "tool_registration", "vector_db",
     "observed_network_target", "unclassified_software",
+    "declared_dependency", "browser_extension", "hardcoded_secret",
 )
 
 CATEGORY_LABELS = {
@@ -35,12 +44,29 @@ CATEGORY_LABELS = {
     "vector_db":                "Vector DB",
     "observed_network_target":  "Network Target",
     "unclassified_software":    "Unclassified SW",
+    "declared_dependency":      "Declared Dependency",
+    "browser_extension":        "Browser Extension",
+    "hardcoded_secret":         "Hardcoded Secret",
 }
 
 
 def phase_1a_only(events: Iterable[dict]) -> list:
-    """Filter raw events down to the Phase 1A categories only."""
-    return [e for e in events if e.get("category") in PHASE_1A_CATEGORIES]
+    """Filter raw events down to the Phase 1A categories only.
+    declared_dependency is further restricted to packages the scanner
+    flagged is_ai_related — this tab (KPI tiles, table, mind map, asset
+    map, PDF reports) exists to surface shadow AI, not every pip/npm
+    dependency in every scanned repo. Same predicate posture_score.py's
+    _ai_tool_findings() already applies, so the AI Inventory tile count
+    and the AI Posture card's "N AI/ML dependencies" agree."""
+    out = []
+    for e in events:
+        cat = e.get("category")
+        if cat not in PHASE_1A_CATEGORIES:
+            continue
+        if cat == "declared_dependency" and not e.get("is_ai_related"):
+            continue
+        out.append(e)
+    return out
 
 
 def dedup_latest(events: list) -> list:
@@ -78,6 +104,8 @@ def apply_filters(events: list, sev: list, cats: list,
             (e.get("provider") or "").lower()
             + " " + (e.get("src_hostname") or "").lower()
             + " " + (e.get("path_safe") or "").lower()
+            + " " + (e.get("name") or "").lower()
+            + " " + (e.get("file_path") or "").lower()
         )]
     return out
 

@@ -54,11 +54,13 @@ def _run_mcp_scan(home: Path, ps_output: str = "") -> list:
         "subprocess": _FakeSubprocess(ps_output),
         "OS_NAME": "darwin",
         "AGENT_DIR": home / ".patronai",
+        "DISCOVERED_REPOS": [],
     }
     real_home = Path.home
     Path.home = staticmethod(lambda: home)                       # type: ignore
     try:
-        for frag in ("scan_redactor.py.frag", "scan_mcp_configs.py.frag"):
+        for frag in ("scan_redactor.py.frag", "scan_mcp_configs.py.frag",
+                     "scan_mcp_configs_extra_hosts.py.frag"):
             exec(compile((FRAGS / frag).read_text(), frag, "exec"), ns)
         return ns["scan_mcp_configs"]()
     finally:

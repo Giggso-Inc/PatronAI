@@ -1,0 +1,31 @@
+# Raven Enterprise -- never commit these (session/tool state, not project source)
+.raven/manifest.secrets.json
+.raven/.cache/
+.raven/audit/
+.raven/state/
+.raven/.model-session.json
+.raven/clearance.json
+.raven/mcp-policy.json
+.model.env
+*.pem
+*.key
+
+# Claude Code local tooling config -- not part of this project's source
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+*.egg-info/
+build/
+dist/
+
+# Scan output produced by running the tool (PLAN.md CLI, --output)
+out*.json
+out*.jsonl
+out*.csv
+out*.txt

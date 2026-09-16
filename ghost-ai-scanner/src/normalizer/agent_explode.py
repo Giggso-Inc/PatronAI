@@ -16,6 +16,14 @@
 #                       (mcp_server, agent_workflow, agent_scheduled,
 #                       tool_registration, vector_db) to _FINDING_SEVERITY
 #                       and _provider_for(). Identity bundle untouched.
+#   v1.2.0  2026-09-04  Scanner-graft Phase 3. Added declared_dependency,
+#                       browser_extension, hardcoded_secret to
+#                       _FINDING_SEVERITY, _provider_for() and
+#                       _name_field(). Two of the three have no natural
+#                       "name" field, so _provider_for()'s composite key
+#                       (not process_name) is what actually guarantees
+#                       _finding_signature() uniqueness for them — see
+#                       that function's own inline note.
 # =============================================================
 
 import hashlib
@@ -70,7 +78,23 @@ _FINDING_SEVERITY = {
     "unclassified_software": "LOW",      # broad process visibility, tiered deliberately below
                                           # the known-AI categories - a real new risk still
                                           # stands out once catalogued, this doesn't drown it out
+    # Scanner-graft additions
+    "hardcoded_secret":     "CRITICAL",  # live-looking credential committed to a repo
+    "browser_extension":    "MEDIUM",    # raised to HIGH by _adjust_severity() below
+    "declared_dependency":  "LOW",       # raised to MEDIUM by _adjust_severity() below
 }
+
+
+def _adjust_severity(ftype: str, finding: dict, base: str) -> str:
+    """Per-finding severity escalation for the two scanner-graft types
+    whose base tier depends on the finding's own content, not just its
+    type. Every other category's severity is the static table lookup —
+    this only ever raises, never lowers, `base`."""
+    if ftype == "browser_extension" and finding.get("high_privilege_host_access"):
+        return "HIGH"
+    if ftype == "declared_dependency" and finding.get("is_ai_related"):
+        return "MEDIUM"
+    return base
 
 
 def _scan_id(raw: dict) -> str:
@@ -113,13 +137,25 @@ def _provider_for(finding: dict) -> str:
         return f"net:{finding.get('domain','')}"
     if ftype == "unclassified_software":
         return f"unclassified:{finding.get('name','')}"
+    if ftype == "declared_dependency":
+        return f"dep:{finding.get('ecosystem','')}:{finding.get('dependency_name','')}:{finding.get('repo_safe','')}"
+    if ftype == "browser_extension":
+        return f"ext:{finding.get('browser','')}:{finding.get('extension_id','')}"
+    if ftype == "hardcoded_secret":
+        return (f"secret:{finding.get('provider','')}:{finding.get('repo_safe','')}:"
+                f"{finding.get('file_path','')}:{finding.get('line_number','')}")
     return ftype or "unknown"
 
 
 def _name_field(f: dict) -> str:
-    """Distinctive identifier for non-browser findings → goes into process_name."""
+    """Distinctive identifier for non-browser findings → goes into process_name.
+    Note: declared_dependency and hardcoded_secret have no single field
+    that's unique on its own here (dependency_name repeats across repos;
+    secret_pattern repeats across findings) — true uniqueness for both
+    comes from _provider_for()'s composite key, not this one."""
     return (f.get("name") or f.get("platform") or f.get("plugin_id") or f.get("image")
             or f.get("signal") or f.get("kind") or f.get("domain")
+            or f.get("dependency_name") or f.get("secret_pattern")
             or (f.get("command_hint", "") or "")[:140])
 
 
@@ -146,7 +182,7 @@ def explode_endpoint_findings(raw: dict, company: str, bind_identity) -> list:
         bind_identity(event, raw)
         event["timestamp"] = raw.get("timestamp", event["timestamp"])
         event["outcome"]   = "ENDPOINT_FINDING"
-        event["severity"]  = _FINDING_SEVERITY.get(ftype, "LOW")
+        event["severity"]  = _adjust_severity(ftype, f, _FINDING_SEVERITY.get(ftype, "LOW"))
         event["provider"]  = _provider_for(f)
         event["category"]  = ftype
         event["scan_id"]   = sid

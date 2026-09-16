@@ -27,6 +27,8 @@ P2-12,Promote macOS guide out of archive,DOCS,P2,XS,planned,—,v1.0,"Move docs/
 P2-13,Per-user chat rate limiting,SECURITY,P2,S,planned,—,v1.1,Cap LLM calls per user per hour. Cost + abuse guard.
 P2-14,Architecture Decision Records (ADRs) for key design choices,DOCS,P2,M,planned,—,v1.1,"Capture: rollup-architecture, BM25-not-vectors, src/chat/ vs dashboard/ui/chat/ split, notify-as-single-module."
 P2-15,Threat model document,DOCS,P2,M,planned,—,v1.1,STRIDE + data-flow diagram + trust boundaries.
+P2-16,MCP declared-vs-running correlation (ghost-server detection),FEATURE,P2,L,planned,—,v1.3,"Needs psutil ancestry-first process-tree walking to avoid false positives a flat cmdline match produces (documented, real bug in the source tool this was ported from). Deferred out of the Phase 4 MCP host-parser port; see scan_mcp_configs_extra_hosts.py.frag header."
+P2-17,Continue / Goose MCP config support,FEATURE,P2,S,deferred,—,—,"Both store MCP config as YAML; this agent is stdlib-only by design (no YAML dependency). Needs either a minimal stdlib YAML subset parser or an explicit scope decision to add a dependency for two clients."
 OPS-1,Request SES production access,OPS,OPS,XS,operator-action,—,—,One-time AWS support ticket (~24h). Removes sandbox 200/day cap + recipient-verification requirement.
 OPS-2,Enable GitHub Push Protection + Secret Scanning + Dependabot,OPS,OPS,XS,operator-action,—,—,30 sec each at /settings/security_analysis.
 OPS-3,Pen test + formal threat model engagement,OPS,OPS,L,operator-action,—,—,Annual cadence. Coordinate with security-vendor.
@@ -45,3 +47,5 @@ DONE,docker-compose AWS_* env-shadow fix,OPS,DONE,XS,merged,—,v1.0,—
 DONE,Chat prompt: ≤100 words bulleted + mandatory Sources footer + reasoning strip,LLM,DONE,S,merged,—,v1.0,—
 DONE,LLM perf: --threads + --predict + max_tokens 384,LLM,DONE,XS,merged,—,v1.0,5-8× CPU speedup
 DONE,Docs aligned to LFM2.5 (Qwen refs purged),DOCS,DONE,XS,merged,—,v1.0,—
+DONE,"Companion scanners: declared AI/ML dependencies, browser extensions, hardcoded secrets",FEATURE,DONE,L,merged,—,v1.2,agent/scanners/ — stdlib-only; opt-in per recipient via PATRONAI_ENABLE_SCANNERS
+DONE,MCP discovery: VS Code / Windsurf / Zed / LM Studio / generic hosts,FEATURE,DONE,M,merged,—,v1.2,scan_mcp_configs_extra_hosts.py.frag — Continue/Goose deferred (YAML config, no stdlib parser)

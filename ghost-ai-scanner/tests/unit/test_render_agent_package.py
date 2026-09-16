@@ -264,3 +264,90 @@ def test_windows_installer_self_elevates_before_doing_any_work():
     elevate_idx = ps1_body.index("Start-Process powershell -Verb RunAs")
     first_real_work_idx = ps1_body.index('python --version')
     assert elevate_idx < first_real_work_idx
+
+
+def test_enable_scanners_resolves_against_the_real_templates_windows():
+    """Same class of bug test_enable_packetbeat_resolves_against_the_real_templates
+    guards against: a mocked renderer can't catch a typo'd {{PLACEHOLDER}}
+    name for the three new ZIP payloads. Render through the real
+    agent_renderer so a missing/renamed context key raises KeyError here,
+    not silently ships a broken installer."""
+    from store import agent_renderer
+
+    store = _make_store()
+
+    result = render_agent_package(
+        recipient_name    = "Scanners Windows",
+        recipient_email   = "scanners-win@example.com",
+        os_type           = "windows",
+        store             = store,
+        renderer          = agent_renderer,
+        send_email        = False,
+        enable_scanners   = True,
+    )
+
+    assert result["success"] is True
+    ps1_calls = [c for c in store._put.call_args_list
+                 if c.args and str(c.args[0]).endswith("setup_agent.ps1")]
+    ps1_body = ps1_calls[0].args[1].decode("utf-8-sig")
+
+    assert '$EnableScanners    = "1"' in ps1_body
+    assert "{{ENABLE_SCANNERS}}" not in ps1_body
+    assert "{{SCANNERS_AI_SDK_ZIP_B64}}" not in ps1_body
+    assert "{{SCANNERS_EXTENSION_ZIP_B64}}" not in ps1_body
+    assert "{{SCANNERS_APIKEY_ZIP_B64}}" not in ps1_body
+    # The actual zip payload landed — not just the flag.
+    assert "Expand-ScannerPackage" in ps1_body
+    assert '"ai_sdk_scanner"' in ps1_body
+
+
+def test_enable_scanners_resolves_against_the_real_templates_unix():
+    """Same check on the sh side — different placeholder-substitution
+    path, different string quoting, needs its own real-render proof."""
+    from store import agent_renderer
+
+    store = _make_store()
+
+    result = render_agent_package(
+        recipient_name    = "Scanners Unix",
+        recipient_email   = "scanners-unix@example.com",
+        os_type           = "mac",
+        store             = store,
+        renderer          = agent_renderer,
+        send_email        = False,
+        enable_scanners   = True,
+    )
+
+    assert result["success"] is True
+    sh_calls = [c for c in store._put.call_args_list
+                if c.args and str(c.args[0]).endswith("setup_agent.sh")]
+    sh_body = sh_calls[0].args[1].decode("utf-8")
+
+    assert 'PATRONAI_ENABLE_SCANNERS="1"' in sh_body
+    assert "{{ENABLE_SCANNERS}}" not in sh_body
+    assert "{{SCANNERS_AI_SDK_ZIP_B64}}" not in sh_body
+    assert "{{SCANNERS_EXTENSION_ZIP_B64}}" not in sh_body
+    assert "{{SCANNERS_APIKEY_ZIP_B64}}" not in sh_body
+    assert "_unpack_scanner_pkg" in sh_body
+
+
+def test_enable_scanners_defaults_off():
+    """No enable_scanners kwarg -> "0", matching every other optional
+    companion's default-off contract."""
+    from store import agent_renderer
+
+    store = _make_store()
+
+    render_agent_package(
+        recipient_name  = "Scanners Default",
+        recipient_email = "scanners-default@example.com",
+        os_type         = "mac",
+        store           = store,
+        renderer        = agent_renderer,
+        send_email      = False,
+    )
+
+    sh_calls = [c for c in store._put.call_args_list
+                if c.args and str(c.args[0]).endswith("setup_agent.sh")]
+    sh_body = sh_calls[0].args[1].decode("utf-8")
+    assert 'PATRONAI_ENABLE_SCANNERS="0"' in sh_body

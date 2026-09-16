@@ -38,6 +38,23 @@
 #                       baked into the rendered script, same as
 #                       authorized_domains. Defaults to False (unchanged
 #                       behaviour for existing callers).
+#   v1.8.0  2026-09-04  enable_scanners param -> {{ENABLE_SCANNERS}} +
+#                       3 ZIP payload placeholders. Ships the three
+#                       agent/scanners/ companion packages the same
+#                       optional-per-recipient way capture is shipped —
+#                       embedded unconditionally, decoded and unpacked
+#                       only when the flag is set, so there is still one
+#                       rendered artifact per recipient. Packed as one
+#                       base64 ZIP per package rather than capture's
+#                       per-file "name|base64" table: ~90 files across
+#                       nested subdirectories (parsers/, catalog/,
+#                       detect/, store/…) would make that table both
+#                       enormous and require porting directory-creation
+#                       logic into two template languages, for no benefit
+#                       these packages need — unlike capture, they are
+#                       not a standing privileged daemon, so they skip
+#                       capture's runtime sha256 self-verification too;
+#                       see agent/scanners/README.md.
 # =============================================================
 
 import json
@@ -85,6 +102,55 @@ CAPTURE_FILES = ["pktmon_to_jsonl.py", "common.py", "capture_service.py",
 # makes Wireshark skip its bundled Npcap.
 WIRESHARK_URL = ("https://2.na.dl.wireshark.org/win64/"
                  "Wireshark-4.6.8-x64.exe")
+
+
+# ── Scanner companion payload ─────────────────────────────────────────────
+# (wrapper_dir under agent/scanners/, importable_package_name, template
+# placeholder). importable_package_name is both the ZIP's single top-level
+# entry and PYTHONPATH's expected layout — scan_declared_deps.py.frag et al.
+# invoke `python -m <importable_package_name>` with PYTHONPATH set to
+# agent/scanners/<importable_package_name>/ on the device, so the ZIP must
+# extract to exactly agent/scanners/<importable_package_name>/<importable_
+# package_name>/... one level nested. Only the inner package directory is
+# zipped — no tests/, docs/, pyproject.toml, README: the device never pip
+# installs these, it only needs the importable source.
+SCANNER_PACKAGES = [
+    ("ai-sdk-scanner",      "ai_sdk_scanner",      "SCANNERS_AI_SDK_ZIP_B64"),
+    ("extension-searcher",  "extension_searcher",  "SCANNERS_EXTENSION_ZIP_B64"),
+    ("apikey-scanner",      "apikey_scanner",       "SCANNERS_APIKEY_ZIP_B64"),
+]
+
+
+def _zip_scanner_package(wrapper_dir: str, pkg_name: str) -> bytes:
+    """ZIP the importable package dir (agent/scanners/<wrapper_dir>/<pkg_name>/)
+    with archive entries rooted at "<pkg_name>/..." so extracting to
+    agent/scanners/<pkg_name>/ on the device reproduces that same one-level
+    nesting. Deterministic entry order (sorted) so re-rendering the same
+    source produces byte-identical ZIPs — makes a diff of two renders
+    meaningful instead of noise from filesystem iteration order."""
+    import zipfile
+    import io
+
+    pkg_dir = Path(__file__).resolve().parents[1] / "agent" / "scanners" / wrapper_dir / pkg_name
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(pkg_dir.rglob("*")):
+            if f.is_file() and "__pycache__" not in f.parts:
+                zf.write(f, arcname=str(Path(pkg_name) / f.relative_to(pkg_dir)))
+    return buf.getvalue()
+
+
+def _scanner_payload() -> dict:
+    """{placeholder_name: base64_zip} for all three companion packages.
+    Read fresh on every render (same reasoning as _capture_payload: two
+    independent reads of the same source tree can disagree if it's
+    edited mid-render)."""
+    import base64 as _b64
+
+    return {
+        placeholder: _b64.b64encode(_zip_scanner_package(wrapper_dir, pkg_name)).decode("ascii")
+        for wrapper_dir, pkg_name, placeholder in SCANNER_PACKAGES
+    }
 
 
 
@@ -183,6 +249,7 @@ def render_agent_package(
     otp_override: str | None = None,
     enable_packetbeat: bool = False,
     enable_capture: bool = False,
+    enable_scanners: bool = False,
 ) -> dict:
     """
     Generate a complete agent delivery package.
@@ -201,6 +268,10 @@ def render_agent_package(
       off, the payload is still embedded in the script but never decoded
       or executed - gating at run time, not at render time, keeps ONE
       rendered artifact per recipient rather than two variants.
+    enable_scanners: per-recipient decision for the three companion
+      scanners in agent/scanners/ (declared dependencies, browser
+      extensions, hardcoded secrets). Defaults to off, same gate-at-
+      run-time-not-render-time reasoning as enable_capture above.
     otp_override: when set, use this string as the OTP instead of
       generating a new one — used by Raven-bundled invites so both
       products validate against the SAME OTP the user entered in
@@ -283,6 +354,10 @@ def render_agent_package(
             "ENABLE_CAPTURE":      "0",
             "CAPTURE_FILES_B64":   "",
             "CAPTURE_INSTALLER_B64": "",
+            "ENABLE_SCANNERS":     "0",
+            "SCANNERS_AI_SDK_ZIP_B64":    "",
+            "SCANNERS_EXTENSION_ZIP_B64": "",
+            "SCANNERS_APIKEY_ZIP_B64":    "",
             "INLINE_SCAN_PYTHON":  inline_scan_python,
             "UPLOADER_SOURCE":     uploader_source,
             "INLINE_DIAGNOSE_SH":  inline_diagnose_sh,
@@ -331,6 +406,20 @@ def render_agent_package(
                         "token %s will refuse to start", exc, token)
             _cap_payload = {"files_b64": {}, "manifest": {}, "installer_b64": ""}
 
+        # ── Scanner companion payload — no manifest/integrity check (see
+        # v1.8.0 audit log entry above), so unlike capture a read failure
+        # here just means an empty ZIP for that package: the device-side
+        # unpack step then extracts nothing for it and the corresponding
+        # scan_*.py.frag adapter no-ops (its package dir won't exist),
+        # same as if enable_scanners were off. Never blocks the rest of
+        # the package.
+        try:
+            _scanner_zips = _scanner_payload()
+        except Exception as exc:
+            log.warning("scanner payload skipped (%s) - companion scanners "
+                        "on token %s will be empty", exc, token)
+            _scanner_zips = {placeholder: "" for _, _, placeholder in SCANNER_PACKAGES}
+
         # ── Pass 2: re-render both templates with real URLs ───
         final_ctx = {
             "RECIPIENT_NAME":     recipient_name,
@@ -354,6 +443,8 @@ def render_agent_package(
             "CAPTURE_FILES_B64":  _capture_files_literal(
                 _cap_payload["files_b64"], os_type),
             "CAPTURE_INSTALLER_B64": _cap_payload["installer_b64"],
+            "ENABLE_SCANNERS":    "1" if enable_scanners else "0",
+            **_scanner_zips,
             "INLINE_SCAN_PYTHON": inline_scan_python,
             "UPLOADER_SOURCE":    uploader_source,
             "INLINE_DIAGNOSE_SH":  inline_diagnose_sh,

@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Sensitive: findings DB names files/lines that hold live secrets; the
+# rotation-tracking salt would let an attacker correlate fingerprints.
+.apikey-scanner/

@@ -1,0 +1,39 @@
+[project]
+name = "apikey-scanner"
+version = "0.1.0"
+description = "Detect hardcoded API keys and secrets across git repositories -- detection metadata only, secret values are never collected"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = []
+
+[project.scripts]
+apikey-scanner = "apikey_scanner.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["apikey_scanner*"]
+
+[tool.setuptools.package-data]
+apikey_scanner = ["catalog/*.json", "store/*.sql"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["apikey_scanner"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: opt-in test that scans real dev roots on this machine (deselected by default)",
+]
+addopts = "-m \"not live\""

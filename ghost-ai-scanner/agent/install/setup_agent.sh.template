@@ -17,6 +17,7 @@ URLS_REFRESH_URL="{{URLS_REFRESH_URL}}"
 AUTHORIZED_DOMAINS="{{AUTHORIZED_DOMAINS}}"
 PATRONAI_ENABLE_PACKETBEAT="{{ENABLE_PACKETBEAT}}"
 PATRONAI_ENABLE_CAPTURE="{{ENABLE_CAPTURE}}"
+PATRONAI_ENABLE_SCANNERS="{{ENABLE_SCANNERS}}"
 BUCKET="{{BUCKET}}"
 REGION="{{REGION}}"
 COMPANY="{{COMPANY}}"
@@ -718,6 +719,49 @@ PATRONAI_CAPTURE_FILES_EOF
   trap - EXIT
 else
   _info "Capture companion not enabled for this recipient - skipping."
+fi
+
+echo ""
+# -- companion scanners (declared deps / browser extensions / hardcoded
+#    secrets) -----------------------------------------------------------
+# Same opt-in-per-recipient shape as capture above: embedded
+# unconditionally, decoded and unpacked only when
+# PATRONAI_ENABLE_SCANNERS=1, so there is still one rendered artifact per
+# recipient. Packed as one base64 ZIP per package rather than a per-file
+# table - see render_agent_package.py's v1.8.0 audit-log entry for why.
+# No integrity self-check here (unlike capture): these run as a
+# subprocess invoked from within scan.sh, not a standing privileged
+# daemon, so they don't carry capture's extra threat model.
+if [ "${PATRONAI_ENABLE_SCANNERS:-}" = "1" ]; then
+  _info "Installing companion scanners (declared deps / browser extensions / hardcoded secrets)..."
+  SCAN_PKG_STAGE="$(mktemp -d "${TMPDIR:-/tmp}/patronai-scanpkg.XXXXXX")"
+  trap 'rm -rf "$SCAN_PKG_STAGE"' EXIT
+
+  # Independent of capture's $B64D above - that variable only exists when
+  # PATRONAI_ENABLE_CAPTURE=1 ran first, and this block must work standalone.
+  if base64 --decode </dev/null >/dev/null 2>&1; then _SB64D="base64 --decode"
+  elif base64 -D    </dev/null >/dev/null 2>&1; then _SB64D="base64 -D"
+  else _SB64D="base64 -d"; fi
+
+  mkdir -p "$AGENT_DIR/scanners"
+  _unpack_scanner_pkg() {
+    # $1 = base64 ZIP blob, $2 = destination package name
+    printf '%s' "$1" | $_SB64D > "$SCAN_PKG_STAGE/$2.zip"
+    mkdir -p "$AGENT_DIR/scanners/$2"
+    python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
+      "$SCAN_PKG_STAGE/$2.zip" "$AGENT_DIR/scanners/$2"
+  }
+  if _unpack_scanner_pkg "{{SCANNERS_AI_SDK_ZIP_B64}}" "ai_sdk_scanner" \
+     && _unpack_scanner_pkg "{{SCANNERS_EXTENSION_ZIP_B64}}" "extension_searcher" \
+     && _unpack_scanner_pkg "{{SCANNERS_APIKEY_ZIP_B64}}" "apikey_scanner"; then
+    _info "Companion scanners installed."
+  else
+    _info "WARNING: companion scanner install failed - scan agent is unaffected."
+  fi
+  rm -rf "$SCAN_PKG_STAGE"
+  trap - EXIT
+else
+  _info "Companion scanners not enabled for this recipient - skipping."
 fi
 
 _info "Installation complete."

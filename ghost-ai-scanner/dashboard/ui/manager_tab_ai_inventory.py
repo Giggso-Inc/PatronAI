@@ -20,6 +20,16 @@
 #   v1.2.0  2026-04-28  User picker (st.pills) — mind map per selected user.
 #   v1.3.0  2026-09-02  Add KPI tiles for observed_network_target and
 #                       unclassified_software.
+#   v1.4.0  2026-09-04  Scanner-graft Phase 6. Add KPI tiles for
+#                       hardcoded_secret, browser_extension,
+#                       declared_dependency.
+#   v1.4.1  2026-09-09  Fix: default severity filter excluded CRITICAL,
+#                       hiding every hardcoded_secret finding by default.
+#   v1.4.2  2026-09-09  Fix: original 7 KPI tiles crammed into one
+#                       st.columns(7) row truncated their labels
+#                       (st.metric ellipsis) once the chat panel took
+#                       25% of the width. Split into 4+3, matching the
+#                       3-col row the Phase 6 tiles already use cleanly.
 # =============================================================
 
 import streamlit as st
@@ -39,7 +49,7 @@ _PANEL = "mindmap"
 def _render_kpis(events: list) -> None:
     """Top-of-tab counters split by category — each is drillable."""
     counts = kpi_counts(events)
-    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+    c1, c2, c3, c4 = st.columns(4)
     clickable_metric(c1, "MCP Servers",      counts.get("mcp_server", 0),
                      panel_key=_PANEL, drill_field="category",
                      drill_value="mcp_server")
@@ -52,6 +62,8 @@ def _render_kpis(events: list) -> None:
     clickable_metric(c4, "Tool Repos",       counts.get("tool_registration", 0),
                      panel_key=_PANEL, drill_field="category",
                      drill_value="tool_registration")
+
+    c5, c6, c7 = st.columns(3)
     clickable_metric(c5, "Vector DBs",       counts.get("vector_db", 0),
                      panel_key=_PANEL, drill_field="category",
                      drill_value="vector_db")
@@ -62,6 +74,17 @@ def _render_kpis(events: list) -> None:
                      panel_key=_PANEL, drill_field="category",
                      drill_value="unclassified_software")
 
+    c8, c9, c10 = st.columns(3)
+    clickable_metric(c8, "Hardcoded Secrets", counts.get("hardcoded_secret", 0),
+                     panel_key=_PANEL, drill_field="category",
+                     drill_value="hardcoded_secret")
+    clickable_metric(c9, "Browser Extensions", counts.get("browser_extension", 0),
+                     panel_key=_PANEL, drill_field="category",
+                     drill_value="browser_extension")
+    clickable_metric(c10, "Declared Dependencies", counts.get("declared_dependency", 0),
+                     panel_key=_PANEL, drill_field="category",
+                     drill_value="declared_dependency")
+
 
 def _render_filters(events: list) -> dict:
     """Top-of-tab filter row. Returns chosen filters as a dict."""
@@ -69,7 +92,7 @@ def _render_filters(events: list) -> dict:
     with c1:
         sev = st.multiselect(
             "Severity", ["HIGH", "MEDIUM", "LOW", "CRITICAL"],
-            default=["HIGH", "MEDIUM"], key="ai_inv_sev")
+            default=["CRITICAL", "HIGH", "MEDIUM"], key="ai_inv_sev")
     with c2:
         cats = st.multiselect(
             "Category", list(PHASE_1A_CATEGORIES),

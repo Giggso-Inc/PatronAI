@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: src/scoring/posture_score.py
-# VERSION: 1.0.0
-# UPDATED: 2026-06-18
+# VERSION: 1.1.0
+# UPDATED: 2026-09-04
 # OWNER: Giggso Inc
 # PURPOSE: Pure scoring functions for the 7-component AI-governance
 #          posture score (0-100). No I/O — fully unit-testable.
@@ -13,6 +13,20 @@
 #   CRITICAL  0-39    Hard policy breach — same-day action.
 # AUDIT LOG:
 #   v1.0.0  2026-06-18  Initial.
+#   v1.1.0  2026-09-04  Scanner-graft Phase 6. No WEIGHTS change (still
+#                       sum to 100) — hardcoded_secret's CRITICAL
+#                       severity already zeroes out no_high_findings
+#                       via the existing open-CRITICAL rule, so that
+#                       component needed nothing new. What DID need a
+#                       fix: c_approved_tools and c_provider_count both
+#                       count/dedup by `provider` generically, and
+#                       without _ai_tool_findings() a browser_extension
+#                       finding or a plain (non-AI) declared_dependency
+#                       finding like `flask` would count as an
+#                       "unapproved AI provider," silently dragging
+#                       both scores down for inventory that was never
+#                       an AI-tool signal. declared_dependency stays
+#                       included only when is_ai_related is True.
 # =============================================================
 
 import fnmatch
@@ -99,6 +113,37 @@ def _findings(events: list) -> list:
     return [e for e in events if e.get("outcome") == "ENDPOINT_FINDING"]
 
 
+# Categories that carry a `provider` value but were never an AI-tool-
+# provider signal in the first place — a browser extension and a
+# hardcoded secret are real findings, just not "AI tool usage."
+_AI_TOOL_EXCLUDED_CATEGORIES = {"browser_extension", "hardcoded_secret"}
+
+
+def _ai_tool_findings(events: list) -> list:
+    """_findings(), further narrowed to events that represent actual
+    AI-tool-provider usage. Feeds c_approved_tools' and
+    c_provider_count's ratios — both count/dedup by `provider`, and
+    without this filter every browser extension or plain (non-AI)
+    declared_dependency finding would count as an "unapproved AI
+    provider," silently dragging both scores down for completely
+    unrelated inventory. declared_dependency is kept only when the
+    scanner itself flagged is_ai_related — a `flask` or `requests`
+    finding has no more business here than a browser extension does;
+    a `langchain` one is exactly the AI-tool signal this score exists
+    to measure. c_mcp_hygiene already filters to mcp_server
+    specifically; c_ghost_assets and c_domain_compliance are unaffected
+    by this distinction and still use plain _findings()."""
+    out = []
+    for e in _findings(events):
+        cat = e.get("category") or ""
+        if cat in _AI_TOOL_EXCLUDED_CATEGORIES:
+            continue
+        if cat == "declared_dependency" and not e.get("is_ai_related"):
+            continue
+        out.append(e)
+    return out
+
+
 def _parse_date(value: str) -> Optional[str]:
     """Return a YYYY-MM-DD string if value is parseable, else None.
     Accepts ISO-8601 datetime strings and bare YYYY-MM-DD dates.
@@ -125,7 +170,7 @@ def _parse_date(value: str) -> Optional[str]:
 
 def c_approved_tools(user_events: list, approved: set) -> tuple[int, dict]:
     """30 pts · Pro-rated by fraction of events from approved providers."""
-    evts = _findings(user_events)
+    evts = _ai_tool_findings(user_events)
     if not evts:
         return 30, {"reason": "no_events_in_period"}
     approved_evts = [e for e in evts if is_approved_provider(e.get("provider") or "", approved)]
@@ -256,13 +301,13 @@ def c_domain_compliance(user_events: list, authorized_domains: list) -> tuple[in
 def c_provider_count(user_events: list, org_events: list) -> tuple[int, dict]:
     """5 pts · User unique providers vs org average.
     ≤ 1.5× → 5; 1.5–2.5× → 2; > 2.5× → 0."""
-    user_providers = {e.get("provider") or "" for e in _findings(user_events)} - {""}
+    user_providers = {e.get("provider") or "" for e in _ai_tool_findings(user_events)} - {""}
     user_cnt = len(user_providers)
 
+    # Same AI-tool narrowing as the user side — an apples-to-apples
+    # comparison needs the org baseline measuring the same thing.
     user_prov_map: dict = {}
-    for e in org_events:
-        if e.get("outcome") != "ENDPOINT_FINDING":
-            continue
+    for e in _ai_tool_findings(org_events):
         u = (e.get("email") or e.get("owner") or "").lower()
         p = e.get("provider") or ""
         if u and p:

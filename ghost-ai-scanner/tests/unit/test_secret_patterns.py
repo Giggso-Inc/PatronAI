@@ -43,6 +43,18 @@ _SELF_REFERENCING = {
     "ghost-ai-scanner/tests/unit/test_secret_patterns.py",
     "ghost-ai-scanner/scripts/git-hooks/pre-commit",
     "ghost-ai-scanner/tests/unit/test_secret_redactor.py",
+    # Vendored apikey-scanner (agent/scanners/) — its own regression
+    # suite exercises detection/redaction against one reused synthetic
+    # canary, AKIAQ7ZP4XKM9LWD2FTR, exactly the way test_secret_redactor.py
+    # above does with its own. filters.py's docstring uses AWS-style
+    # example values the same way this file's own header comment does.
+    "ghost-ai-scanner/agent/scanners/apikey-scanner/apikey_scanner/detect/filters.py",
+    "ghost-ai-scanner/tests/vendor/apikey_scanner_tests/test_cli.py",
+    "ghost-ai-scanner/tests/vendor/apikey_scanner_tests/test_engine_recall.py",
+    "ghost-ai-scanner/tests/vendor/apikey_scanner_tests/test_git_provenance.py",
+    "ghost-ai-scanner/tests/vendor/apikey_scanner_tests/test_identity.py",
+    "ghost-ai-scanner/tests/vendor/apikey_scanner_tests/test_store_diff.py",
+    "ghost-ai-scanner/tests/vendor/apikey_scanner_tests/test_validators_and_salt.py",
 }
 
 
