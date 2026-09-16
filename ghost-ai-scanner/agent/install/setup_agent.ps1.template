@@ -45,6 +45,18 @@ $ConfigPath = Join-Path $AgentDir "config.json"
 function Write-Info($msg) { Write-Host "[patronai] $msg" }
 function Write-Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
 
+# ── Prerequisites, checked all at once up front ───────────────
+# Same rationale as setup_agent.sh's equivalent block: failing here is
+# instant, versus discovering a missing dependency mid-install (e.g. git at
+# the init.templateDir step, well after config.json/identity are already
+# written) and leaving a half-installed agent behind.
+if ($PSVersionTable.PSVersion -lt [version]"5.1") {
+    Write-Fail "PowerShell 5.1 or newer is required (found $($PSVersionTable.PSVersion))."
+}
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Write-Fail "git is required (the pre-commit hook is installed via 'git config init.templateDir'). Install from https://git-scm.com/downloads and re-run."
+}
+
 # ── Validate python3 / bcrypt ─────────────────────────────────
 try { python --version *>$null } catch { Write-Fail "Python 3 is required. Install from python.org" }
 $bcryptOk = python -c "import bcrypt; print('ok')" 2>$null
