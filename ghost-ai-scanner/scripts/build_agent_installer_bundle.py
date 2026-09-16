@@ -83,10 +83,11 @@ def _register_with_superadmin_catalog(product: str, platform: str, version: str,
     this same helper for the full rationale. Kept duplicated rather than
     imported so this script stays runnable standalone, same as its sibling.
 
-    platform carries "-installer" suffix so this full-install artifact is
-    never confused with an update bundle row in a catalog listing - same
-    trick Raven's tools/register_installer.py uses (platform="setup" vs
-    "plugin") since the catalog schema has no separate "artifact kind" field.
+    platform="setup" here matches the label Raven's tools/register_installer.py
+    and Cowork's register_installer.py already use for their own full-install
+    artifact, so a catalog listing can be filtered by platform="setup" across
+    all three products consistently - the catalog schema has no separate
+    "artifact kind" field, so this string carries that distinction instead.
     """
     base_url = os.environ.get("SUPERADMIN_URL", "").rstrip("/")
     jwt = os.environ.get("SUPERADMIN_JWT", "")
@@ -147,7 +148,7 @@ def build_and_publish(store, agent_version: Optional[str] = None) -> dict:
     # Single cross-platform artifact (setup_agent.ps1.template + .sh.template
     # both ship in the one zip, same as Cowork's setup bundling all three OS
     # scripts) - one catalog row, not two.
-    _register_with_superadmin_catalog("patronai", "installer", version, sha256, f"s3://{store.bucket}/{key}")
+    _register_with_superadmin_catalog("patronai", "setup", version, sha256, f"s3://{store.bucket}/{key}")
 
     log.info("build_and_publish: published installer bundle v%s (%d files, sha256=%s...)",
               version, len(files), sha256[:12])
