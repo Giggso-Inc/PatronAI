@@ -22,7 +22,11 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import logging
+import os
+import urllib.error
+import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Optional
@@ -54,6 +58,44 @@ def _build_zip(filenames: list[str]) -> bytes:
         for name in filenames:
             zf.write(TEMPLATE_DIR / name, arcname=name)
     return buf.getvalue()
+
+
+def _register_with_superadmin_catalog(product: str, platform: str, version: str,
+                                       checksum: str, storage_location: str) -> None:
+    """Best-effort registration with raven-enterprise-admin's Installer
+    catalog (POST /api/super-admin/installers/upload) - never raises, never
+    fails the calling publish. Unlike Cowork/Raven (which upload to S3 by
+    hand and register as a deliberate second step), this bundle's own upload
+    already happened inside build_and_publish() via store._put() - so this
+    call happens automatically right after, rather than needing a human to
+    run a separate script once they know where the file ended up.
+
+    Silently a no-op when SUPERADMIN_URL/SUPERADMIN_JWT aren't set - most
+    environments won't have them configured, and a missing/unreachable
+    super admin must never turn a successful agent-version publish into a
+    reported failure.
+    """
+    base_url = os.environ.get("SUPERADMIN_URL", "").rstrip("/")
+    jwt = os.environ.get("SUPERADMIN_JWT", "")
+    if not base_url or not jwt:
+        return
+
+    body = {
+        "product": product, "platform": platform, "version": version,
+        "checksum": checksum, "storageLocation": storage_location,
+    }
+    req = urllib.request.Request(
+        f"{base_url}/api/super-admin/installers/upload",
+        data=json.dumps(body).encode("utf-8"),
+        method="POST",
+        headers={"Authorization": f"Bearer {jwt}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15):
+            log.info("registered %s %s v%s with the super-admin catalog", product, platform, version)
+    except (urllib.error.HTTPError, urllib.error.URLError) as e:
+        log.warning("super-admin catalog registration failed (non-fatal) for %s %s v%s: %s",
+                    product, platform, version, e)
 
 
 def build_and_publish(store, agent_version: Optional[str] = None) -> dict:
@@ -102,6 +144,14 @@ def build_and_publish(store, agent_version: Optional[str] = None) -> dict:
 
     if not store.set_update_settings(settings):
         return {"success": False, "error": "Failed to write update settings"}
+
+    # Best-effort, never affects the {"success": True, ...} already earned by
+    # the two store._put() calls above - see _register_with_superadmin_catalog's
+    # own docstring for why a missing/unreachable super admin is a no-op here.
+    _register_with_superadmin_catalog("patronai", "windows", version, windows_sha,
+                                       f"s3://{store.bucket}/{windows_key}")
+    _register_with_superadmin_catalog("patronai", "unix", version, unix_sha,
+                                       f"s3://{store.bucket}/{unix_key}")
 
     log.info("build_and_publish: published agent version %s "
               "(windows sha256=%s..., unix sha256=%s...)",
