@@ -124,8 +124,24 @@ Write-Info "OTP validated."
 New-Item -ItemType Directory -Force -Path $AgentDir | Out-Null
 
 # Compute MAC + device_uuid once, then persist alongside token/email.
+# Get-NetAdapter has no built-in timeout and is known to hang on some
+# machines (WMI provider issues, VPN/virtual adapters) - bounded via a
+# background job so a slow/stuck WMI call can never block the whole
+# install. Falls back to the zero MAC (same as the "not found" case)
+# rather than hanging indefinitely if it doesn't return in time.
 $DeviceUuid  = [guid]::NewGuid().ToString()
-$MacPrimary  = (Get-NetAdapter | Where-Object Status -eq "Up" | Select-Object -First 1 -ExpandProperty MacAddress) -replace "-", ":"
+$MacPrimary  = $null
+try {
+    $macJob = Start-Job -ScriptBlock {
+        (Get-NetAdapter | Where-Object Status -eq "Up" | Select-Object -First 1 -ExpandProperty MacAddress)
+    }
+    if (Wait-Job $macJob -Timeout 10) {
+        $MacPrimary = (Receive-Job $macJob) -replace "-", ":"
+    } else {
+        Write-Info "MAC address lookup timed out after 10s - continuing without it."
+    }
+    Remove-Job $macJob -Force -ErrorAction SilentlyContinue
+} catch { }
 if (-not $MacPrimary) { $MacPrimary = "00:00:00:00:00:00" }
 
 $Config = @{
@@ -186,12 +202,35 @@ $ChainLibBody = @'
 $ChainLibBody | Set-Content -Path $ChainLib -Encoding UTF8
 
 # ── Auto-install into git repos under user profile (chain-aware) ─
+# Confirmed customer-reported hang: on a profile with a OneDrive/cloud-sync
+# folder, Get-ChildItem -Recurse touching Files-On-Demand placeholder
+# reparse points can trigger an on-demand download per file, turning this
+# scan into something that runs for a very long time with zero progress
+# output - indistinguishable from a hang. Bounded via a background job (with
+# a real timeout, unlike Get-ChildItem which has none) and OneDrive paths
+# excluded outright, since a placeholder .git folder there is never a real
+# repo this hook needs to reach. The job only enumerates paths - it must not
+# call Install-PatronAIChainHook itself, since that function is dot-sourced
+# into THIS runspace only and would not exist inside the job's own runspace.
 . $ChainLib
 $InstallCount = 0
-Get-ChildItem -Path $env:USERPROFILE -Recurse -Depth 4 -Filter ".git" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-    $HooksDir = Join-Path $_.FullName "hooks"
-    if (Install-PatronAIChainHook -HooksDir $HooksDir) { $InstallCount++ }
-}
+try {
+    $gitScanJob = Start-Job -ScriptBlock {
+        param($ProfilePath)
+        Get-ChildItem -Path $ProfilePath -Recurse -Depth 4 -Filter ".git" -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch '(?i)\\OneDrive' } |
+            Select-Object -ExpandProperty FullName
+    } -ArgumentList $env:USERPROFILE
+    if (Wait-Job $gitScanJob -Timeout 20) {
+        foreach ($repoPath in (Receive-Job $gitScanJob)) {
+            $HooksDir = Join-Path $repoPath "hooks"
+            if (Install-PatronAIChainHook -HooksDir $HooksDir) { $InstallCount++ }
+        }
+    } else {
+        Write-Info "Scanning existing repos for the pre-commit hook timed out after 20s - skipped. New repos are still auto-instrumented via init.templateDir below."
+    }
+    Remove-Job $gitScanJob -Force -ErrorAction SilentlyContinue
+} catch { }
 
 # Step 0.1 — git template dir (auto-install on every future init/clone).
 # Honours an existing init.templateDir if one is already set (additive).
