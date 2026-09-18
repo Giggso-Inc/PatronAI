@@ -1,14 +1,15 @@
-"""Unit tests for Patron Hub licence gate."""
+"""Unit tests for CoWork Hub licence gate."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT))
 
 from notify import hub_licence_gate as gate  # noqa: E402
 
@@ -36,3 +37,10 @@ def test_clear_unblocks():
     assert gate.is_blocked() is True
     gate.clear()
     assert gate.is_blocked() is False
+
+
+def test_should_skip_does_not_probe_on_happy_path():
+    """Happy path must not call probe — avoids doubling HTTP on every emit."""
+    with patch.object(gate, "probe", side_effect=AssertionError("probe must not run")) as mocked:
+        assert gate.should_skip(hub_url="http://hub.example:8080", agent_key="k") is False
+        mocked.assert_not_called()
