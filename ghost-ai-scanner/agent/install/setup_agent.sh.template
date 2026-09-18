@@ -20,6 +20,7 @@ REGION="{{REGION}}"
 COMPANY="{{COMPANY}}"
 TOKEN="{{TOKEN}}"
 RECIPIENT_EMAIL="{{RECIPIENT_EMAIL}}"
+AGENT_VERSION="{{AGENT_VERSION}}"
 AGENT_DIR="$HOME/.patronai"
 
 _die()  { echo "ERROR: $*" >&2; exit 1; }
@@ -135,9 +136,13 @@ echo "$SCAN_PUT_URL"       > "$AGENT_DIR/scan_url"
 echo "$AUTHORIZED_GET_URL" > "$AGENT_DIR/authorized_url"
 echo "$URLS_REFRESH_URL"   > "$AGENT_DIR/urls_refresh_url"
 echo "$AUTHORIZED_DOMAINS" > "$AGENT_DIR/authorized_domains"
+# agent_version — read by heartbeat.sh at runtime instead of a version
+# string frozen into heartbeat.sh itself, so apply_update.sh can bump it
+# later by rewriting just this one file.
+echo "$AGENT_VERSION"      > "$AGENT_DIR/agent_version.txt"
 chmod 600 "$AGENT_DIR/heartbeat_url" "$AGENT_DIR/scan_url" \
           "$AGENT_DIR/authorized_url" "$AGENT_DIR/urls_refresh_url" \
-          "$AGENT_DIR/authorized_domains"
+          "$AGENT_DIR/authorized_domains" "$AGENT_DIR/agent_version.txt"
 
 # Local action log — every PUT records {ts,type,http_status,key,error}.
 # Replaces silent ` || true ` swallowing — admins / IT can SCP this back.
@@ -150,33 +155,13 @@ touch "$AGENT_DIR/agent.log" && chmod 600 "$AGENT_DIR/agent.log"
 touch "$AGENT_DIR/first_run.flag" && chmod 600 "$AGENT_DIR/first_run.flag"
 
 # ── Write pre-commit hook script ──────────────────────────────
+# Source lives at agent/install/pre_commit_hook.sh and is inlined verbatim
+# at render time (same pattern as diagnose.sh below) - extracted out of this
+# file so build_agent_update_bundle.py can ship it as part of a self-update
+# bundle without parsing this template's own heredocs.
 HOOK_SCRIPT="$AGENT_DIR/pre_commit_hook.sh"
 cat > "$HOOK_SCRIPT" << 'HOOK_EOF'
-#!/usr/bin/env bash
-AGENT_DIR="$HOME/.patronai"
-CONFIG="$AGENT_DIR/config.json"
-[ -f "$CONFIG" ] || exit 0
-BUCKET=$(python3 -c "import json; print(json.load(open('$CONFIG'))['bucket'])" 2>/dev/null)
-REGION=$(python3 -c "import json; print(json.load(open('$CONFIG'))['region'])" 2>/dev/null)
-COMPANY=$(python3 -c "import json; print(json.load(open('$CONFIG'))['company'])" 2>/dev/null)
-[ -z "$BUCKET" ] && exit 0
-AI_SIGNALS="langchain|langgraph|llama_index|haystack|autogen|crewai|openai|anthropic|pydantic_ai|smolagents|MCPServer|sk-proj-|sk-ant-|hf_[a-zA-Z0-9]"
-DIFF=$(git diff --cached --unified=3 2>/dev/null || echo "")
-[ -z "$DIFF" ] && exit 0
-echo "$DIFF" | grep -qiE "$AI_SIGNALS" || exit 0
-DEVICE_ID=$(hostname)
-TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-REPO=$(git rev-parse --show-toplevel 2>/dev/null | xargs basename)
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-PAYLOAD=$(python3 -c "
-import json,sys
-print(json.dumps({'event_type':'GIT_DIFF_SIGNAL','source':'patronai_git_hook',
-  'device_id':'${DEVICE_ID}','company':'${COMPANY}','repo':'${REPO}',
-  'branch':'${BRANCH}','timestamp':'${TIMESTAMP}','diff_snippet':sys.argv[1]}))" \
-  "$(echo "$DIFF" | head -c 5120)" 2>/dev/null)
-aws s3 cp - "s3://${BUCKET}/ocsf/agent/git-diffs/${DEVICE_ID}-${TIMESTAMP}.json" \
-  --region "$REGION" --content-type "application/json" --quiet <<< "$PAYLOAD" 2>/dev/null &
-exit 0
+{{INLINE_PRE_COMMIT_HOOK_SH}}
 HOOK_EOF
 chmod +x "$HOOK_SCRIPT"
 
@@ -188,59 +173,13 @@ chmod +x "$HOOK_SCRIPT"
 # Idempotent: safe to re-run from the initial walk, the heartbeat
 # backstop, and the user-invoked install_hook.sh helper.
 HOOK_CHAIN_LIB="$AGENT_DIR/hook_chain.sh"
+# Source lives at agent/install/hook_chain.sh, inlined verbatim at render
+# time - extracted for the same reason as pre_commit_hook.sh above. Its own
+# nested heredoc (CHAIN_HOOK_EOF) uses a different terminator than this
+# outer one (HOOK_CHAIN_LIB's CHAIN_LIB_EOF), so nesting is unaffected by
+# being inlined here as plain substituted text.
 cat > "$HOOK_CHAIN_LIB" << 'CHAIN_LIB_EOF'
-#!/usr/bin/env bash
-# PatronAI hook-chain library. Usage:
-#   source "$HOME/.patronai/hook_chain.sh"
-#   pa_install_chain_hook "/path/to/.git/hooks"
-# Returns 0 if the chain is present after the call, non-zero on error.
-
-pa_install_chain_hook() {
-    local hooks_dir="$1"
-    local hook_path="$hooks_dir/pre-commit"
-    local patronai_hook="$HOME/.patronai/pre_commit_hook.sh"
-    local marker="PatronAI managed pre-commit chain"
-
-    [ -x "$patronai_hook" ] || return 1
-    mkdir -p "$hooks_dir" || return 1
-
-    if [ -e "$hook_path" ] || [ -L "$hook_path" ]; then
-        # Already our chain — nothing to do (idempotent).
-        if [ -f "$hook_path" ] && grep -q "$marker" "$hook_path" 2>/dev/null; then
-            return 0
-        fi
-        # Legacy PatronAI symlink from a pre-chain install — replace it.
-        if [ -L "$hook_path" ] && [ "$(readlink "$hook_path")" = "$patronai_hook" ]; then
-            rm -f "$hook_path"
-        else
-            # Real hook from Raven / husky / user — always preserve it,
-            # overwriting any older preserved copy. If husky (or the
-            # user) reinstalls its hook after the chain is already in
-            # place, the second pass sees the fresh real hook back at
-            # $hook_path and MUST keep it — dropping it here would
-            # silently strand whatever changed in the reinstall and
-            # keep running the stale first-generation preserved copy.
-            local preserved="$hooks_dir/pre-commit.pre-patronai"
-            mv "$hook_path" "$preserved" || return 1
-            chmod +x "$preserved" 2>/dev/null || true
-        fi
-    fi
-
-    cat > "$hook_path" << 'CHAIN_HOOK_EOF'
-#!/usr/bin/env bash
-# PatronAI managed pre-commit chain — DO NOT EDIT.
-# Runs the preserved pre-existing hook (if any) first, then PatronAI's
-# hook. The preserved hook's exit code aborts the commit on failure;
-# PatronAI's hook is fire-and-forget (never blocks a commit).
-HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [ -x "$HOOK_DIR/pre-commit.pre-patronai" ]; then
-    "$HOOK_DIR/pre-commit.pre-patronai" "$@" || exit $?
-fi
-"$HOME/.patronai/pre_commit_hook.sh" "$@"
-CHAIN_HOOK_EOF
-    chmod +x "$hook_path"
-    return 0
-}
+{{INLINE_HOOK_CHAIN_SH}}
 CHAIN_LIB_EOF
 chmod +x "$HOOK_CHAIN_LIB"
 
@@ -295,29 +234,13 @@ fi
 # agent/install/scan_*.py.frag and is inlined here at render time.
 # Findings matched against unauthorised list; authorised list suppresses.
 SCAN_SCRIPT="$AGENT_DIR/scan.sh"
+# Source lives at agent/install/scan.sh, inlined verbatim at render time.
+# scan.sh's own {{INLINE_SCAN_PYTHON}} placeholder is resolved BEFORE this
+# outer substitution pass (render_agent_package.py pre-resolves it into
+# INLINE_SCAN_SH's value) - a nested {{...}} inside a substituted value is
+# not re-scanned by the same regex.sub() pass. See render_agent_package.py.
 cat > "$SCAN_SCRIPT" << 'SCAN_EOF'
-#!/usr/bin/env bash
-# PatronAI endpoint scan — multi-surface
-AGENT_DIR="$HOME/.patronai"
-[ -f "$AGENT_DIR/config.json" ] || exit 0
-[ -f "$AGENT_DIR/scan_url" ]    || exit 0
-SCAN_URL=$(cat "$AGENT_DIR/scan_url")
-[ -z "$SCAN_URL" ] && exit 0
-PATRONAI_TOKEN=$(python3 -c "import json; print(json.load(open('$AGENT_DIR/config.json'))['token'])" 2>/dev/null)
-PATRONAI_COMPANY=$(python3 -c "import json; print(json.load(open('$AGENT_DIR/config.json'))['company'])" 2>/dev/null)
-export PATRONAI_TOKEN PATRONAI_COMPANY
-
-# Refresh live authorised list from S3 (presigned GET; admin can edit
-# without reinstalling). Falls back to baked-in list on expiry.
-AUTH_URL=$(cat "$AGENT_DIR/authorized_url" 2>/dev/null || echo "")
-if [ -n "$AUTH_URL" ]; then
-  LIVE=$(curl -fsSL --max-time 10 "$AUTH_URL" 2>/dev/null || echo "")
-  [ -n "$LIVE" ] && echo "$LIVE" > "$AGENT_DIR/authorized_domains"
-fi
-
-python3 << 'PYEOF'
-{{INLINE_SCAN_PYTHON}}
-PYEOF
+{{INLINE_SCAN_SH}}
 SCAN_EOF
 chmod +x "$SCAN_SCRIPT"
 
@@ -341,110 +264,25 @@ chmod +x "$SCAN_RUNNER"
 
 # ── Write heartbeat script (identity-rich + URL refresh + structured log) ──
 HEARTBEAT_SCRIPT="$AGENT_DIR/heartbeat.sh"
+# Source lives at agent/install/heartbeat.sh, inlined verbatim at render
+# time - extracted for the same reason as the scripts above.
 cat > "$HEARTBEAT_SCRIPT" << 'HB_EOF'
-#!/usr/bin/env bash
-# Step 0 heartbeat: refresh URLs → emit identity-bound payload → log outcome.
-AGENT_DIR="$HOME/.patronai"
-LOG="$AGENT_DIR/agent.log"
-[ -f "$AGENT_DIR/config.json" ] || exit 0
-
-# 1. Refresh URLs daily — best-effort. If urls.json reachable, overwrite local copies.
-REFRESH_URL=$(cat "$AGENT_DIR/urls_refresh_url" 2>/dev/null || echo "")
-if [ -n "$REFRESH_URL" ]; then
-  BUNDLE=$(curl -fsSL --max-time 10 "$REFRESH_URL" 2>/dev/null || echo "")
-  if [ -z "$BUNDLE" ]; then
-    # urls_refresh_url is itself a presigned URL with the same 7-day TTL
-    # and nothing re-pushes a fresh one to this laptop — the 2026-06 fleet
-    # heartbeat outage RCA. Fall back to the server's token-authenticated
-    # refresh endpoint (no API key needed).
-    TOKEN=$(python3 -c "import json;print(json.load(open('$AGENT_DIR/config.json'))['token'])" 2>/dev/null)
-    if [ -n "$TOKEN" ]; then
-      # Feed the URL to curl via -K/stdin rather than the command line — a
-      # token embedded directly in argv is visible to any other local user
-      # via `ps` / `/proc/<pid>/cmdline` for the process's lifetime
-      # (PR#10 review, M1). `printf` here is bash's builtin, not an exec'd
-      # process, so the token is never a separate process's argv.
-      BUNDLE=$(printf 'url = "https://patronai.giggso.com/agent/url-refresh/%s"\n' "$TOKEN" \
-               | curl -fsSL --max-time 10 -K - 2>/dev/null || echo "")
-    fi
-  fi
-  if [ -n "$BUNDLE" ]; then
-    python3 - <<PYREFRESH 2>/dev/null
-import json, os
-b = json.loads("""$BUNDLE""")
-for k, fname in (("heartbeat_put_url","heartbeat_url"),
-                 ("scan_put_url","scan_url"),
-                 ("authorized_get_url","authorized_url")):
-    if b.get(k):
-        open(os.path.expanduser("~/.patronai/" + fname), "w").write(b[k])
-PYREFRESH
-  fi
-fi
-
-# 2. Emit heartbeat with full identity binding.
-[ -f "$AGENT_DIR/heartbeat_url" ] || exit 0
-HB_URL=$(cat "$AGENT_DIR/heartbeat_url")
-export PATRONAI_TOKEN="$(python3 -c "import json;print(json.load(open('$AGENT_DIR/config.json'))['token'])" 2>/dev/null)"
-export PATRONAI_COMPANY="$(python3 -c "import json;print(json.load(open('$AGENT_DIR/config.json'))['company'])" 2>/dev/null)"
-PAYLOAD=$(python3 - <<PYHB
-import json, os, platform, socket, uuid
-from datetime import datetime, timezone
-cfg = json.load(open(os.path.expanduser("~/.patronai/config.json")))
-try:
-    ips = sorted({ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")})
-except Exception:
-    ips = []
-print(json.dumps({
-    "event_type":   "HEARTBEAT",
-    "status":       "installed",
-    "device_id":    platform.node(),
-    "device_uuid":  cfg.get("device_uuid",""),
-    "mac_primary":  cfg.get("mac_primary",""),
-    "ip_set":       ips,
-    "email":        cfg.get("email",""),
-    "token":        cfg.get("token",""),
-    "company":      cfg.get("company",""),
-    "os_name":      platform.system(),
-    "os_version":   platform.release(),
-    "agent_version":"2.0.0",
-    "timestamp":    datetime.now(timezone.utc).isoformat(),
-}))
-PYHB
-)
-HTTP=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
-       -X PUT "$HB_URL" -H 'Content-Type: application/json' -d "$PAYLOAD")
-TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-echo "{\"ts\":\"$TS\",\"type\":\"heartbeat\",\"http_status\":$HTTP}" >> "$LOG"
-
-# 4. Hook coverage backstop (Step 0.1) — every 5 min, ensure every git
-# repo under $HOME (depth 6) has our chain-installed pre-commit hook.
-# Catches repos cloned before the agent was installed and any rare
-# miss by the init.templateDir path. Idempotent via the chain
-# library — pre-existing Raven/husky/user hooks are preserved as
-# pre-commit.pre-patronai and called from our chain script.
-HOOK_SCRIPT="$AGENT_DIR/pre_commit_hook.sh"
-HOOK_CHAIN_LIB="$AGENT_DIR/hook_chain.sh"
-[ -f "$HOOK_SCRIPT" ] || exit 0
-[ -f "$HOOK_CHAIN_LIB" ] || exit 0
-# shellcheck disable=SC1090
-source "$HOOK_CHAIN_LIB"
-ADDED=0
-MARKER="PatronAI managed pre-commit chain"
-while IFS= read -r -d '' GIT_DIR; do
-    HP="$GIT_DIR/hooks/pre-commit"
-    # Skip the noisy majority: chain already present. Otherwise let
-    # the library decide whether to preserve, replace, or install.
-    if [ -f "$HP" ] && grep -q "$MARKER" "$HP" 2>/dev/null; then
-        continue
-    fi
-    if pa_install_chain_hook "$GIT_DIR/hooks"; then
-        ADDED=$((ADDED + 1))
-    fi
-done < <(find "$HOME" -maxdepth 6 -name ".git" -type d -print0 2>/dev/null)
-[ "$ADDED" -gt 0 ] && \
-    echo "{\"ts\":\"$TS\",\"type\":\"hook_backstop\",\"added\":$ADDED}" >> "$LOG"
+{{INLINE_HEARTBEAT_SH}}
 HB_EOF
 chmod +x "$HEARTBEAT_SCRIPT"
+
+# ── Write self-update script ──────────────────────────────────
+# Runs hourly, separate from the 5-min heartbeat above that only NOTICES an
+# update (writes pending_update.json) - applying it is a separate, lower-
+# frequency task so a scheduled heartbeat run can never read this same
+# heartbeat.sh half-replaced out from under itself. Source lives at
+# agent/install/apply_update.sh and is inlined verbatim at render time -
+# same pattern as diagnose.sh below.
+APPLY_UPDATE_SCRIPT="$AGENT_DIR/apply_update.sh"
+cat > "$APPLY_UPDATE_SCRIPT" << 'APPLY_UPDATE_EOF'
+{{INLINE_APPLY_UPDATE_SH}}
+APPLY_UPDATE_EOF
+chmod +x "$APPLY_UPDATE_SCRIPT"
 
 # ── Schedule heartbeat (5 min) + scan (30 min) ────────────────
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -479,16 +317,33 @@ PLIST_EOF
 PLIST_EOF
   launchctl unload "$PLIST_SCAN" 2>/dev/null || true
   launchctl load  "$PLIST_SCAN" 2>/dev/null || true
+
+  # Self-update — launchd, every hour
+  PLIST_UPDATE="$HOME/Library/LaunchAgents/com.patronai.update.plist"
+  cat > "$PLIST_UPDATE" << PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.patronai.update</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>$APPLY_UPDATE_SCRIPT</string></array>
+  <key>StartInterval</key><integer>3600</integer>
+  <key>RunAtLoad</key><false/>
+  <key>StandardErrorPath</key><string>$AGENT_DIR/update.log</string>
+</dict></plist>
+PLIST_EOF
+  launchctl unload "$PLIST_UPDATE" 2>/dev/null || true
+  launchctl load  "$PLIST_UPDATE" 2>/dev/null || true
 elif [ "$_HAVE_CRON" -eq 0 ]; then
   # No cron on this machine (common in slim container images and minimal server
   # installs). The agent, config and git hook are all in place by now, so the
   # scan-on-commit path works - only the periodic scan and heartbeat are lost.
   # Warning, not _die: dying here used to abandon a fully working install.
-  _info "WARNING: crontab not found - skipping the heartbeat and periodic scan."
+  _info "WARNING: crontab not found - skipping the heartbeat, periodic scan, and self-update."
   _info "         Commit-time scanning still works. To enable them: sudo apt-get install -y cron"
-  _info "         then re-run this installer, or add these two lines by hand:"
+  _info "         then re-run this installer, or add these lines by hand:"
   _info "           */5  * * * * /bin/bash $HEARTBEAT_SCRIPT"
   _info "           */30 * * * * /bin/bash $SCAN_RUNNER"
+  _info "           0    * * * * /bin/bash $APPLY_UPDATE_SCRIPT"
 else
   # Linux — crontab
   # `|| true` guards against a machine with no existing crontab: `crontab -l`
@@ -499,6 +354,7 @@ else
   ( crontab -l 2>/dev/null | grep -v patronai || true
     echo "*/5  * * * * /bin/bash $HEARTBEAT_SCRIPT"
     echo "*/30 * * * * /bin/bash $SCAN_RUNNER"
+    echo "0    * * * * /bin/bash $APPLY_UPDATE_SCRIPT"
   ) | crontab -
 fi
 
