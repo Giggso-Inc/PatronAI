@@ -31,6 +31,12 @@ def _emit(org: str, code: str, event_id: str, detail: str = "",
     if not base:
         return
     key = os.environ.get("RAVEN_AGENT_KEY", "")
+    try:
+        from .hub_licence_gate import note_error, should_skip
+    except ImportError:
+        from hub_licence_gate import note_error, should_skip  # type: ignore
+    if should_skip(base, key):
+        return
     pl = dict(payload or {})
     if user:
         pl.setdefault("user", user)
@@ -55,6 +61,8 @@ def _emit(org: str, code: str, event_id: str, detail: str = "",
         )
         urllib.request.urlopen(req, timeout=8)
     except Exception as e:
+        if note_error(e):
+            return
         _log.warning("patron hub emit failed: %s", e)
 
 
