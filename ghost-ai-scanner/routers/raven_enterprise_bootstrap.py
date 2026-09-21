@@ -66,10 +66,16 @@ def provision_admin(
     email = body.owner_email.strip().lower()
 
     storage_err = ""
+    storage_applied = False
     if body.storage_mode or body.storage:
         try:
             from store.object_store import apply_storage_config_from_provision
             apply_storage_config_from_provision(body.storage_mode or "s3", body.storage or {})
+            storage_applied = True
+            _log.info(
+                "storage provision applied — main.py bootstrap-wait will restart "
+                "into full scanner mode once it sees persisted config"
+            )
         except Exception as exc:
             # Never echo raw exception (may include connection strings / keys).
             storage_err = type(exc).__name__
@@ -111,6 +117,8 @@ def provision_admin(
             "user_id": str(user.id),
             "email": email,
             "storage_mode": body.storage_mode or "s3",
+            "storage_applied": storage_applied,
+            "restart_pending": storage_applied,
         }
         if storage_err:
             out["storage_warning"] = storage_err

@@ -59,7 +59,40 @@ def default_bucket() -> str:
         or os.environ.get("OBJECT_BUCKET")
         or os.environ.get("PATRONAI_BUCKET")
         or ""
-    )
+    ).strip()
+
+
+def storage_config_present_on_disk() -> bool:
+    """True if Hub Bootstrap has written a storage config file with a bucket/mode."""
+    for p in _config_path_candidates():
+        if not p:
+            continue
+        path = Path(p)
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        storage = data.get("storage") or {}
+        if (
+            storage.get("s3_bucket")
+            or storage.get("azure_container_name")
+            or storage.get("gcp_bucket")
+            or storage.get("local_path")
+        ):
+            return True
+        mode = (data.get("storage_mode") or "").strip().lower()
+        if mode == "local":
+            return True
+    return False
+
+
+def storage_is_configured() -> bool:
+    """True when env or persisted Hub Bootstrap config has an object-store target."""
+    if default_bucket():
+        return True
+    return storage_config_present_on_disk()
 
 
 class ObjectStore:
@@ -444,6 +477,14 @@ def load_persisted_storage_config() -> bool:
         _log.info("Loaded persisted storage config from %s (mode=%s)", path, mode or storage_mode())
         return True
     return False
+
+
+def reload_persisted_storage_config() -> bool:
+    """Force re-read of disk storage config (bootstrap-wait loop)."""
+    global _persisted_loaded, _store
+    _persisted_loaded = False
+    _store = None
+    return load_persisted_storage_config()
 
 
 def _apply_storage_dict(storage: dict[str, Any], *, force: bool = True) -> None:
