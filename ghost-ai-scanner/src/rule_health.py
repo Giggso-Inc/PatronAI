@@ -42,10 +42,15 @@ def self_check_rules() -> dict:
     fire a CRITICAL self-alert if merged deny count is below threshold.
     Returns the load_status dict.
     """
-    deny,       deny_rep       = load_unauthorized_full(BUCKET)
-    allow,      allow_rep      = load_authorized_full(BUCKET)
-    code_deny,  code_deny_rep  = load_unauthorized_code_full(BUCKET)
-    code_allow, code_allow_rep = load_authorized_code_full(BUCKET)
+    bucket = default_bucket() or BUCKET
+    if not bucket:
+        log.warning("self_check_rules skipped — no object-store bucket configured yet")
+        return {"ok": False, "skipped": True, "reason": "storage_not_configured"}
+
+    deny,       deny_rep       = load_unauthorized_full(bucket)
+    allow,      allow_rep      = load_authorized_full(bucket)
+    code_deny,  code_deny_rep  = load_unauthorized_code_full(bucket)
+    code_allow, code_allow_rep = load_authorized_code_full(bucket)
 
     status = {
         "checked_at":         datetime.now(timezone.utc).isoformat(),
