@@ -80,7 +80,7 @@
 import logging
 import os
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -148,12 +148,50 @@ class UserDetailResponse(BaseModel):
     logs: Optional[list] = None
 
 
+class AgentVersionResponse(BaseModel):
+    viewer_email: str
+    target_email: str
+    authorized: bool
+    message: Optional[str] = None
+    agent_version: Optional[str] = None
+    last_seen_at: Optional[str] = None
+
+
 # =============================================================
 # Helper functions
 # =============================================================
 
-def _blob_store() -> BlobIndexStore:
-    bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
+def _org_bucket_for(email: str) -> Optional[str]:
+    """Resolve the caller's own org's S3 bucket (Org.s3_bucket) instead of
+    trusting the process-wide MARAUDER_SCAN_BUCKET env var. This DB is
+    genuinely multi-org (see _workforce_total's docstring below) and every
+    org gets its own bucket at provisioning time (raven_enterprise_bootstrap.py,
+    src/db/seeding.py), but MARAUDER_SCAN_BUCKET reflects whichever org was
+    last provisioned/deployed into that env var, not necessarily the
+    caller's own org — an unscoped read here could return another tenant's
+    findings, or nothing at all if the wrong bucket happens to be empty.
+    Falls through (returns None) on any DB failure or unrecognized email —
+    matching _db_is_admin's convention — so single-org/dev setups without a
+    populated Org table keep working via _blob_store's env-var fallback."""
+    if not os.environ.get("DATABASE_URL"):
+        return None
+    try:
+        from db.engine import get_session
+        from db.models_identity import Org
+        from db.policy_queries import get_identity
+        with get_session() as s:
+            _user, org_id, _projects = get_identity(s, email)
+            if org_id is None:
+                return None
+            org = s.get(Org, org_id)
+            return org.s3_bucket if org and org.s3_bucket else None
+    except Exception as exc:                       # noqa: BLE001 — best effort
+        _log.warning("RavenHub org-bucket resolve failed (falling back to MARAUDER_SCAN_BUCKET): %s", exc)
+        return None
+
+
+def _blob_store(email: Optional[str] = None) -> BlobIndexStore:
+    bucket = (_org_bucket_for(email) if email else None) or os.environ.get("MARAUDER_SCAN_BUCKET", "")
     region = os.environ.get("AWS_REGION", "us-east-1")
     if not bucket:
         raise HTTPException(status_code=503, detail="MARAUDER_SCAN_BUCKET not configured")
@@ -316,6 +354,92 @@ def _load_events(store: BlobIndexStore, email: str, is_admin: bool) -> tuple:
     return events, summary, y_summary, source_date
 
 
+def _parse_heartbeat_timestamp(raw: str) -> Optional[datetime]:
+    """Parse a heartbeat's self-reported timestamp into an aware UTC datetime,
+    or None if it can't be parsed.
+
+    The two installer templates emit different, incompatible shapes:
+    setup_agent.sh.template's datetime.now(timezone.utc).isoformat() is a
+    real offset-aware ISO string, but setup_agent.ps1.template's
+    Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" appends a literal "Z" to LOCAL
+    time — "Z" is not an offset specifier in a .NET custom format string, so
+    that is not actually UTC. Comparing these as raw strings (as
+    api.py::_freshest_heartbeat does) silently picks the wrong device for a
+    user with agents on both platforms; parsing first avoids inheriting that
+    bug into a new endpoint. The Windows-side timestamp itself is still
+    mislabelled at the source — tracked separately, not a fix this endpoint
+    can make.
+    """
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _latest_heartbeat_version(store: BlobIndexStore, email: str) -> tuple[Optional[str], Optional[str]]:
+    """Most recent agent_heartbeat's reported version for `email`, read from
+    the authoritative single-blob heartbeat store — one JSON object per
+    agent token, overwritten on every check-in at
+    ocsf/agent/heartbeats/{token}/latest.json (AgentStore.get_heartbeat) —
+    rather than scanning findings.
+
+    A findings-scan implementation was tried first and replaced: findings
+    JSONL is append-ordered, and store.findings.read(check_date, limit=500)
+    has no ORDER BY (S3 Select) and no true ordering on its GetObject
+    fallback either, so a 500-row cap returns the OLDEST 500 rows of the
+    day, not the newest. Heartbeats fire every 5 minutes per device; with
+    more than ~2 devices in an org that cap is passed before mid-morning,
+    so the old implementation silently returned a stale-or-null version
+    while reporting 200 OK. Reading the single overwritten blob per token
+    has no such cap and needs no day-by-day walk.
+
+    This solves the same "freshest heartbeat across a user's devices"
+    problem api.py's _freshest_heartbeat already solves for the workforce-
+    score endpoint, but is not a call to that helper: it compares raw
+    timestamp strings, which breaks across the two installers' incompatible
+    formats (see _parse_heartbeat_timestamp). Parsed comparison lives here
+    instead of being inherited.
+
+    A timestamp materially in the future (more than 5 minutes of clock
+    skew) is treated as unparseable and skipped — a compromised or
+    misconfigured agent must not be able to permanently win every future
+    comparison by reporting one bad heartbeat.
+
+    Returns (version, timestamp) for the freshest heartbeat across all of
+    this email's registered agent tokens, or (None, None) if the user has
+    no tokens or none of them have ever reported a parseable heartbeat.
+    """
+    em = email.lower()
+    catalog = store.agent.list_catalog()
+    tokens = [e["token"] for e in catalog
+              if (e.get("recipient_email") or "").lower() == em and e.get("token")]
+
+    now = datetime.now(timezone.utc)
+    best_version: Optional[str] = None
+    best_ts_raw: Optional[str] = None
+    best_ts_parsed: Optional[datetime] = None
+
+    for token in tokens:
+        hb = store.agent.get_heartbeat(token)
+        if not hb:
+            continue
+        ts_raw = hb.get("timestamp") or ""
+        ts_parsed = _parse_heartbeat_timestamp(ts_raw)
+        if ts_parsed is None or ts_parsed > now + timedelta(minutes=5):
+            continue
+        if best_ts_parsed is None or ts_parsed > best_ts_parsed:
+            best_ts_parsed = ts_parsed
+            best_ts_raw = ts_raw
+            best_version = hb.get("agent_version") or None
+
+    return best_version, best_ts_raw
+
+
 def _kpis(events: list, y_summary: dict) -> dict:
     ysev = y_summary.get("by_severity", {})
     yout = y_summary.get("by_outcome", {})
@@ -323,7 +447,22 @@ def _kpis(events: list, y_summary: dict) -> dict:
     high_sev = [e for e in events if e.get("severity") == "HIGH"]
     n_findings = len(findings)
     n_high = len(high_sev)
-    n_provs = len(set(e.get("provider", "") for e in events if e.get("provider")))
+    # Reuses _shadow_by_tool's own tool-counting rule (distinct _tool_name_of
+    # — provider, falling back to dst_domain — with resolved events excluded)
+    # instead of a second, narrower rule of its own. This field is rendered on
+    # the Exec Overview widget as "Active Shadow Tools" while _shadow_by_tool's
+    # total_tools is rendered on the Shadow AI Detection page as "AI Providers
+    # Detected" — both claim to describe the same count of distinct tools over
+    # the same event set, so they must agree. The old rule here counted
+    # distinct raw `provider` values only: a domain-only detection (provider
+    # empty, dst_domain set) was invisible to it but counted by
+    # _shadow_by_tool, and a resolved finding still counted here after
+    # _shadow_by_tool had already excluded it — either difference alone was
+    # enough to make the two screens disagree (GSD ticket "Shadow AI Detection
+    # - Metric Definition and Data Mapping"). _shadow_by_tool is called again
+    # here rather than inlining its dedup logic so there is exactly one place
+    # that defines "how many distinct tools" for this event set to drift from.
+    n_provs = _shadow_by_tool(events)["total_tools"]
     n_cats = len(set(e.get("category", "") for e in findings if e.get("category")))
     # Same outcome set as ingestor._stats()'s "alerts_fired" (includes
     # ENDPOINT_FINDING, unlike aggregator.aggregate()'s narrower version) —
@@ -338,6 +477,14 @@ def _kpis(events: list, y_summary: dict) -> dict:
     return {
         "ai_findings": {"value": n_findings, "delta": n_findings - yout.get("ENDPOINT_FINDING", 0)},
         "high_severity": {"value": n_high, "delta": n_high - ysev.get("HIGH", 0)},
+        # "value" is now reconciled with the Shadow AI Detection page (see the
+        # n_provs comment above). "delta" is unchanged and stays an
+        # approximation: y_summary["unique_providers"] is yesterday's
+        # aggregator.py rollup, a plain distinct-raw-provider count with no
+        # dst_domain fallback or resolved-status exclusion of its own —
+        # fixing that would mean rewriting the daily aggregation pipeline
+        # every other historical KPI here also leans on, well beyond this
+        # ticket's "today's two screens disagree" scope.
         "ai_providers_detected": {"value": n_provs, "delta": n_provs - y_summary.get("unique_providers", 0)},
         "categories_found": {"value": n_cats},
         "alerts_fired": {"value": n_alerts, "delta": n_alerts - y_alerts},
@@ -826,7 +973,7 @@ def get_exec_overview(
     pipeline, not built yet. Revisit once that FE work lands — this
     endpoint's "scoped to non-admins" claim is aspirational until then,
     not currently enforced."""
-    store = _blob_store()
+    store = _blob_store(email)
     email_norm = email
     is_admin = _resolve_is_admin(email_norm)
 
@@ -884,7 +1031,7 @@ def get_inventory_overview(
             message="Not an admin — no inventory data available.",
         )
 
-    store = _blob_store()
+    store = _blob_store(email_norm)
     events, _summary, _y_summary, source_date = _load_events(store, email_norm, is_admin=True)
     posture = _ai_posture(events)
     dev_score = posture.pop("device_scores")
@@ -931,7 +1078,7 @@ def get_shadow_by_tool(
             message="Not an admin — no shadow AI data available.",
         )
 
-    store = _blob_store()
+    store = _blob_store(email_norm)
     events, _summary, _y_summary, source_date = _load_events(store, email_norm, is_admin=True)
     return ShadowByToolResponse(
         email=email_norm,
@@ -980,7 +1127,7 @@ def get_user_detail(
             message="Not authorized to view this user's data.",
         )
 
-    store = _blob_store()
+    store = _blob_store(target_norm)
     user_events, _summary, _y_summary, _source_date = _load_events(store, target_norm, is_admin=False)
     policy_ctx = _user_policy_context(target_norm, _org_policy_context())
 
@@ -989,4 +1136,61 @@ def get_user_detail(
         total_events=len(user_events),
         score=score_detail(user_events, policy_ctx),
         logs=_user_logs(user_events),
+    )
+
+
+@router.get("/agent-version", response_model=AgentVersionResponse)
+def get_agent_version(
+    target_email: EmailStr = Query(..., description="Email of the user whose installed agent version to look up"),
+    viewer_email: str = Depends(_verify_ravenhub_identity),
+) -> AgentVersionResponse:
+    """The version most recently reported by this user's deployed hook agent
+    in its periodic HEARTBEAT check-in (see src/normalizer/agent.py::
+    _parse_heartbeat) — for a caller (raven-enterprise's Hub) that wants to
+    show "what PatronAI agent version is this seat running" alongside
+    Raven's and Cowork's own version fields, without needing PatronAI's
+    dashboard UI.
+
+    Same access model as GET /user/detail (mirrors it deliberately — same
+    kind of per-user lookup a non-admin has no business making for anyone
+    but themselves): admins may look up anyone; non-admins may only look up
+    themselves (viewer_email == target_email). Otherwise 200 OK with
+    authorized=false and no data — a privilege gate, not an auth failure.
+
+    KNOWN, INHERITED GAP (not introduced by this route): _resolve_is_admin
+    is TEMP-relaxed to accept any email this deployment recognises, with no
+    org check, and the bucket below is resolved from the TARGET rather than
+    the viewer — so a legitimately-provisioned admin of one org can read
+    another org's agent version and last-seen time. This mirrors
+    GET /user/detail exactly; it is not new here, and is accepted for now
+    on that basis rather than fixed silently. Tracked against the
+    _resolve_is_admin TODO, not scoped to this endpoint alone.
+
+    agent_version/last_seen_at are both None (not an error) when none of
+    this email's registered agent tokens has ever reported a parseable
+    heartbeat — a real, expected state (never installed, or every
+    heartbeat this token sent failed to parse), not a service failure.
+    agent_version can be None while last_seen_at is set: the agent checked
+    in, but that specific heartbeat did not carry a version string.
+    """
+    viewer_norm = viewer_email
+    target_norm = str(target_email).strip().lower()
+
+    try:
+        viewer_is_admin = _resolve_is_admin(viewer_norm)
+    except HTTPException:
+        viewer_is_admin = False
+
+    if not (viewer_is_admin or viewer_norm == target_norm):
+        return AgentVersionResponse(
+            viewer_email=viewer_norm, target_email=target_norm, authorized=False,
+            message="Not authorized to view this user's data.",
+        )
+
+    store = _blob_store(target_norm)
+    agent_version, last_seen_at = _latest_heartbeat_version(store, target_norm)
+
+    return AgentVersionResponse(
+        viewer_email=viewer_norm, target_email=target_norm, authorized=True,
+        agent_version=agent_version, last_seen_at=last_seen_at,
     )

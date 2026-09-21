@@ -98,6 +98,41 @@ def url_refresh_loop(store, stop: threading.Event):
     _loop(store, stop)
 
 
+# Retina cycle interval. Runs frequently enough to catch config changes
+# before the next PreToolUse gate check on the developer machine (which
+# uses a 5-minute local cache). 300s matches the scanner loop cadence.
+RETINA_INTERVAL_SECS = int(os.environ.get("RETINA_INTERVAL_SECS", "300"))
+
+
+def retina_loop(store, stop: threading.Event):
+    """Retina fingerprint assembler thread.
+
+    On each cycle: reads the latest endpoint scan for every linked agent,
+    assembles D1-D7 dimensions, computes the SHA-256 retina hash, and
+    posts to RavenHub /api/v1/retina/ingest when the hash has changed.
+
+    Agents without a raven_hub_token_id set in their meta.json are silently
+    skipped — they have not yet been linked to the Hub Card system.
+    """
+    from retina import RetinaAssembler
+    assembler = RetinaAssembler(store)
+    log.info("Retina loop started (interval=%ss)", RETINA_INTERVAL_SECS)
+
+    while not stop.is_set():
+        t0 = time.time()
+        try:
+            stats = assembler.run_all()
+            if stats["scans_posted"] > 0:
+                log.info("Retina: posted=%d unchanged=%d skipped=%d errors=%d",
+                         stats["scans_posted"], stats["unchanged"],
+                         stats["skipped_no_token"], stats["errors"])
+        except Exception as e:
+            log.error("Retina loop error: %s", e, exc_info=True)
+        stop.wait(timeout=max(0, RETINA_INTERVAL_SECS - (time.time() - t0)))
+
+    log.info("Retina loop stopped")
+
+
 def streamlit_proc(stop: threading.Event):
     """
     Streamlit subprocess. Prefers ghost_dashboard.py, falls back to app.py.

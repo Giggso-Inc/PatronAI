@@ -361,7 +361,7 @@ def test_shadow_by_tool_admin_wires_every_field(monkeypatch):
     separately-computed fields — so a refactor cannot silently drop one."""
     import routers.ravenhub as rh
     monkeypatch.setattr(rh, "_resolve_is_admin", lambda email: True)
-    monkeypatch.setattr(rh, "_blob_store", lambda: object())
+    monkeypatch.setattr(rh, "_blob_store", lambda email=None: object())
     monkeypatch.setattr(rh, "_workforce_total", lambda email: 26)
     fake_events = [
         _ev(provider="mcp:claude_desktop:weather", category="mcp_server",
@@ -384,3 +384,139 @@ def test_shadow_by_tool_admin_wires_every_field(monkeypatch):
     by_cat = {c["category"]: c for c in result.categories}
     assert by_cat["MCPs"]["tools_count"] == 1
     assert by_cat["Vector DB"]["tools_count"] == 1
+
+
+# =============================================================
+# _org_bucket_for / _blob_store(email) — org-scoped S3 bucket
+#
+# Before this fix, every RavenHub route read S3 findings from ONE
+# process-wide MARAUDER_SCAN_BUCKET env var, even though this DB is
+# genuinely multi-org and every org gets its OWN bucket at provisioning
+# time (Org.s3_bucket). Two callers from two different orgs would both
+# read whatever bucket that env var happened to hold — another tenant's
+# data, or an empty/wrong bucket, regardless of which org they actually
+# belonged to. These tests prove the bucket now really does follow the
+# caller's own org, not a shared fallback value.
+# =============================================================
+
+class _FakeOrgSession:
+    """Session stand-in whose .get(Org, id) returns a canned Org row —
+    proves _org_bucket_for reads Org.s3_bucket, not just returns a fixed
+    string a lazier fake could pass with either the fix or the old bug."""
+    def __init__(self, org_by_id):
+        self._org_by_id = org_by_id
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def get(self, model, id_):
+        return self._org_by_id.get(id_)
+
+
+class _FakeOrg:
+    def __init__(self, s3_bucket):
+        self.s3_bucket = s3_bucket
+
+
+def test_org_bucket_for_two_different_orgs_get_two_different_buckets(monkeypatch):
+    """The load-bearing regression test: two callers from two different
+    orgs MUST resolve to their own org's bucket, not the same one. A fake
+    that ignores org_id entirely (the pre-fix behavior, simulated by a
+    single shared env var) would fail this."""
+    import routers.ravenhub as rh
+    import db.engine as engine_mod
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+    monkeypatch.setenv("MARAUDER_SCAN_BUCKET", "should-not-be-used")
+
+    org_a, org_b = object(), object()
+    orgs_by_id = {org_a: _FakeOrg("bucket-org-a"), org_b: _FakeOrg("bucket-org-b")}
+    session = _FakeOrgSession(orgs_by_id)
+    monkeypatch.setattr(engine_mod, "get_session", lambda: session)
+
+    import db.policy_queries as pq
+    identity_by_email = {
+        "a@org-a.com": (object(), org_a, []),
+        "b@org-b.com": (object(), org_b, []),
+    }
+    monkeypatch.setattr(pq, "get_identity", lambda s, email: identity_by_email[email])
+
+    assert rh._org_bucket_for("a@org-a.com") == "bucket-org-a"
+    assert rh._org_bucket_for("b@org-b.com") == "bucket-org-b"
+
+
+class _FakeBlobIndexStore:
+    """Records the bucket/region _blob_store actually chose, without
+    constructing the real S3-backed store (which needs live boto3/botocore
+    wiring this unit-test environment doesn't have) — the thing under test
+    here is _blob_store's bucket-SELECTION logic, not S3 connectivity."""
+    def __init__(self, bucket, region="us-east-1"):
+        self.bucket = bucket
+        self.region = region
+
+
+def test_blob_store_uses_org_bucket_not_the_shared_env_var(monkeypatch):
+    """End-to-end through the actual function callers use: _blob_store(email)
+    must pick the resolved org's bucket over MARAUDER_SCAN_BUCKET whenever
+    the org lookup succeeds."""
+    import routers.ravenhub as rh
+    import db.engine as engine_mod
+    monkeypatch.setattr(rh, "BlobIndexStore", _FakeBlobIndexStore)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+    monkeypatch.setenv("MARAUDER_SCAN_BUCKET", "shared-fallback-bucket")
+
+    org_id = object()
+    session = _FakeOrgSession({org_id: _FakeOrg("org-specific-bucket")})
+    monkeypatch.setattr(engine_mod, "get_session", lambda: session)
+
+    import db.policy_queries as pq
+    monkeypatch.setattr(pq, "get_identity", lambda s, email: (object(), org_id, []))
+
+    store = rh._blob_store("someone@real-org.com")
+    assert store.bucket == "org-specific-bucket"
+
+
+def test_blob_store_falls_back_to_shared_env_var_when_org_unresolvable(monkeypatch):
+    """A caller with no DB identity (dev/test setups, or a DB outage) must
+    still work via the old shared env var — this fix must not brick
+    single-org/local deployments that have no Org rows at all."""
+    import routers.ravenhub as rh
+    import db.engine as engine_mod
+    monkeypatch.setattr(rh, "BlobIndexStore", _FakeBlobIndexStore)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+    monkeypatch.setenv("MARAUDER_SCAN_BUCKET", "shared-fallback-bucket")
+
+    import db.policy_queries as pq
+    monkeypatch.setattr(pq, "get_identity", lambda s, email: (None, None, []))
+    monkeypatch.setattr(engine_mod, "get_session", lambda: _FakeOrgSession({}))
+
+    store = rh._blob_store("stranger@nowhere.com")
+    assert store.bucket == "shared-fallback-bucket"
+
+
+def test_blob_store_falls_back_to_shared_env_var_without_database_url(monkeypatch):
+    """No DATABASE_URL at all (e.g. a bare local dev run) must skip the org
+    lookup entirely and go straight to the env var, same as before this fix."""
+    import routers.ravenhub as rh
+    monkeypatch.setattr(rh, "BlobIndexStore", _FakeBlobIndexStore)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("MARAUDER_SCAN_BUCKET", "shared-fallback-bucket")
+
+    store = rh._blob_store("anyone@example.com")
+    assert store.bucket == "shared-fallback-bucket"
+
+
+def test_blob_store_raises_503_when_nothing_configured():
+    """Unchanged pre-fix contract: no org bucket AND no env var must still
+    503, not silently read an empty bucket name."""
+    import routers.ravenhub as rh
+    import pytest
+    from fastapi import HTTPException
+    with pytest.MonkeyPatch.context() as mp:
+        mp.delenv("DATABASE_URL", raising=False)
+        mp.delenv("MARAUDER_SCAN_BUCKET", raising=False)
+        with pytest.raises(HTTPException) as exc_info:
+            rh._blob_store("anyone@example.com")
+        assert exc_info.value.status_code == 503

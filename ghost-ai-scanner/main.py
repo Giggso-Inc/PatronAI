@@ -43,7 +43,7 @@ sys.path.insert(0, "src")
 
 from bootstrap   import validate_env, build_store, load_settings, build_resolver, maybe_backfill, seed_config_files
 from rule_health  import self_check_rules
-from threads      import scanner_loop, alerter_backlog, url_refresh_loop, streamlit_proc, integration_api_proc
+from threads      import scanner_loop, alerter_backlog, url_refresh_loop, streamlit_proc, integration_api_proc, retina_loop
 from jobs.hourly_rollup    import scheduler_loop as rollup_scheduler_loop
 from jobs.docs_refresh     import docs_refresh_loop
 from jobs.findings_compact import scheduler_loop as compact_scheduler_loop
@@ -113,10 +113,81 @@ def _llama_server_thread() -> None:
     log.info("llama-server: process launched on :%d", _LLM_PORT)
 
 
+def _wait_for_storage_then_restart(stop: threading.Event) -> None:
+    """Poll until Hub Bootstrap persists storage config, then exit for docker restart.
+
+    ``restart: unless-stopped`` brings the container back; validate_env will then
+    load ``/data/patron_storage.json`` and run the full scanner boot path.
+    """
+    from store.object_store import (
+        reload_persisted_storage_config,
+        storage_is_configured,
+        default_bucket,
+    )
+
+    log.info(
+        "Bootstrap-wait: Streamlit/API up; scanning deferred until Hub Bootstrap "
+        "saves object-store credentials"
+    )
+    while not stop.is_set():
+        try:
+            if storage_is_configured():
+                reload_persisted_storage_config()
+                bucket = default_bucket()
+                log.info(
+                    "Storage configured (bucket=%s) — exiting so container restarts "
+                    "with full PatronAI boot",
+                    bucket or "(local)",
+                )
+                # Exit cleanly; compose `restart: unless-stopped` recycles the process.
+                sys.exit(0)
+        except Exception as exc:
+            log.debug("storage wait poll: %s", exc)
+        time.sleep(5)
+
+
+def _run_bootstrap_wait_mode(stop: threading.Event) -> None:
+    """Start UI/API only; block until Bootstrap writes storage, then restart."""
+    threading.Thread(target=_llama_server_thread, name="llama_server", daemon=True).start()
+    log.info("Started: llama_server (background)")
+
+    threads = [
+        threading.Thread(target=streamlit_proc, args=(stop,), name="streamlit", daemon=True),
+        # Always expose FastAPI in wait mode so Hub can POST /bootstrap/provision-admin.
+        threading.Thread(target=integration_api_proc, args=(stop,), name="integration_api", daemon=True),
+    ]
+    for t in threads:
+        t.start()
+        log.info("Started: %s (bootstrap-wait)", t.name)
+
+    wait = threading.Thread(
+        target=_wait_for_storage_then_restart, args=(stop,), name="storage_wait", daemon=True,
+    )
+    wait.start()
+
+    try:
+        while not stop.is_set():
+            if not wait.is_alive():
+                break
+            for t in threads:
+                if not t.is_alive():
+                    log.critical("Thread died: %s — shutting down", t.name)
+            time.sleep(5)
+    except KeyboardInterrupt:
+        log.info("Interrupt — shutting down")
+        stop.set()
+
+
 def main():
     log.info("PatronAI — Starting — Giggso Inc v1.2.0")
 
-    validate_env()
+    storage_ready = validate_env()
+    stop = threading.Event()
+
+    if not storage_ready:
+        _run_bootstrap_wait_mode(stop)
+        return
+
     store    = build_store()
     seed_config_files(store)          # push bundled CSVs → S3 on every startup
     self_check_rules()                # validate merged rule counts; emit self-alert if low
@@ -138,8 +209,6 @@ def main():
     except Exception as exc:
         log.warning("ensure_lifecycle_policy failed (non-fatal): %s", exc)
 
-    stop = threading.Event()
-
     # llama-server runs independently — downloads model on first boot then serves on :8080
     threading.Thread(target=_llama_server_thread, name="llama_server", daemon=True).start()
     log.info("Started: llama_server (background)")
@@ -152,6 +221,9 @@ def main():
         threading.Thread(target=compact_scheduler_loop, args=(store, stop),                   name="findings_compact", daemon=True),
         threading.Thread(target=docs_refresh_loop,   args=(stop,),                           name="docs_refresh",   daemon=True),
         threading.Thread(target=streamlit_proc,      args=(stop,),                           name="streamlit",      daemon=True),
+        # RavenHub Card — retina fingerprint assembler. Runs every 300s,
+        # reads each agent's latest scan, computes hash, posts to Hub when changed.
+        threading.Thread(target=retina_loop,         args=(store, stop),                     name="retina",         daemon=True),
     ]
     if os.environ.get("INTEGRATION_API_ENABLED", "0") == "1":
         threads.append(

@@ -57,6 +57,8 @@ from scoring.posture_score import (
     is_approved_provider,
 )
 from routers.ravenhub import router as ravenhub_router
+from routers.ravenhub import _org_bucket_for
+from routers.ravenhub_retina import router as ravenhub_retina_router
 from routers.ravenhub_governance_reads import router as ravenhub_governance_reads_router
 from routers.ravenhub_governance_writes_lists import router as ravenhub_governance_writes_lists_router
 from routers.ravenhub_projects import router as ravenhub_projects_router
@@ -121,6 +123,13 @@ app.include_router(
     tags=["ravenhub"],
     dependencies=[Depends(_auth)],
 )
+# RavenHub Card — Patron side link endpoints (POST/GET/DELETE /ravenhub/retina/link/{token})
+app.include_router(
+    ravenhub_retina_router,
+    prefix="/ravenhub",
+    tags=["ravenhub-retina"],
+    dependencies=[Depends(_auth)],
+)
 app.include_router(
     ravenhub_governance_reads_router,
     prefix="/ravenhub",
@@ -179,16 +188,25 @@ app.include_router(
 )
 
 
-def _get_store() -> AgentStore:
-    bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
+# review-pr C1: these two used to read MARAUDER_SCAN_BUCKET unconditionally,
+# the same cross-tenant bug routers/ravenhub.py's _blob_store already fixed —
+# reusing that module's _org_bucket_for rather than a second copy of the
+# lookup, so there is exactly one place that knows how to resolve an org's
+# bucket. Every call site below that has a caller email now passes it;
+# /agent/score/fleet and /agent/url-refresh/{token} have no caller identity
+# at all (no email param, no verified JWT) and are left unscoped -- fixing
+# those needs an actual identity mechanism added to those endpoints, not
+# just a bucket lookup, which is a bigger decision than this fix.
+def _get_store(email: Optional[str] = None) -> AgentStore:
+    bucket = (_org_bucket_for(email) if email else None) or os.environ.get("MARAUDER_SCAN_BUCKET", "")
     if not bucket:
         raise HTTPException(status_code=503, detail="MARAUDER_SCAN_BUCKET not configured")
     region = os.environ.get("AWS_REGION", "us-east-1")
     return AgentStore(bucket, region)
 
 
-def _blob_store() -> BlobIndexStore:
-    bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
+def _blob_store(email: Optional[str] = None) -> BlobIndexStore:
+    bucket = (_org_bucket_for(email) if email else None) or os.environ.get("MARAUDER_SCAN_BUCKET", "")
     region = os.environ.get("AWS_REGION", "us-east-1")
     if not bucket:
         raise HTTPException(status_code=503, detail="MARAUDER_SCAN_BUCKET not configured")
@@ -400,8 +418,8 @@ def get_agent_status(
     supplied email (case-insensitive). Returns an empty deployments list
     if no packages are found — 404 only when S3 is unreachable.
     """
-    store = _get_store()
     lookup = body.email.strip().lower()
+    store = _get_store(lookup)
 
     try:
         catalog = store.refresh_statuses(store.list_catalog())
@@ -454,7 +472,7 @@ def provision_agent(
     from store import agent_renderer                              # noqa: E402
     from render_agent_package import render_agent_package         # noqa: E402
 
-    store = _get_store()
+    store = _get_store(body.recipient_email.strip().lower())
     try:
         result = render_agent_package(
             recipient_name     = body.recipient_name,
@@ -519,7 +537,13 @@ def url_refresh(token: str) -> UrlBundleResponse:
     That's inherent to the fix: agents must keep self-healing indefinitely,
     not just within meta.json's 48h install window. get_url_bundle()
     throttles re-mints and logs every call so leaked-token abuse is at
-    least visible; it does not prevent it."""
+    least visible; it does not prevent it.
+
+    KNOWN GAP (review-pr C1 follow-up, unresolved): same as get_fleet_score
+    above -- this endpoint is keyed by an opaque token, not an email, so
+    there is no caller identity to resolve an org bucket from. Left
+    unscoped rather than guessing at a token-to-org mapping that doesn't
+    exist yet."""
     store = _get_store()
     bundle = store.get_url_bundle(token)
     if bundle is None:
@@ -546,7 +570,7 @@ def user_report(
         )
 
     d_from, d_to = _default_dates(d_from, d_to)
-    store = _blob_store()
+    store = _blob_store(str(email).strip().lower())
 
     try:
         paginator = store.findings.s3.get_paginator("list_objects_v2")
@@ -630,8 +654,8 @@ def get_score(
       identity_binding (5)   device_uuid + valid MAC + fresh heartbeat.
     """
     d_from, d_to = _default_dates(d_from, d_to)
-    store        = _blob_store()
     email_lower  = str(email).strip().lower()
+    store        = _blob_store(email_lower)
 
     auth_csv      = _load_authorized_csv("authorized.csv")
     auth_code_csv = _load_authorized_csv("authorized_code.csv")
@@ -693,6 +717,15 @@ def get_fleet_score(
 
     NOTE: One S3 heartbeat read per catalog user. On large fleets (> 200 users)
     consider pre-warming heartbeat data or running this as an async background job.
+
+    KNOWN GAP (review-pr C1 follow-up, unresolved): this endpoint has no
+    caller-identity parameter at all (no email, no verified JWT via _auth),
+    so there is nothing to resolve an org bucket from -- it still reads
+    whichever org last owned MARAUDER_SCAN_BUCKET, same as before the
+    org-scoping fix. Closing this needs an actual identity mechanism added
+    to this endpoint (e.g. the same verified-JWT pattern routers/ravenhub.py
+    uses), not just a bucket lookup -- a bigger decision than this fix,
+    left open rather than guessed at.
     """
     d_from, d_to = _default_dates(d_from, d_to)
     store = _blob_store()

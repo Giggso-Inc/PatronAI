@@ -35,6 +35,7 @@
 import json
 import logging
 import os
+import re
 import secrets
 import time
 import uuid
@@ -47,6 +48,21 @@ from .base_store import BaseStore
 
 log = logging.getLogger("marauder-scan.agent_store")
 
+_VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)")
+
+
+def _version_tuple(v: str) -> tuple:
+    """(0, 0, 0) for anything unparseable — deliberately the LOWEST possible
+    version rather than a sentinel that skips comparison. A device that has
+    never heartbeat-ed with a valid agent_version (pre-self-update install,
+    or a corrupt/missing local file) should be treated as "very out of
+    date" and offered whatever is currently published, not silently left
+    out of comparison."""
+    m = _VERSION_RE.match((v or "").strip())
+    if not m:
+        return (0, 0, 0)
+    return tuple(int(g) for g in m.groups())
+
 HOOK_AGENTS_PREFIX = "config/HOOK_AGENTS"
 CATALOG_KEY        = f"{HOOK_AGENTS_PREFIX}/catalog.json"
 PRESIGN_TTL        = 172800   # 48 hours — installer + meta delivery
@@ -55,6 +71,14 @@ HEARTBEAT_PRESIGN_TTL = 604800  # 7 days  — max AWS IAM presigned PUT TTL
 # public /agent/url-refresh/{token} fallback) — cheap abuse throttle, not a
 # real rate limit. Legitimate heartbeat usage only calls this occasionally.
 URL_REFRESH_COOLDOWN_SECS = 60
+
+# Org-wide (this bucket IS the org — PatronAI is one deployment per
+# customer) self-update settings blob, following the same small-JSON-under-
+# config/HOOK_AGENTS/ convention as meta.json/status.json/catalog.json
+# rather than a new settings layer. auto_update_enabled defaults to False
+# when this key doesn't exist yet — an org must opt in, same as Raven's
+# auto_update_agents default.
+UPDATE_SETTINGS_KEY = f"{HOOK_AGENTS_PREFIX}/_updates/settings.json"
 
 
 class AgentStore(BaseStore):
@@ -119,15 +143,20 @@ class AgentStore(BaseStore):
         domains    = authorized_domains or []
 
         meta = {
-            "token":              token,
-            "recipient_name":     recipient_name,
-            "recipient_email":    recipient_email,
-            "os_type":            os_type,
-            "otp_hash":           otp_hash,
-            "created_at":         created_at,
-            "expires_at":         expires_at,
-            "script_key":         script_key,
-            "authorized_domains": domains,
+            "token":                token,
+            "recipient_name":       recipient_name,
+            "recipient_email":      recipient_email,
+            "os_type":              os_type,
+            "otp_hash":             otp_hash,
+            "created_at":           created_at,
+            "expires_at":           expires_at,
+            "script_key":           script_key,
+            "authorized_domains":   domains,
+            # RavenHub Card device token — issued by Hub admin via
+            # POST /api/v1/devices/token/emit and stored here to link
+            # this Patron agent to the Hub Card system. Set after creation
+            # via set_hub_token_id(). Empty until linked.
+            "raven_hub_token_id":   "",
         }
         status = {"token": token, "status": "pending", "updated_at": created_at}
         # authorized.csv: one domain per line, no header — agent fetches on every scan
@@ -184,11 +213,50 @@ class AgentStore(BaseStore):
             ExpiresIn=ttl,
         )
 
+    # ── Self-update settings (org-wide) ───────────────────────
+
+    def get_update_settings(self) -> dict:
+        """Read the org's self-update settings blob. Missing/unreadable
+        returns the safe default — auto-update OFF, nothing published —
+        never raises, since every heartbeat's write_url_bundle() call
+        touches this indirectly and a settings read must not be able to
+        break liveness reporting."""
+        try:
+            raw = self._get(UPDATE_SETTINGS_KEY)
+            if not raw:
+                return {"auto_update_enabled": False, "latest_agent_version": ""}
+            settings = json.loads(raw)
+            settings.setdefault("auto_update_enabled", False)
+            settings.setdefault("latest_agent_version", "")
+            return settings
+        except Exception as e:
+            log.error("get_update_settings failed: %s", e)
+            return {"auto_update_enabled": False, "latest_agent_version": ""}
+
+    def set_update_settings(self, settings: dict) -> bool:
+        """Write the org's self-update settings blob (admin action, from the
+        Deploy Agents tab's toggle / the publish step in
+        build_agent_update_bundle.py). Replaces the whole document —
+        callers should read-modify-write via get_update_settings() first."""
+        try:
+            self._put(UPDATE_SETTINGS_KEY, json.dumps(settings, indent=2).encode(),
+                      "application/json")
+            return True
+        except Exception as e:
+            log.error("set_update_settings failed: %s", e)
+            return False
+
     def write_url_bundle(self, token: str, os_type: str) -> bool:
         """Re-mint heartbeat / scan / authorized URLs and write the bundle to S3.
 
         Called by the daily url_refresh_loop. The bundle excludes urls_refresh_url
         itself (the agent already has that one and we don't want a chicken-and-egg).
+
+        Also folds in self-update fields (update_available / latest_agent_version /
+        update_bundle_url / update_bundle_sha256) when the org has opted in AND
+        the published version is strictly newer than what this token's last
+        heartbeat reported — an up-to-date agent has no reason to hold a
+        presigned download URL, used or not.
         """
         urls = self.get_presigned_urls(token, os_type)
         if not urls:
@@ -200,6 +268,28 @@ class AgentStore(BaseStore):
             "scan_put_url":       urls["scan_put_url"],
             "authorized_get_url": urls["authorized_get_url"],
         }
+        try:
+            update_settings = self.get_update_settings()
+            if update_settings.get("auto_update_enabled") and update_settings.get("latest_agent_version"):
+                heartbeat = self.get_heartbeat(token) or {}
+                current_version = str(heartbeat.get("agent_version") or "")
+                latest_version  = str(update_settings["latest_agent_version"])
+                if _version_tuple(latest_version) > _version_tuple(current_version):
+                    bundle_key = update_settings.get("bundle_key_windows") if os_type == "windows" \
+                        else update_settings.get("bundle_key_unix")
+                    bundle_sha = update_settings.get("bundle_sha256_windows") if os_type == "windows" \
+                        else update_settings.get("bundle_sha256_unix")
+                    if bundle_key:
+                        bundle["update_available"]       = True
+                        bundle["latest_agent_version"]   = latest_version
+                        bundle["update_bundle_url"]       = self.get_artifact_url(bundle_key)
+                        bundle["update_bundle_sha256"]    = bundle_sha or ""
+        except Exception as e:
+            # Self-update is a bonus on top of the URL-refresh bundle - a
+            # failure here must never stop the heartbeat/scan URLs (the
+            # actual liveness-critical part of this method) from refreshing.
+            log.error("write_url_bundle [%s]: update-check failed (non-fatal): %s", token, e)
+
         try:
             self._put(f"{HOOK_AGENTS_PREFIX}/{token}/urls.json",
                       json.dumps(bundle).encode(), "application/json")
@@ -363,6 +453,68 @@ class AgentStore(BaseStore):
             self._put(CATALOG_KEY, json.dumps(catalog, indent=2).encode(), "application/json")
         except Exception as e:
             log.error("_catalog_add write failed: %s", e)
+
+    # ── RavenHub Card token link ──────────────────────────────
+    # The raven_hub_token_id is the device token issued by the RavenHub
+    # admin (POST /api/v1/devices/token/emit). Storing it here links this
+    # Patron agent to the Hub Card system so the retina assembler can
+    # POST fingerprints to Hub /api/v1/retina/ingest.
+
+    @staticmethod
+    def _safe_token(token: str) -> str:
+        """Return token if it looks like a UUID; raise ValueError otherwise.
+
+        Defence-in-depth guard against path traversal. The router layer
+        already validates with _UUID_RE, but this guard prevents accidental
+        misuse from internal callers that bypass the HTTP layer (e.g. tests,
+        admin scripts).
+        """
+        import re as _re
+        # Full UUID pattern — same as _UUID_RE in routers/ravenhub_retina.py.
+        # Both guards must stay in sync; if you change one, change the other.
+        if not _re.match(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            (token or ""),
+            _re.IGNORECASE,
+        ):
+            raise ValueError(f"unsafe token value rejected: {token!r}")
+        return token
+
+    def get_hub_token_id(self, token: str) -> str:
+        """Return the raven_hub_token_id for a Patron agent, or '' if not set."""
+        try:
+            token = self._safe_token(token)
+            raw = self._get(f"{HOOK_AGENTS_PREFIX}/{token}/meta.json")
+            if not raw:
+                return ""
+            return json.loads(raw).get("raven_hub_token_id", "")
+        except Exception as e:
+            log.warning("get_hub_token_id failed [%s]: %s", token, e)
+            return ""
+
+    def set_hub_token_id(self, token: str, hub_token_id: str) -> bool:
+        """Write raven_hub_token_id into meta.json for a Patron agent.
+
+        Called by the admin API after issuing a Hub device token so the
+        two systems are linked. Safe to call multiple times — overwrites
+        the previous value. Returns True on success.
+        """
+        try:
+            token = self._safe_token(token)
+            raw = self._get(f"{HOOK_AGENTS_PREFIX}/{token}/meta.json")
+            if not raw:
+                log.warning("set_hub_token_id: no meta found for %s", token)
+                return False
+            meta = json.loads(raw)
+            meta["raven_hub_token_id"] = hub_token_id.strip()
+            self._put(f"{HOOK_AGENTS_PREFIX}/{token}/meta.json",
+                      json.dumps(meta).encode(), "application/json")
+            log.info("set_hub_token_id: linked patron %s to hub token %s",
+                     token[:8], hub_token_id[:8])
+            return True
+        except Exception as e:
+            log.error("set_hub_token_id failed [%s]: %s", token, e)
+            return False
 
     def delete_package(self, token: str, os_type: str = "") -> bool:
         """

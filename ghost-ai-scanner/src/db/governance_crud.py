@@ -502,7 +502,7 @@ def _raven_mcp_match_pattern(provider_pattern: str) -> str:
     return f"mcp:*:{(provider_pattern or '').strip().lower()}"
 
 def create_or_touch_raven_flag(session, *, org_id, project_id, provider_pattern,
-                               requested_by, note=None) -> RavenFlaggedTool:
+                               requested_by, note=None, device_count=0) -> RavenFlaggedTool:
     """Idempotent per (project_id, provider_pattern) while status='pending'
     (enforced by uq_raven_flagged_tools_pending) — a raven retry (dropped
     response, network blip) updates requested_by/note on the existing
@@ -522,12 +522,13 @@ def create_or_touch_raven_flag(session, *, org_id, project_id, provider_pattern,
         existing.requested_by = requested_by
         if note is not None:
             existing.note = note
+        existing.device_count = device_count
         session.commit()
         return existing
 
     row = RavenFlaggedTool(
         org_id=org_id, project_id=project_id, provider_pattern=pattern,
-        requested_by=requested_by, note=note,
+        requested_by=requested_by, note=note, device_count=device_count,
     )
     session.add(row)
     session.commit()
@@ -606,14 +607,19 @@ def get_provider_status_across_org(session, *, org_id, provider_pattern) -> dict
 
 
 def resolve_raven_flag(session, *, actor, org_id, project_id, flag_id, approve: bool,
-                       reason=None) -> RavenFlaggedTool | None:
+                       scope: str = "project", reason=None) -> RavenFlaggedTool | None:
     """Provider Governance's Approve/Deny action on a RavenHub-forwarded flag
     (Phase 3). Writes the REAL decision into approved_tools/blacklisted_tools
-    at project scope (server-side authz enforced by add_approved/
-    add_blacklisted, same as every other governance write in this file — a
-    RavenHub-originated request is NOT a bypass of C8), then marks the flag
-    resolved, atomically (same commit=False + single session.commit()
-    composition as move_to_allowed/move_to_blocked above).
+    (server-side authz enforced by add_approved/add_blacklisted, same as
+    every other governance write in this file — a RavenHub-originated
+    request is NOT a bypass of C8), then marks the flag resolved, atomically
+    (same commit=False + single session.commit() composition as
+    move_to_allowed/move_to_blocked above).
+
+    `scope`: "project" (default — just the requesting project) or "org"
+    (every project in the org). Deny is always left at "project" scope by
+    the caller today — org-wide deny isn't part of this flow — but the
+    parameter is generic so that's a router/UI choice, not a CRUD limit.
 
     Returns None if no matching PENDING flag exists (already resolved, or
     wrong org/project) — the caller (Streamlit) should treat this as a
@@ -627,19 +633,24 @@ def resolve_raven_flag(session, *, actor, org_id, project_id, flag_id, approve: 
     if flag is None:
         return None
 
+    scoped_project_id = project_id if scope == "project" else None
     match_pattern = _raven_mcp_match_pattern(flag.provider_pattern)
+    # Prefer the requester's own typed note (flag.note) over the generic
+    # "Requested via RavenHub by X" filler — the note is the actual reason
+    # a human gave; the generic line only applies when there was none.
+    default_reason = flag.note or f"Requested via RavenHub by {flag.requested_by}"
     if approve:
         add_approved(
-            session, actor=actor, org_id=org_id, scope="project", project_id=project_id,
+            session, actor=actor, org_id=org_id, scope=scope, project_id=scoped_project_id,
             name=flag.provider_pattern, provider_pattern=match_pattern,
-            reason=reason or f"Requested via RavenHub by {flag.requested_by}",
+            reason=reason or default_reason,
             commit=False,
         )
     else:
         add_blacklisted(
-            session, actor=actor, org_id=org_id, scope="project", project_id=project_id,
+            session, actor=actor, org_id=org_id, scope=scope, project_id=scoped_project_id,
             domain=match_pattern, name=flag.provider_pattern, severity="HIGH",
-            reason=reason or f"Requested via RavenHub by {flag.requested_by}",
+            reason=reason or default_reason,
             commit=False,
         )
     flag.status = "approved" if approve else "denied"

@@ -73,7 +73,7 @@ class GovernanceScopeResponse(BaseModel):
 
 
 def _org_events(email: str) -> list:
-    store = _blob_store()
+    store = _blob_store(email)
     events, _summary, _y_summary, _source_date = _load_events(store, email, is_admin=True)
     return events
 
@@ -121,6 +121,35 @@ def get_governance_overview(email: str = Depends(verify_ravenhub_identity)) -> G
         "project": _named(p["provider"], "project", proj_name, "project_id"),
         "user": _named(p["provider"], "user", user_name, "user_id"),
     } for p in providers]
+
+    # Baseline providers seeded at org bootstrap (db.seeding._starter_deny_rows,
+    # from config/unauthorized.csv — ~180 known AI providers, denied org-wide by
+    # default) never show up in `providers` above, since that list is built
+    # purely from live scan-finding events. A brand-new org (or this local dev
+    # DB, where no endpoint agent has reported findings) would otherwise show
+    # "0 known AI providers" even though the real deny-all baseline is fully
+    # loaded — see MCP_REQUEST_ACCESS_INTEGRATION.md's Controls.jsx notes.
+    # Add every org-scope deny/allow row not already covered by a scan-derived
+    # entry, deduped by name (one CSV provider maps to several domain rows).
+    scan_provider_names = {p["provider"] for p in providers}
+    seen_baseline_names = set()
+    baseline_rows = []
+    for r in dn:
+        if r.scope == "org" and r.name and r.name not in scan_provider_names and r.name not in seen_baseline_names:
+            seen_baseline_names.add(r.name)
+            baseline_rows.append({
+                "provider": r.name, "category": "unknown",
+                "org": "deny", "project": [], "user": [],
+            })
+    for r in ap:
+        if r.scope == "org" and r.name and r.name not in scan_provider_names and r.name not in seen_baseline_names:
+            seen_baseline_names.add(r.name)
+            baseline_rows.append({
+                "provider": r.name, "category": "unknown",
+                "org": "allow", "project": [], "user": [],
+            })
+    rows += baseline_rows
+
     return GovernanceOverviewResponse(email=email, providers=rows)
 
 
@@ -213,12 +242,12 @@ def get_governance_scope(
             inherited_policy += [{"blocked_by": "project", "pattern": g} for g in sorted(eff.project_deny)]
 
         current_allowed = [{"id": str(r.id), "pattern": r.domain_pattern,
-                            "reason": r.reason,
+                            "reason": r.reason or "",
                             "expires": str(r.valid_until) if r.valid_until else None}
                            for r in list_scope(s, ApprovedTool, org_id=org_id, scope=scope,
                                               project_id=project_id, user_id=user_id)]
         current_blocked = [{"id": str(r.id), "pattern": r.domain, "severity": r.severity,
-                            "reason": r.reason}
+                            "reason": r.reason or ""}
                            for r in list_scope(s, BlacklistedTool, org_id=org_id, scope=scope,
                                               project_id=project_id, user_id=user_id)]
 
@@ -237,6 +266,7 @@ class RavenFlagOut(BaseModel):
     provider_pattern: str
     requested_by: str
     note: Optional[str] = None
+    device_count: int = 0
     added_at: str
 
 
@@ -305,7 +335,8 @@ def list_raven_flags(
                     id=str(f.id), project_id=str(f.project_id),
                     project_name=project_names.get(f.project_id, "Unknown project"),
                     provider_pattern=f.provider_pattern, requested_by=f.requested_by,
-                    note=f.note, added_at=f.added_at.isoformat() if f.added_at else "",
+                    note=f.note, device_count=f.device_count or 0,
+                    added_at=f.added_at.isoformat() if f.added_at else "",
                 )
                 for f in flags
             ],

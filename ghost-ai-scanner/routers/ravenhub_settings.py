@@ -44,18 +44,26 @@
 # =============================================================
 
 import os
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from routers._raven_identity import verify_ravenhub_identity
+from routers.ravenhub import _org_bucket_for
 
 router = APIRouter(dependencies=[Depends(verify_ravenhub_identity)])
 
 
-def _store():
+def _store(email: Optional[str] = None):
+    # review-pr C2: was reading MARAUDER_SCAN_BUCKET unconditionally -- same
+    # cross-tenant bug ravenhub.py's _blob_store already fixed. A write here
+    # (POST /settings/scanning) landing on the wrong org's bucket would
+    # silently change another tenant's scan_interval_secs/dedup_window/
+    # hash_emails settings. Both call sites already have `email` from
+    # verify_ravenhub_identity; just wasn't threaded through.
     from blob_index_store import BlobIndexStore
-    bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
+    bucket = (_org_bucket_for(email) if email else None) or os.environ.get("MARAUDER_SCAN_BUCKET", "")
     if not bucket:
         raise HTTPException(status_code=503, detail="MARAUDER_SCAN_BUCKET not configured")
     return BlobIndexStore(bucket, os.environ.get("AWS_REGION", "us-east-1"))
@@ -89,7 +97,7 @@ def _audit_changes(email: str, old: dict, new: dict) -> None:
 def get_settings_endpoint(email: str = Depends(verify_ravenhub_identity)) -> SettingsResponse:
     """scanner/alerts/privacy sections of the settings blob — the only
     sections the Scanning tab reads."""
-    settings = _store().settings.read()
+    settings = _store(email).settings.read()
     return SettingsResponse(**{k: settings.get(k, {}) for k in SettingsResponse.model_fields})
 
 
@@ -98,7 +106,7 @@ def save_scanning_endpoint(body: ScanningRequest, email: str = Depends(verify_ra
     # No admin gate here — see module docstring's "ACCEPTED (PR#9 review
     # round 4)" note. Any authenticated caller can currently write org-wide
     # scan config; closing this is deferred to when FE role routing lands.
-    store = _store()
+    store = _store(email)
     settings = store.settings.read()
     scanner, alerts, privacy = settings.get("scanner", {}), settings.get("alerts", {}), settings.get("privacy", {})
     old = {
