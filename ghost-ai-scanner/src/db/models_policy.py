@@ -140,6 +140,9 @@ class RavenFlaggedTool(Base):
     provider_pattern: Mapped[str] = mapped_column(String(256), nullable=False)
     requested_by: Mapped[str] = mapped_column(String(320), nullable=False)
     note: Mapped[str | None] = mapped_column(Text)
+    # Distinct users calling this MCP in the raven project it was forwarded
+    # from — raven's mcp_asset_inventory.mcp_member_count() at forward time.
+    device_count: Mapped[int] = mapped_column(nullable=False, server_default=text("0"))
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'pending'"))
     source: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'ravenhub'"))
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

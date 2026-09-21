@@ -173,6 +173,7 @@ def remove_provider_entry(body: RemoveRequest, email: str = Depends(verify_raven
 class ResolveRavenFlagRequest(BaseModel):
     project_id: str
     approve: bool
+    scope: str = "project"  # "project" (default) or "org"
 
 
 class ResolveRavenFlagResponse(BaseModel):
@@ -199,6 +200,9 @@ def resolve_raven_flag_endpoint(
     from db.models_identity import Project
     from raven_notify import notify_raven_mcp_approved
 
+    if body.scope not in ("project", "org"):
+        raise HTTPException(status_code=400, detail="scope must be 'project' or 'org'")
+
     with get_session() as s:
         actor, org_id = _resolve_actor(s, email)
         if not actor.is_org_admin:
@@ -206,7 +210,7 @@ def resolve_raven_flag_endpoint(
         try:
             flag = resolve_raven_flag(
                 s, actor=actor, org_id=org_id, project_id=body.project_id,
-                flag_id=flag_id, approve=body.approve,
+                flag_id=flag_id, approve=body.approve, scope=body.scope,
             )
         except PolicyAuthzError as exc:
             raise HTTPException(status_code=403, detail=str(exc))
