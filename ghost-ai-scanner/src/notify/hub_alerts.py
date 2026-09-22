@@ -122,6 +122,15 @@ def emit_continued_use(
     org: str, event_id: str, tool: str, *,
     user_count: int = 0, users: list | None = None,
 ) -> None:
+    """Emit a 'shadow_ai_continued_use' alert when a shadow tool is observed
+    being used by multiple users across a digest window.
+
+    Intended caller: a periodic/daily digest job that aggregates per-tenant
+    findings from the hourly rollup store and checks whether any provider has
+    `user_count >= 2` for the window. Not yet wired into a caller in this
+    PR — the alerter fires on individual detections and doesn't have the
+    aggregate user list; a future `jobs/daily_hub_digest.py` is the right
+    home for this call."""
     _emit(
         org, "shadow_ai_continued_use", event_id,
         detail=f"Continued use of shadow tool {tool} ({user_count or len(users or [])} user(s))",
@@ -158,6 +167,17 @@ def emit_denylisted(
 
 
 def emit_pending_decisions(org: str, event_id: str, count: int, *, days: int = 3) -> None:
+    """Emit a 'shadow_ai_pending_72h' or 'shadow_ai_pending_7d' alert when
+    governance decisions have been waiting longer than the threshold.
+
+    Intended caller: a periodic digest job that calls
+    `governance_crud.list_pending_raven_flags(session, org_id=org_id)`,
+    filters for rows whose `added_at` is older than `days` days, and calls
+    this function with `count=len(stale_flags)`. Not yet wired into a caller
+    in this PR — a future `jobs/daily_hub_digest.py` is the right home for
+    this call. The corresponding alert codes are registered in raven-enterprise
+    taxonomy.py and Hub will emit these via its own scheduled scan
+    (`_blocked_and_mcp_digests`) until Patron's own caller is added."""
     code = "shadow_ai_pending_7d" if days >= 7 else "shadow_ai_pending_72h"
     label = f">{days} days" if days >= 7 else "72 hrs"
     _emit(org, code, event_id,
