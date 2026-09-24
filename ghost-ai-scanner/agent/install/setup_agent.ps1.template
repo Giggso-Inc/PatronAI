@@ -59,7 +59,17 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 
 # ── Validate / auto-install python3, then bcrypt ──────────────
 function Test-PythonAvailable {
-    try { python --version *>$null; return $true } catch { return $false }
+    # Checks the actual output looks like a real interpreter, not just that
+    # the call didn't throw - a machine with no real Python installed but
+    # the Windows Store "python.exe" app-execution-alias stub on PATH can
+    # return exit code 0 with no real version string, which a bare
+    # try/catch around `python --version` would misread as "available".
+    try {
+        $versionOutput = (python --version 2>&1 | Out-String).Trim()
+        return ($LASTEXITCODE -eq 0 -and $versionOutput -match '^Python \d+\.\d+\.\d+')
+    } catch {
+        return $false
+    }
 }
 
 if (-not (Test-PythonAvailable)) {
@@ -68,7 +78,17 @@ if (-not (Test-PythonAvailable)) {
         try {
             winget install --id Python.Python.3.12 -e --silent --accept-package-agreements --accept-source-agreements | Out-Null
         } catch {
-            Write-Fail "Python 3 is required and the winget install failed ($_). Install manually from python.org and re-run."
+            Write-Fail "Python 3 is required and 'winget install' could not be launched ($_). Install manually from python.org and re-run."
+        }
+        # PowerShell does not turn a non-zero exit from a native command
+        # like winget.exe into a terminating error the try/catch above
+        # would see - it only sets $LASTEXITCODE. Without checking it
+        # explicitly, a real winget failure (package not found, needs
+        # elevation, no network, unaccepted agreement) would silently fall
+        # through to the PATH re-check below and get reported there with a
+        # misleading "winget reported success" message.
+        if ($LASTEXITCODE -ne 0) {
+            Write-Fail "Python 3 is required and 'winget install' failed (exit code $LASTEXITCODE). Install manually from python.org and re-run."
         }
         # winget updates the machine/user PATH, but this already-running
         # PowerShell process does not see that change until it is re-read
@@ -77,7 +97,7 @@ if (-not (Test-PythonAvailable)) {
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
                     [System.Environment]::GetEnvironmentVariable("Path", "User")
         if (-not (Test-PythonAvailable)) {
-            Write-Fail "Python 3 is required. winget reported success but 'python' is still not on PATH - install manually from python.org, restart your terminal, and re-run."
+            Write-Fail "Python 3 is required. winget install succeeded but 'python' is still not resolving to a real interpreter on PATH - install manually from python.org, restart your terminal, and re-run."
         }
         Write-Info "Python installed successfully."
     } else {
