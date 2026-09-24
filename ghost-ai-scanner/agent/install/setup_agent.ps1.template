@@ -57,8 +57,33 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     Write-Fail "git is required (the pre-commit hook is installed via 'git config init.templateDir'). Install from https://git-scm.com/downloads and re-run."
 }
 
-# ── Validate python3 / bcrypt ─────────────────────────────────
-try { python --version *>$null } catch { Write-Fail "Python 3 is required. Install from python.org" }
+# ── Validate / auto-install python3, then bcrypt ──────────────
+function Test-PythonAvailable {
+    try { python --version *>$null; return $true } catch { return $false }
+}
+
+if (-not (Test-PythonAvailable)) {
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Info "Python not found - installing via winget..."
+        try {
+            winget install --id Python.Python.3.12 -e --silent --accept-package-agreements --accept-source-agreements | Out-Null
+        } catch {
+            Write-Fail "Python 3 is required and the winget install failed ($_). Install manually from python.org and re-run."
+        }
+        # winget updates the machine/user PATH, but this already-running
+        # PowerShell process does not see that change until it is re-read
+        # from the registry - without this, the check below would still
+        # fail even right after a successful winget install.
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+                    [System.Environment]::GetEnvironmentVariable("Path", "User")
+        if (-not (Test-PythonAvailable)) {
+            Write-Fail "Python 3 is required. winget reported success but 'python' is still not on PATH - install manually from python.org, restart your terminal, and re-run."
+        }
+        Write-Info "Python installed successfully."
+    } else {
+        Write-Fail "Python 3 is required and winget is not available on this machine. Install manually from python.org and re-run."
+    }
+}
 $bcryptOk = python -c "import bcrypt; print('ok')" 2>$null
 if ($bcryptOk -ne "ok") {
     Write-Info "Installing bcrypt..."
