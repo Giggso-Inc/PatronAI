@@ -258,7 +258,7 @@ if ($ExistingTpl -and $ExistingTpl -ne $TemplateDir) {
 # IDE plugins, containers (image+logs), shell history. Scan logic
 # lives in agent/install/scan_*.py.frag — same Python is inlined
 # into agent/install/scan.ps1 at render time (render_agent_package.py
-# resolves scan.ps1's own {{INLINE_SCAN_PYTHON}} placeholder BEFORE this
+# resolves scan.ps1's own {{ INLINE_SCAN_PYTHON }} placeholder BEFORE this
 # outer substitution pass, since a nested {{...}} inside a substituted
 # value is not re-scanned by the same pass — see that file's comment).
 # scan.ps1 is extracted to its own file for the same reason

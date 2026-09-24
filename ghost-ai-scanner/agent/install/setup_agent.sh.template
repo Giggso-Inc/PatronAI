@@ -235,7 +235,7 @@ fi
 # Findings matched against unauthorised list; authorised list suppresses.
 SCAN_SCRIPT="$AGENT_DIR/scan.sh"
 # Source lives at agent/install/scan.sh, inlined verbatim at render time.
-# scan.sh's own {{INLINE_SCAN_PYTHON}} placeholder is resolved BEFORE this
+# scan.sh's own {{ INLINE_SCAN_PYTHON }} placeholder is resolved BEFORE this
 # outer substitution pass (render_agent_package.py pre-resolves it into
 # INLINE_SCAN_SH's value) - a nested {{...}} inside a substituted value is
 # not re-scanned by the same regex.sub() pass. See render_agent_package.py.
