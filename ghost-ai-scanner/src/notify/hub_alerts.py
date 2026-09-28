@@ -121,23 +121,23 @@ def emit_user_first_use(
 def emit_continued_use(
     org: str, event_id: str, tool: str, *,
     user_count: int = 0, users: list | None = None,
+    additional_count: int | None = None,
+    first_sighting_date: str = "",
 ) -> None:
-    """Emit a 'shadow_ai_continued_use' alert when a shadow tool is observed
-    being used by multiple users across a digest window.
-
-    Intended caller: a periodic/daily digest job that aggregates per-tenant
-    findings from the hourly rollup store and checks whether any provider has
-    `user_count >= 2` for the window. Not yet wired into a caller in this
-    PR — the alerter fires on individual detections and doesn't have the
-    aggregate user list; a future `jobs/daily_hub_digest.py` is the right
-    home for this call."""
+    """Daily aggregate for the sheet row 'more users continue to use the shadow tool'."""
+    total = user_count or len(users or [])
+    extra = additional_count if additional_count is not None else max(total - 1, 0)
     _emit(
         org, "shadow_ai_continued_use", event_id,
-        detail=f"Continued use of shadow tool {tool} ({user_count or len(users or [])} user(s))",
+        detail=f"Continued use of shadow tool {tool} ({total} user(s))",
         payload={
             "tool": tool,
+            "tool_name": tool,
             "resource": tool,
-            "user_count": user_count or len(users or []),
+            "user_count": total,
+            "additional_count": extra,
+            "total_count": total,
+            "first_sighting_date": first_sighting_date,
             "users": list(users or []),
             "messaging_event": "shadow_ai_continued_use",
         },
@@ -166,21 +166,23 @@ def emit_denylisted(
     )
 
 
-def emit_pending_decisions(org: str, event_id: str, count: int, *, days: int = 3) -> None:
-    """Emit a 'shadow_ai_pending_72h' or 'shadow_ai_pending_7d' alert when
-    governance decisions have been waiting longer than the threshold.
-
-    Intended caller: a periodic digest job that calls
-    `governance_crud.list_pending_raven_flags(session, org_id=org_id)`,
-    filters for rows whose `added_at` is older than `days` days, and calls
-    this function with `count=len(stale_flags)`. Not yet wired into a caller
-    in this PR — a future `jobs/daily_hub_digest.py` is the right home for
-    this call. The corresponding alert codes are registered in raven-enterprise
-    taxonomy.py and Hub will emit these via its own scheduled scan
-    (`_blocked_and_mcp_digests`) until Patron's own caller is added."""
+def emit_pending_decisions(
+    org: str, event_id: str, count: int, *,
+    days: int = 3, tool: str = "", user_count: int | None = None,
+) -> None:
+    """Sheet rows: decision pending more than 72 hours, and more than 7 days."""
     code = "shadow_ai_pending_7d" if days >= 7 else "shadow_ai_pending_72h"
     label = f">{days} days" if days >= 7 else "72 hrs"
+    users = user_count if user_count is not None else count
     _emit(org, code, event_id,
-          f"{count} shadow AI decisions pending >{label}",
-          payload={"count": count, "resource_kind": "shadow_ai",
-                   "threshold_days": days, "messaging_event": code})
+          f"{tool or 'Shadow tool'} decision pending >{label} ({users} user(s))",
+          payload={
+              "count": count,
+              "user_count": users,
+              "tool": tool,
+              "tool_name": tool,
+              "resource": tool,
+              "resource_kind": "shadow_ai",
+              "threshold_days": days,
+              "messaging_event": code,
+          })
