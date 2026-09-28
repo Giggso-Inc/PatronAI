@@ -16,6 +16,8 @@ import os
 import threading
 from datetime import datetime, timezone
 
+from notify.hub_alerts import emit_continued_use, emit_pending_decisions
+
 log = logging.getLogger("marauder-scan.jobs.shadow_matrix_digest")
 
 _HOUR = int(os.environ.get("PATRON_SHADOW_DIGEST_HOUR", "8"))
@@ -49,7 +51,7 @@ def due_alerts(flags, *, now: datetime | None = None) -> list[dict]:
                 "first_sighting_date": added.date().isoformat(),
                 "event_id": f"patron:shadow_continued:{org}:{tool}:{day}",
             })
-        if age_h >= 72:
+        if 72 <= age_h < 24 * 7:
             out.append({
                 "kind": "pending72",
                 "org": org,
@@ -87,28 +89,33 @@ def _load_flags():
         return flags
 
 
-def run_once(now: datetime | None = None) -> int:
-    from notify.hub_alerts import emit_continued_use, emit_pending_decisions
+def _emit_item(item: dict) -> None:
+    if item["kind"] == "continued":
+        emit_continued_use(
+            item["org"], item["event_id"], item["tool"],
+            user_count=item["user_count"],
+            additional_count=item["additional_count"],
+            first_sighting_date=item["first_sighting_date"],
+        )
+        return
+    days = 3 if item["kind"] == "pending72" else 7
+    emit_pending_decisions(
+        item["org"], item["event_id"], item["user_count"],
+        days=days, tool=item["tool"], user_count=item["user_count"],
+    )
 
+
+def run_once(now: datetime | None = None) -> int:
     sent = 0
     for item in due_alerts(_load_flags(), now=now):
-        if item["kind"] == "continued":
-            emit_continued_use(
-                item["org"], item["event_id"], item["tool"],
-                user_count=item["user_count"],
-                additional_count=item["additional_count"],
-                first_sighting_date=item["first_sighting_date"],
+        try:
+            _emit_item(item)
+        except Exception as exc:
+            log.warning(
+                "shadow_matrix_digest skipped %s %s: %s",
+                item.get("kind"), item.get("event_id"), exc,
             )
-        elif item["kind"] == "pending72":
-            emit_pending_decisions(
-                item["org"], item["event_id"], item["user_count"],
-                days=3, tool=item["tool"], user_count=item["user_count"],
-            )
-        else:
-            emit_pending_decisions(
-                item["org"], item["event_id"], item["user_count"],
-                days=7, tool=item["tool"], user_count=item["user_count"],
-            )
+            continue
         sent += 1
     return sent
 
