@@ -48,6 +48,7 @@ class SyncMCPFlagRequest(BaseModel):
     provider_pattern: str
     requested_by: str
     note: str | None = None
+    device_count: int = 0
 
 
 class MCPFlagOut(BaseModel):
@@ -97,6 +98,7 @@ def sync_mcp_flag_endpoint(body: SyncMCPFlagRequest, email: str = Depends(verify
                 s, org_id=org_id, project_id=project.id,
                 provider_pattern=body.provider_pattern,
                 requested_by=body.requested_by, note=body.note,
+                device_count=body.device_count,
             )
         except Exception as exc:
             s.rollback()

@@ -1,2115 +1,3947 @@
 {
-  "note": "Findings accepted as pre-existing debt at the time this baseline was written \u2014 raven-core/decision-map-gate.py only blocks on findings NOT in this list. Regenerate with --write-baseline after deliberately accepting more debt; do not hand-edit to silence a real new finding.",
+  "note": "Findings accepted as pre-existing debt at the time each was baselined \u2014 raven-core/decision-map-gate.py only blocks on findings NOT in this list. Each entry's reason/reviewer/timestamp/outcome (G19) records WHY it was accepted, not just that it was. Regenerate with --write-baseline after deliberately accepting more debt \u2014 prior entries' metadata is preserved, not overwritten. Do not hand-edit to silence a real new finding.",
   "findings": [
-    [
-      "ghost-ai-scanner/alembic/env.py",
-      47,
-      "run_migrations_online"
-    ],
-    [
-      "ghost-ai-scanner/alembic/versions/0004_deny_override.py",
-      25,
-      "upgrade"
-    ],
-    [
-      "ghost-ai-scanner/alembic/versions/0005_project_external_ref.py",
-      27,
-      "upgrade"
-    ],
-    [
-      "ghost-ai-scanner/alembic/versions/0006_raven_flagged_tools.py",
-      35,
-      "upgrade"
-    ],
-    [
-      "ghost-ai-scanner/alembic/versions/0007_remove_giggso_baseline.py",
-      111,
-      "downgrade"
-    ],
-    [
-      "ghost-ai-scanner/alembic/versions/0b106c6c7a43_initial_policy_schema.py",
-      21,
-      "upgrade"
-    ],
-    [
-      "ghost-ai-scanner/api.py",
-      115,
-      "_auth"
-    ],
-    [
-      "ghost-ai-scanner/api.py",
-      436,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/api.py",
-      450,
-      "get_agent_status"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/app.py",
-      46,
-      "handle_query_params"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/app.py",
-      58,
-      "main"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/app.py",
-      77,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/auth.py",
-      74,
-      "gate"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/auth.py",
-      87,
-      "gate"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/auth.py",
-      92,
-      "_render_login"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/auth.py",
-      96,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ghost_dashboard.py",
-      44,
-      "_prime_grafana_url"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ghost_dashboard.py",
-      48,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ghost_dashboard.py",
-      57,
-      "main"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ghost_dashboard.py",
-      75,
-      "_with_chat"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ghost_dashboard.py",
-      116,
-      "_render_support"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ghost_dashboard.py",
-      123,
-      "_render_settings"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/panels.py",
-      25,
-      "health"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/panels.py",
-      64,
-      "actions"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/panels.py",
-      71,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/panels.py",
-      84,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/panels.py",
-      93,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/panels.py",
-      100,
-      "csv_editor"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/panels.py",
-      104,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/panels.py",
-      114,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/panels.py",
-      123,
-      "sidebar"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/panels.py",
-      126,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/settings_form.py",
-      19,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/settings_form.py",
-      116,
-      "_save"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/ai_inventory_mindmap.py",
-      39,
-      "render_mindmap"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/ai_inventory_mindmap.py",
-      116,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/ai_inventory_mindmap.py",
-      145,
-      "render_user_mindmap"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/ai_inventory_treemap.py",
-      26,
-      "render_aggregate_treemap"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/ai_posture_card.py",
-      52,
-      "render_ai_posture"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/asset_map.py",
-      76,
-      "_render_treemap"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/asset_map.py",
-      101,
-      "_render_nested_expander"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/asset_map.py",
-      126,
-      "render_asset_map"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/audit_tail.py",
-      27,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/auth_gate.py",
-      46,
-      "_db_resolve"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/auth_gate.py",
-      52,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/auth_gate.py",
-      100,
-      "gate"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/auth_gate.py",
-      113,
-      "gate"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/auth_gate.py",
-      118,
-      "_render_login"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/auth_gate.py",
-      145,
-      "_check"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/category_grouped_risks.py",
-      49,
-      "render_grouped_risks"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/chat/widget.py",
-      51,
-      "_confirm_clear"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/chat/widget.py",
-      109,
-      "render_chat_panel"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/chat/widget.py",
-      193,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/clickable_metric.py",
-      28,
-      "clickable_metric"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/data.py",
-      43,
-      "load_data"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/data.py",
-      87,
-      "load_yesterday_summary"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/data.py",
-      102,
-      "load_pipeline_state"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/drill_panel.py",
-      36,
-      "set_drill"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/drill_panel.py",
-      47,
-      "clear_drill"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/drill_panel.py",
-      53,
-      "get_drill"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/drill_panel.py",
-      84,
-      "apply_drill"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/drill_panel.py",
-      87,
-      "render_drill_panel"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_tab_exposure.py",
-      32,
-      "_sankey"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_tab_exposure.py",
-      108,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_tab_exposure.py",
-      130,
-      "_incidents_table"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_tab_landscape.py",
-      35,
-      "_world_map"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_tab_landscape.py",
-      65,
-      "_provider_bubble"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_tab_landscape.py",
-      109,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_tab_landscape.py",
-      122,
-      "_trend_30d"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_tab_risk.py",
-      25,
-      "render_risk"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_tab_risk.py",
-      37,
-      "_heatmap"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_tab_risk.py",
-      68,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_tab_risk.py",
-      84,
-      "_top_offenders"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_tab_risk.py",
-      114,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_view.py",
-      28,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/exec_view.py",
-      42,
-      "_kpis"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/filtered_table.py",
-      21,
-      "filtered_table"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/filtered_table.py",
-      83,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/filtered_table.py",
-      90,
-      "filtered_table"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/filtered_table.py",
-      110,
-      "clear_filters_button"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/filtered_table.py",
-      118,
-      "search_box"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/filtered_table.py",
-      125,
-      "search_box"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/filtered_table.py",
-      142,
-      "apply_search_dicts"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/header.py",
-      24,
-      "render_header"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/home_view.py",
-      61,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/home_view.py",
-      123,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_actions.py",
-      91,
-      "send_alert_email"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_actions.py",
-      103,
-      "authorize_for_user"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_ai_inventory.py",
-      37,
-      "_render_kpis"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_ai_inventory.py",
-      58,
-      "_render_filters"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_ai_inventory.py",
-      77,
-      "_render_filters"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_ai_inventory.py",
-      80,
-      "_render_table"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_ai_inventory.py",
-      116,
-      "render_ai_inventory"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_ai_inventory_data.py",
-      78,
-      "apply_filters"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_inventory.py",
-      50,
-      "render_inventory"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_logs.py",
-      44,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_logs.py",
-      67,
-      "_row"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_logs.py",
-      81,
-      "render_logs"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_pipeline.py",
-      45,
-      "_metrics"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_pipeline.py",
-      85,
-      "_hourly_chart"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_pipeline.py",
-      110,
-      "_actions"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_pipeline.py",
-      115,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
-      36,
-      "render_risks"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
-      111,
-      "_demo_blocked"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
-      117,
-      "_demo_blocked"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
-      120,
-      "_action_resolve"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
-      127,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
-      136,
-      "_action_escalate"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
-      150,
-      "_action_email"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/manager_view.py",
-      24,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
-      74,
-      "_ensure_seeded"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
-      87,
-      "_db_context"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
-      103,
-      "load_org_policy_context"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
-      110,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
-      116,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
-      122,
-      "load_org_policy_context"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
-      125,
-      "load_user_policy_context"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
-      131,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
-      153,
-      "sync_scanned_users_from_events"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
-      166,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
-      183,
-      "clear_policy_context"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports/_pdf.py",
-      31,
-      "html_to_pdf"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports/_pdf.py",
-      45,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports/r1_exec.py",
-      74,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports/r1_exec.py",
-      118,
-      "build_html"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports/r4_incidents.py",
-      79,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports/r4_incidents.py",
-      114,
-      "build_html"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports/r6_compliance.py",
-      92,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports/r6_compliance.py",
-      100,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports/r6_compliance.py",
-      142,
-      "build_html"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports/r7_shadow.py",
-      89,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports/r7_shadow.py",
-      127,
-      "build_html"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports_view.py",
-      53,
-      "_card"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports_view.py",
-      79,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports_view.py",
-      94,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/reports_view.py",
-      108,
-      "render_reports"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/sidebar.py",
-      32,
-      "_grafana_link"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/sidebar.py",
-      49,
-      "_grafana_link"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/sidebar.py",
-      52,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/sidebar.py",
-      58,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/sidebar.py",
-      96,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/styles.py",
-      84,
-      "inject"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/support_tab_coverage.py",
-      26,
-      "render_coverage"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/support_tab_coverage.py",
-      72,
-      "_load_denylist_names"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/support_tab_coverage.py",
-      74,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/support_tab_fleet.py",
-      59,
-      "render_fleet"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/support_tab_fleet_actions.py",
-      102,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/support_tab_health.py",
-      37,
-      "render_health"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/support_tab_rules.py",
-      23,
-      "render_rules"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/support_tab_rules.py",
-      63,
-      "_load_csv"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/support_tab_rules.py",
-      65,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/support_tab_signals.py",
-      47,
-      "render_signals"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/support_view.py",
-      29,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/alerting.py",
-      17,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/alerting.py",
-      86,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/branding.py",
-      26,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents.py",
-      25,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents.py",
-      40,
-      "_render_generate_form"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents.py",
-      80,
-      "_generate"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents_table.py",
-      49,
-      "render_status_table"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents_table.py",
-      180,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents_table.py",
-      195,
-      "_delete"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents_table.py",
-      197,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/discovered_panel.py",
-      37,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/discovered_panel.py",
-      132,
-      "_promote_to_deny"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/discovered_panel.py",
-      135,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/discovered_panel.py",
-      143,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/identity.py",
-      16,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/identity.py",
-      78,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/projects.py",
-      28,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/projects.py",
-      35,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/projects.py",
-      49,
-      "_render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/projects.py",
-      61,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      96,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      112,
-      "_all_providers_table"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      127,
-      "_render_db"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      128,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      244,
-      "_overview"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      298,
-      "_scope_selector"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      317,
-      "_scope_selector"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      320,
-      "_flash_and_rerun"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      326,
-      "_raven_flagged_tools"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      385,
-      "_newly_found"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      458,
-      "_inherited_lists"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      499,
-      "_current_lists"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      511,
-      "_list_block"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      565,
-      "_block_wider_allow"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      610,
-      "_render_csv"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      635,
-      "_csv_write"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
-      636,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists.py",
-      46,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists.py",
-      90,
-      "_custom_editor"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists.py",
-      129,
-      "_search_filter"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists.py",
-      145,
-      "_allow_editor"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_import.py",
-      30,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_import.py",
-      82,
-      "_run_validation"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_import.py",
-      95,
-      "_merge_into_cache"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
-      34,
-      "render_status_banner"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
-      50,
-      "render_readonly_csv"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
-      52,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
-      63,
-      "read_csv_df"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
-      70,
-      "read_csv_df"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
-      73,
-      "_fetch_csv_df"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
-      75,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
-      84,
-      "clear_cache"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
-      100,
-      "put_csv"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
-      103,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
-      108,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/scanning.py",
-      18,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/scanning.py",
-      93,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/users.py",
-      35,
-      "_store"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/users.py",
-      48,
-      "render"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/users.py",
-      68,
-      "_render_table"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/users.py",
-      112,
-      "_render_add_form"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/users.py",
-      137,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/tabs/users_widgets.py",
-      41,
-      "render_edit_inline"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/time_fmt.py",
-      34,
-      "_viewer_tz_name"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/time_fmt.py",
-      52,
-      "_viewer_tz_name"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/time_fmt.py",
-      106,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/time_fmt.py",
-      113,
-      "fmt"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/user_detail.py",
-      25,
-      "render_user_detail"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/user_detail.py",
-      73,
-      "_render_score_breakdown"
-    ],
-    [
-      "ghost-ai-scanner/dashboard/ui/user_detail.py",
-      138,
-      "_render_logs"
-    ],
-    [
-      "ghost-ai-scanner/routers/_raven_identity.py",
-      40,
-      "verify_ravenhub_identity"
-    ],
-    [
-      "ghost-ai-scanner/routers/_raven_identity.py",
-      51,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/routers/_raven_identity.py",
-      58,
-      "verify_ravenhub_identity"
-    ],
-    [
-      "ghost-ai-scanner/routers/raven_enterprise_bootstrap.py",
-      37,
-      "_verify_bootstrap_token"
-    ],
-    [
-      "ghost-ai-scanner/routers/raven_enterprise_bootstrap.py",
-      46,
-      "_assert_org_bootstrap_open"
-    ],
-    [
-      "ghost-ai-scanner/routers/raven_enterprise_bootstrap.py",
-      59,
-      "provision_admin"
-    ],
-    [
-      "ghost-ai-scanner/routers/raven_enterprise_projects.py",
-      191,
-      "delete_project_endpoint"
-    ],
-    [
-      "ghost-ai-scanner/routers/raven_enterprise_users.py",
-      105,
-      "sync_user_endpoint"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub.py",
-      192,
-      "_db_is_admin"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub.py",
-      199,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub.py",
-      324,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub.py",
-      345,
-      "_load_events"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub.py",
-      502,
-      "_org_policy_context"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub.py",
-      511,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub.py",
-      528,
-      "_user_policy_context"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub.py",
-      534,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub.py",
-      657,
-      "_workforce_total"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub.py",
-      684,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub.py",
-      1024,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub.py",
-      1039,
-      "get_user_detail"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub_governance_reads.py",
-      82,
-      "get_governance_overview"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub_governance_reads.py",
-      124,
-      "get_governance_overview"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub_governance_reads.py",
-      249,
-      "list_raven_flags"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub_governance_writes_lists.py",
-      103,
-      "approve_provider"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub_projects.py",
-      231,
-      "create_project_endpoint"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub_users.py",
-      109,
-      "_sync_policy_db_admin"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub_users.py",
-      180,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/routers/ravenhub_users.py",
-      202,
-      "upsert_user_endpoint"
-    ],
-    [
-      "ghost-ai-scanner/scripts/cleanup_orphaned_ravenhub_projects.py",
-      92,
-      "main"
-    ],
-    [
-      "ghost-ai-scanner/scripts/cleanup_orphaned_ravenhub_projects.py",
-      157,
-      "main"
-    ],
-    [
-      "ghost-ai-scanner/scripts/refresh_eni_cache.py",
-      102,
-      "run"
-    ],
-    [
-      "ghost-ai-scanner/scripts/refresh_eni_cache.py",
-      108,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/scripts/refresh_eni_cache.py",
-      118,
-      "run"
-    ],
-    [
-      "ghost-ai-scanner/scripts/render_agent_package.py",
-      90,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/scripts/render_agent_package.py",
-      245,
-      "render_agent_package"
-    ],
-    [
-      "ghost-ai-scanner/scripts/simulate_events.py",
-      102,
-      "main"
-    ],
-    [
-      "ghost-ai-scanner/src/alerter/alerter.py",
-      43,
-      "process_code_signals"
-    ],
-    [
-      "ghost-ai-scanner/src/alerter/alerter.py",
-      62,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/alerter/alerter.py",
-      104,
-      "process_code_signals"
-    ],
-    [
-      "ghost-ai-scanner/src/alerter/alerter.py",
-      152,
-      "process_findings"
-    ],
-    [
-      "ghost-ai-scanner/src/alerter/cloudtrail_check.py",
-      25,
-      "check"
-    ],
-    [
-      "ghost-ai-scanner/src/alerter/cloudtrail_check.py",
-      43,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/alerter/dispatcher.py",
-      48,
-      "dispatch"
-    ],
-    [
-      "ghost-ai-scanner/src/alerter/dispatcher.py",
-      51,
-      "_fire_sns"
-    ],
-    [
-      "ghost-ai-scanner/src/alerter/dispatcher.py",
-      58,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/alerter/dispatcher.py",
-      82,
-      "_fire_webhook"
-    ],
-    [
-      "ghost-ai-scanner/src/alerter/dispatcher.py",
-      84,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/docs_index.py",
-      123,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/docs_index.py",
-      133,
-      "_chunks"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/docs_index.py",
-      217,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/docs_index.py",
-      252,
-      "load"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/engine.py",
-      93,
-      "call_llm"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/engine.py",
-      127,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/history.py",
-      94,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/llm/__init__.py",
-      47,
-      "_cfg"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/llm/__init__.py",
-      58,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/llm/__init__.py",
-      67,
-      "_cfg"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/llm/anthropic.py",
-      91,
-      "complete"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/llm/anthropic.py",
-      122,
-      "complete"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/llm/openai_compat.py",
-      99,
-      "complete"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/llm/openai_compat.py",
-      131,
-      "complete"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/prompts.py",
-      47,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/prompts.py",
-      61,
-      "build_system_prompt"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/tools.py",
-      116,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/tools.py",
-      125,
-      "get_summary_stats"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/tools.py",
-      376,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/src/chat/tools.py",
-      383,
-      "compare_periods"
-    ],
-    [
-      "ghost-ai-scanner/src/code_fallback.py",
-      50,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/src/code_fallback.py",
-      54,
-      "regex_fallback"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      78,
-      "resolve_user_in_org"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      95,
-      "resolve_user_in_org"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      188,
-      "add_approved"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      227,
-      "add_approved"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      230,
-      "add_blacklisted"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      264,
-      "add_blacklisted"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      352,
-      "create_project"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      369,
-      "create_project_from_sync"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      372,
-      "get_project_by_external_ref"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      377,
-      "get_project_by_external_ref"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      406,
-      "delete_project_by_external_ref"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      416,
-      "get_or_create_user_for_sync"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      436,
-      "get_or_create_user_for_sync"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      457,
-      "list_projects"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      465,
-      "list_projects"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      468,
-      "list_org_users"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      470,
-      "list_org_users"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      475,
-      "list_project_members"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      477,
-      "list_project_members"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      504,
-      "create_or_touch_raven_flag"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      534,
-      "create_or_touch_raven_flag"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      537,
-      "list_pending_raven_flags"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      543,
-      "list_pending_raven_flags"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      548,
-      "get_provider_status_across_org"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      600,
-      "get_provider_status_across_org"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      608,
-      "resolve_raven_flag"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      645,
-      "<assign>"
-    ],
-    [
-      "ghost-ai-scanner/src/db/governance_crud.py",
-      649,
-      "resolve_raven_flag"
-    ],
-    [
-      "ghost-ai-scanner/src/db/policy_queries.py",
-      39,
-      "load_policy_context"
-    ],
-    [
-      "ghost-ai-scanner/src/db/policy_queries.py",
-      80,
-      "load_policy_context"
-    ],
-    [
-      "ghost-ai-scanner/src/db/policy_queries.py",
-      83,
-      "project_ids_for_user"
-    ],
-    [
-      "ghost-ai-scanner/src/db/policy_queries.py",
-      85,
-      "project_ids_for_user"
-    ],
-    [
-      "ghost-ai-scanner/src/db/policy_queries.py",
-      92,
-      "get_identity"
-    ],
-    [
-      "ghost-ai-scanner/src/db/policy_queries.py",
-      100,
-      "get_identity"
-    ],
-    [
-      "ghost-ai-scanner/src/db/seeding.py",
-      61,
-      "ensure_org"
-    ],
-    [
-      "ghost-ai-scanner/src/db/seeding.py",
-      69,
-      "ensure_org"
-    ],
-    [
-      "ghost-ai-scanner/src/db/seeding.py",
-      78,
-      "upsert_users"
-    ],
-    [
-      "ghost-ai-scanner/src/db/seeding.py",
-      109,
-      "upsert_users"
-    ],
-    [
-      "ghost-ai-scanner/src/db/seeding.py",
-      146,
-      "seed_org_lists"
-    ],
-    [
-      "ghost-ai-scanner/src/db/seeding.py",
-      240,
-      "seed_org_lists"
-    ],
-    [
-      "ghost-ai-scanner/src/identity_resolver/source_ec2.py",
-      20,
-      "resolve"
-    ],
-    [
-      "ghost-ai-scanner/src/identity_resolver/source_ec2.py",
-      25,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/identity_resolver/source_ec2.py",
-      46,
-      "resolve"
-    ],
-    [
-      "ghost-ai-scanner/src/identity_resolver/source_idc.py",
-      20,
-      "resolve"
-    ],
-    [
-      "ghost-ai-scanner/src/identity_resolver/source_idc.py",
-      34,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/identity_resolver/source_idc.py",
-      67,
-      "resolve"
-    ],
-    [
-      "ghost-ai-scanner/src/identity_resolver/source_nac.py",
-      20,
-      "resolve"
-    ],
-    [
-      "ghost-ai-scanner/src/identity_resolver/source_nac.py",
-      31,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/identity_resolver/source_nac.py",
-      49,
-      "resolve"
-    ],
-    [
-      "ghost-ai-scanner/src/ingestor/pipeline.py",
-      104,
-      "process"
-    ],
-    [
-      "ghost-ai-scanner/src/jobs/hourly_rollup.py",
-      400,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/normalizer/eni_filter.py",
-      42,
-      "load_eni_patterns"
-    ],
-    [
-      "ghost-ai-scanner/src/normalizer/eni_filter.py",
-      49,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/notify/email.py",
-      92,
-      "ensure_verified"
-    ],
-    [
-      "ghost-ai-scanner/src/notify/email.py",
-      119,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/notify/email.py",
-      146,
-      "send"
-    ],
-    [
-      "ghost-ai-scanner/src/notify/email.py",
-      187,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/notify/email.py",
-      240,
-      "send_welcome"
-    ],
-    [
-      "ghost-ai-scanner/src/notify/email.py",
-      265,
-      "send_agent_otp"
-    ],
-    [
-      "ghost-ai-scanner/src/notify/email.py",
-      302,
-      "send_alert"
-    ],
-    [
-      "ghost-ai-scanner/src/notify/hub_alerts.py",
-      27,
-      "_emit"
-    ],
-    [
-      "ghost-ai-scanner/src/notify/hub_alerts.py",
-      49,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/raven_notify.py",
-      45,
-      "notify_raven_mcp_approved"
-    ],
-    [
-      "ghost-ai-scanner/src/retina/device_info.py",
-      98,
-      "_get_device_name"
-    ],
-    [
-      "ghost-ai-scanner/src/retina/device_info.py",
-      121,
-      "_get_device_name"
-    ],
-    [
-      "ghost-ai-scanner/src/retina/device_info.py",
-      164,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/retina/device_info.py",
-      179,
-      "get_device_info"
-    ],
-    [
-      "ghost-ai-scanner/src/retina/hub_client.py",
-      34,
-      "renew_device_token"
-    ],
-    [
-      "ghost-ai-scanner/src/retina/hub_client.py",
-      55,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/retina/hub_client.py",
-      81,
-      "renew_device_token"
-    ],
-    [
-      "ghost-ai-scanner/src/retina/hub_client.py",
-      84,
-      "post_retina_scan"
-    ],
-    [
-      "ghost-ai-scanner/src/retina/hub_client.py",
-      123,
-      "_do_ingest"
-    ],
-    [
-      "ghost-ai-scanner/src/retina/hub_client.py",
-      180,
-      "post_retina_scan"
-    ],
-    [
-      "ghost-ai-scanner/src/retina/normaliser.py",
-      36,
-      "_normalise_dim"
-    ],
-    [
-      "ghost-ai-scanner/src/retina/normaliser.py",
-      54,
-      "_normalise_dim"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/breakdown.py",
-      20,
-      "provider_contributions"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/breakdown.py",
-      47,
-      "provider_contributions"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/breakdown.py",
-      50,
-      "score_detail"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/breakdown.py",
-      58,
-      "score_detail"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/policy.py",
-      97,
-      "policy_multiplier"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/policy.py",
-      104,
-      "policy_multiplier"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/posture_score.py",
-      148,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/posture_score.py",
-      172,
-      "c_ghost_assets"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/posture_score.py",
-      282,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/posture_score.py",
-      287,
-      "c_provider_count"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/risk_score.py",
-      30,
-      "_base_weight"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/risk_score.py",
-      40,
-      "_base_weight"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/risk_score.py",
-      53,
-      "risk_score"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/risk_score.py",
-      68,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/risk_score.py",
-      94,
-      "risk_score"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/risk_score.py",
-      97,
-      "risk_band"
-    ],
-    [
-      "ghost-ai-scanner/src/scoring/risk_score.py",
-      103,
-      "risk_band"
-    ],
-    [
-      "ghost-ai-scanner/src/services/authorize.py",
-      84,
-      "authorize"
-    ],
-    [
-      "ghost-ai-scanner/src/store/agent_store.py",
-      65,
-      "generate_otp"
-    ],
-    [
-      "ghost-ai-scanner/src/store/agent_store.py",
-      67,
-      "generate_otp"
-    ],
-    [
-      "ghost-ai-scanner/src/store/agent_store.py",
-      69,
-      "hash_otp"
-    ],
-    [
-      "ghost-ai-scanner/src/store/agent_store.py",
-      71,
-      "hash_otp"
-    ],
-    [
-      "ghost-ai-scanner/src/store/agent_store.py",
-      73,
-      "check_otp"
-    ],
-    [
-      "ghost-ai-scanner/src/store/findings_query.py",
-      90,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/store/findings_query.py",
-      97,
-      "_scan_by_field"
-    ],
-    [
-      "ghost-ai-scanner/src/store/findings_store.py",
-      77,
-      "read"
-    ],
-    [
-      "ghost-ai-scanner/src/store/findings_store.py",
-      92,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/store/findings_store.py",
-      100,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/src/store/findings_store.py",
-      187,
-      "read"
-    ],
-    [
-      "ghost-ai-scanner/src/store/identity_store.py",
-      32,
-      "_load_csv"
-    ],
-    [
-      "ghost-ai-scanner/src/store/identity_store.py",
-      38,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/store/identity_store.py",
-      53,
-      "lookup"
-    ],
-    [
-      "ghost-ai-scanner/src/store/identity_store.py",
-      61,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/store/object_store.py",
-      75,
-      "delete"
-    ],
-    [
-      "ghost-ai-scanner/src/store/object_store.py",
-      105,
-      "__init__"
-    ],
-    [
-      "ghost-ai-scanner/src/store/object_store.py",
-      177,
-      "__init__"
-    ],
-    [
-      "ghost-ai-scanner/src/store/object_store.py",
-      233,
-      "__init__"
-    ],
-    [
-      "ghost-ai-scanner/src/store/object_store.py",
-      353,
-      "delete_object"
-    ],
-    [
-      "ghost-ai-scanner/src/store/object_store.py",
-      360,
-      "delete_objects"
-    ],
-    [
-      "ghost-ai-scanner/src/store/object_store.py",
-      449,
-      "_apply_storage_dict"
-    ],
-    [
-      "ghost-ai-scanner/src/store/object_store.py",
-      490,
-      "<if>"
-    ],
-    [
-      "ghost-ai-scanner/src/store/object_store.py",
-      496,
-      "get_object_store"
-    ],
-    [
-      "ghost-ai-scanner/src/store/report_store.py",
-      71,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/summarizer/agg_helpers.py",
-      17,
-      "count_by"
-    ],
-    [
-      "ghost-ai-scanner/src/summarizer/agg_helpers.py",
-      21,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/summarizer/agg_helpers.py",
-      40,
-      "count_by_hour"
-    ],
-    [
-      "ghost-ai-scanner/src/summarizer/agg_helpers.py",
-      47,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/summarizer/agg_helpers.py",
-      62,
-      "top_sources"
-    ],
-    [
-      "ghost-ai-scanner/src/summarizer/agg_helpers.py",
-      66,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/src/summarizer/aggregator.py",
-      22,
-      "aggregate"
-    ],
-    [
-      "ghost-ai-scanner/src/summarizer/aggregator.py",
-      36,
-      "aggregate"
-    ],
-    [
-      "ghost-ai-scanner/src/summarizer/summarizer.py",
-      50,
-      "update_today"
-    ],
-    [
-      "ghost-ai-scanner/src/summarizer/summarizer.py",
-      122,
-      "_read_all_findings"
-    ],
-    [
-      "ghost-ai-scanner/src/summarizer/summarizer.py",
-      143,
-      "<try>"
-    ],
-    [
-      "scripts/build_pitch_docx.py",
-      36,
-      "main"
-    ]
+    {
+      "file": "ghost-ai-scanner/alembic/env.py",
+      "line": 47,
+      "symbol": "run_migrations_online",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/alembic/versions/0004_deny_override.py",
+      "line": 25,
+      "symbol": "upgrade",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/alembic/versions/0005_project_external_ref.py",
+      "line": 27,
+      "symbol": "upgrade",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/alembic/versions/0006_raven_flagged_tools.py",
+      "line": 35,
+      "symbol": "upgrade",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/alembic/versions/0007_remove_giggso_baseline.py",
+      "line": 111,
+      "symbol": "downgrade",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/alembic/versions/0008_raven_flagged_tools_device_count.py",
+      "line": 28,
+      "symbol": "upgrade",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/alembic/versions/0b106c6c7a43_initial_policy_schema.py",
+      "line": 21,
+      "symbol": "upgrade",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/api.py",
+      "line": 115,
+      "symbol": "_auth",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/api.py",
+      "line": 436,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/api.py",
+      "line": 450,
+      "symbol": "get_agent_status",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/app.py",
+      "line": 46,
+      "symbol": "handle_query_params",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/app.py",
+      "line": 58,
+      "symbol": "main",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/app.py",
+      "line": 77,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/auth.py",
+      "line": 74,
+      "symbol": "gate",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/auth.py",
+      "line": 87,
+      "symbol": "gate",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/auth.py",
+      "line": 92,
+      "symbol": "_render_login",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/auth.py",
+      "line": 96,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ghost_dashboard.py",
+      "line": 44,
+      "symbol": "_prime_grafana_url",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ghost_dashboard.py",
+      "line": 48,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ghost_dashboard.py",
+      "line": 57,
+      "symbol": "main",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ghost_dashboard.py",
+      "line": 75,
+      "symbol": "_with_chat",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ghost_dashboard.py",
+      "line": 116,
+      "symbol": "_render_support",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ghost_dashboard.py",
+      "line": 123,
+      "symbol": "_render_settings",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/panels.py",
+      "line": 25,
+      "symbol": "health",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/panels.py",
+      "line": 64,
+      "symbol": "actions",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/panels.py",
+      "line": 71,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/panels.py",
+      "line": 84,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/panels.py",
+      "line": 93,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/panels.py",
+      "line": 100,
+      "symbol": "csv_editor",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/panels.py",
+      "line": 104,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/panels.py",
+      "line": 114,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/panels.py",
+      "line": 123,
+      "symbol": "sidebar",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/panels.py",
+      "line": 126,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/settings_form.py",
+      "line": 19,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/settings_form.py",
+      "line": 116,
+      "symbol": "_save",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/ai_inventory_mindmap.py",
+      "line": 39,
+      "symbol": "render_mindmap",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/ai_inventory_mindmap.py",
+      "line": 116,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/ai_inventory_mindmap.py",
+      "line": 145,
+      "symbol": "render_user_mindmap",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/ai_inventory_treemap.py",
+      "line": 26,
+      "symbol": "render_aggregate_treemap",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/ai_posture_card.py",
+      "line": 52,
+      "symbol": "render_ai_posture",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/asset_map.py",
+      "line": 76,
+      "symbol": "_render_treemap",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/asset_map.py",
+      "line": 101,
+      "symbol": "_render_nested_expander",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/asset_map.py",
+      "line": 126,
+      "symbol": "render_asset_map",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/audit_tail.py",
+      "line": 27,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/auth_gate.py",
+      "line": 46,
+      "symbol": "_db_resolve",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/auth_gate.py",
+      "line": 52,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/auth_gate.py",
+      "line": 100,
+      "symbol": "gate",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/auth_gate.py",
+      "line": 113,
+      "symbol": "gate",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/auth_gate.py",
+      "line": 118,
+      "symbol": "_render_login",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/auth_gate.py",
+      "line": 145,
+      "symbol": "_check",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/category_grouped_risks.py",
+      "line": 49,
+      "symbol": "render_grouped_risks",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/chat/widget.py",
+      "line": 51,
+      "symbol": "_confirm_clear",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/chat/widget.py",
+      "line": 109,
+      "symbol": "render_chat_panel",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/chat/widget.py",
+      "line": 193,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/clickable_metric.py",
+      "line": 28,
+      "symbol": "clickable_metric",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/data.py",
+      "line": 43,
+      "symbol": "load_data",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/data.py",
+      "line": 87,
+      "symbol": "load_yesterday_summary",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/data.py",
+      "line": 102,
+      "symbol": "load_pipeline_state",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/drill_panel.py",
+      "line": 36,
+      "symbol": "set_drill",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/drill_panel.py",
+      "line": 47,
+      "symbol": "clear_drill",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/drill_panel.py",
+      "line": 53,
+      "symbol": "get_drill",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/drill_panel.py",
+      "line": 84,
+      "symbol": "apply_drill",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/drill_panel.py",
+      "line": 87,
+      "symbol": "render_drill_panel",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_tab_exposure.py",
+      "line": 32,
+      "symbol": "_sankey",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_tab_exposure.py",
+      "line": 108,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_tab_exposure.py",
+      "line": 130,
+      "symbol": "_incidents_table",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_tab_landscape.py",
+      "line": 35,
+      "symbol": "_world_map",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_tab_landscape.py",
+      "line": 65,
+      "symbol": "_provider_bubble",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_tab_landscape.py",
+      "line": 109,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_tab_landscape.py",
+      "line": 122,
+      "symbol": "_trend_30d",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_tab_risk.py",
+      "line": 25,
+      "symbol": "render_risk",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_tab_risk.py",
+      "line": 37,
+      "symbol": "_heatmap",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_tab_risk.py",
+      "line": 68,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_tab_risk.py",
+      "line": 84,
+      "symbol": "_top_offenders",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_tab_risk.py",
+      "line": 114,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_view.py",
+      "line": 28,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/exec_view.py",
+      "line": 42,
+      "symbol": "_kpis",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/filtered_table.py",
+      "line": 21,
+      "symbol": "filtered_table",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/filtered_table.py",
+      "line": 83,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/filtered_table.py",
+      "line": 90,
+      "symbol": "filtered_table",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/filtered_table.py",
+      "line": 110,
+      "symbol": "clear_filters_button",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/filtered_table.py",
+      "line": 118,
+      "symbol": "search_box",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/filtered_table.py",
+      "line": 125,
+      "symbol": "search_box",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/filtered_table.py",
+      "line": 142,
+      "symbol": "apply_search_dicts",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/header.py",
+      "line": 24,
+      "symbol": "render_header",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/home_view.py",
+      "line": 61,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/home_view.py",
+      "line": 123,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_actions.py",
+      "line": 91,
+      "symbol": "send_alert_email",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_actions.py",
+      "line": 103,
+      "symbol": "authorize_for_user",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_ai_inventory.py",
+      "line": 37,
+      "symbol": "_render_kpis",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_ai_inventory.py",
+      "line": 58,
+      "symbol": "_render_filters",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_ai_inventory.py",
+      "line": 77,
+      "symbol": "_render_filters",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_ai_inventory.py",
+      "line": 80,
+      "symbol": "_render_table",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_ai_inventory.py",
+      "line": 116,
+      "symbol": "render_ai_inventory",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_ai_inventory_data.py",
+      "line": 78,
+      "symbol": "apply_filters",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_inventory.py",
+      "line": 50,
+      "symbol": "render_inventory",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_logs.py",
+      "line": 44,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_logs.py",
+      "line": 67,
+      "symbol": "_row",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_logs.py",
+      "line": 81,
+      "symbol": "render_logs",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_pipeline.py",
+      "line": 45,
+      "symbol": "_metrics",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_pipeline.py",
+      "line": 85,
+      "symbol": "_hourly_chart",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_pipeline.py",
+      "line": 110,
+      "symbol": "_actions",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_pipeline.py",
+      "line": 115,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
+      "line": 36,
+      "symbol": "render_risks",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
+      "line": 111,
+      "symbol": "_demo_blocked",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
+      "line": 117,
+      "symbol": "_demo_blocked",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
+      "line": 120,
+      "symbol": "_action_resolve",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
+      "line": 127,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
+      "line": 136,
+      "symbol": "_action_escalate",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_tab_risks.py",
+      "line": 150,
+      "symbol": "_action_email",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/manager_view.py",
+      "line": 24,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
+      "line": 74,
+      "symbol": "_ensure_seeded",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
+      "line": 87,
+      "symbol": "_db_context",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
+      "line": 103,
+      "symbol": "load_org_policy_context",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
+      "line": 110,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
+      "line": 116,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
+      "line": 122,
+      "symbol": "load_org_policy_context",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
+      "line": 125,
+      "symbol": "load_user_policy_context",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
+      "line": 131,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
+      "line": 153,
+      "symbol": "sync_scanned_users_from_events",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
+      "line": 166,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/policy_context_loader.py",
+      "line": 183,
+      "symbol": "clear_policy_context",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports/_pdf.py",
+      "line": 31,
+      "symbol": "html_to_pdf",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports/_pdf.py",
+      "line": 45,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports/r1_exec.py",
+      "line": 74,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports/r1_exec.py",
+      "line": 118,
+      "symbol": "build_html",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports/r4_incidents.py",
+      "line": 79,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports/r4_incidents.py",
+      "line": 114,
+      "symbol": "build_html",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports/r6_compliance.py",
+      "line": 92,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports/r6_compliance.py",
+      "line": 100,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports/r6_compliance.py",
+      "line": 142,
+      "symbol": "build_html",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports/r7_shadow.py",
+      "line": 89,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports/r7_shadow.py",
+      "line": 127,
+      "symbol": "build_html",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports_view.py",
+      "line": 53,
+      "symbol": "_card",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports_view.py",
+      "line": 79,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports_view.py",
+      "line": 94,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/reports_view.py",
+      "line": 108,
+      "symbol": "render_reports",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/sidebar.py",
+      "line": 32,
+      "symbol": "_grafana_link",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/sidebar.py",
+      "line": 49,
+      "symbol": "_grafana_link",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/sidebar.py",
+      "line": 52,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/sidebar.py",
+      "line": 58,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/sidebar.py",
+      "line": 96,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/styles.py",
+      "line": 84,
+      "symbol": "inject",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/support_tab_coverage.py",
+      "line": 26,
+      "symbol": "render_coverage",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/support_tab_coverage.py",
+      "line": 72,
+      "symbol": "_load_denylist_names",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/support_tab_coverage.py",
+      "line": 74,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/support_tab_fleet.py",
+      "line": 59,
+      "symbol": "render_fleet",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/support_tab_fleet_actions.py",
+      "line": 102,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/support_tab_health.py",
+      "line": 37,
+      "symbol": "render_health",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/support_tab_rules.py",
+      "line": 23,
+      "symbol": "render_rules",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/support_tab_rules.py",
+      "line": 63,
+      "symbol": "_load_csv",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/support_tab_rules.py",
+      "line": 65,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/support_tab_signals.py",
+      "line": 47,
+      "symbol": "render_signals",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/support_view.py",
+      "line": 29,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/alerting.py",
+      "line": 17,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/alerting.py",
+      "line": 86,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/branding.py",
+      "line": 26,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents.py",
+      "line": 25,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents.py",
+      "line": 42,
+      "symbol": "_render_generate_form",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents.py",
+      "line": 82,
+      "symbol": "_generate",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents.py",
+      "line": 188,
+      "symbol": "_render_auto_update_section",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents_table.py",
+      "line": 49,
+      "symbol": "render_status_table",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents_table.py",
+      "line": 180,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents_table.py",
+      "line": 195,
+      "symbol": "_delete",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/deploy_agents_table.py",
+      "line": 197,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/discovered_panel.py",
+      "line": 37,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/discovered_panel.py",
+      "line": 132,
+      "symbol": "_promote_to_deny",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/discovered_panel.py",
+      "line": 135,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/discovered_panel.py",
+      "line": 143,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/identity.py",
+      "line": 16,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/identity.py",
+      "line": 78,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/projects.py",
+      "line": 28,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/projects.py",
+      "line": 35,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/projects.py",
+      "line": 49,
+      "symbol": "_render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/projects.py",
+      "line": 61,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 96,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 112,
+      "symbol": "_all_providers_table",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 127,
+      "symbol": "_render_db",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 128,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 244,
+      "symbol": "_overview",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 298,
+      "symbol": "_scope_selector",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 317,
+      "symbol": "_scope_selector",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 320,
+      "symbol": "_flash_and_rerun",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 326,
+      "symbol": "_raven_flagged_tools",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 385,
+      "symbol": "_newly_found",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 458,
+      "symbol": "_inherited_lists",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 499,
+      "symbol": "_current_lists",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 511,
+      "symbol": "_list_block",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 565,
+      "symbol": "_block_wider_allow",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 610,
+      "symbol": "_render_csv",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 635,
+      "symbol": "_csv_write",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_governance.py",
+      "line": 636,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists.py",
+      "line": 46,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists.py",
+      "line": 90,
+      "symbol": "_custom_editor",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists.py",
+      "line": 129,
+      "symbol": "_search_filter",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists.py",
+      "line": 145,
+      "symbol": "_allow_editor",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_import.py",
+      "line": 30,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_import.py",
+      "line": 82,
+      "symbol": "_run_validation",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_import.py",
+      "line": 95,
+      "symbol": "_merge_into_cache",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
+      "line": 34,
+      "symbol": "render_status_banner",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
+      "line": 50,
+      "symbol": "render_readonly_csv",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
+      "line": 52,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
+      "line": 63,
+      "symbol": "read_csv_df",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
+      "line": 70,
+      "symbol": "read_csv_df",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
+      "line": 73,
+      "symbol": "_fetch_csv_df",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
+      "line": 75,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
+      "line": 84,
+      "symbol": "clear_cache",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
+      "line": 100,
+      "symbol": "put_csv",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
+      "line": 103,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/provider_lists_io.py",
+      "line": 108,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/scanning.py",
+      "line": 18,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/scanning.py",
+      "line": 93,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/users.py",
+      "line": 35,
+      "symbol": "_store",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/users.py",
+      "line": 48,
+      "symbol": "render",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/users.py",
+      "line": 68,
+      "symbol": "_render_table",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/users.py",
+      "line": 112,
+      "symbol": "_render_add_form",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/users.py",
+      "line": 137,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/tabs/users_widgets.py",
+      "line": 41,
+      "symbol": "render_edit_inline",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/time_fmt.py",
+      "line": 34,
+      "symbol": "_viewer_tz_name",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/time_fmt.py",
+      "line": 52,
+      "symbol": "_viewer_tz_name",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/time_fmt.py",
+      "line": 106,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/time_fmt.py",
+      "line": 113,
+      "symbol": "fmt",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/user_detail.py",
+      "line": 25,
+      "symbol": "render_user_detail",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/user_detail.py",
+      "line": 73,
+      "symbol": "_render_score_breakdown",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/ui/user_detail.py",
+      "line": 138,
+      "symbol": "_render_logs",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/_raven_identity.py",
+      "line": 40,
+      "symbol": "verify_ravenhub_identity",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/_raven_identity.py",
+      "line": 51,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/_raven_identity.py",
+      "line": 58,
+      "symbol": "verify_ravenhub_identity",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/raven_enterprise_bootstrap.py",
+      "line": 37,
+      "symbol": "_verify_bootstrap_token",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/raven_enterprise_bootstrap.py",
+      "line": 46,
+      "symbol": "_assert_org_bootstrap_open",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/raven_enterprise_bootstrap.py",
+      "line": 59,
+      "symbol": "provision_admin",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/raven_enterprise_projects.py",
+      "line": 191,
+      "symbol": "delete_project_endpoint",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/raven_enterprise_users.py",
+      "line": 105,
+      "symbol": "sync_user_endpoint",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 201,
+      "symbol": "_db_is_admin",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 208,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 333,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 354,
+      "symbol": "_load_events",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 597,
+      "symbol": "_org_policy_context",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 606,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 623,
+      "symbol": "_user_policy_context",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 629,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 752,
+      "symbol": "_workforce_total",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 779,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 1119,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 1134,
+      "symbol": "get_user_detail",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 1179,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub.py",
+      "line": 1193,
+      "symbol": "get_agent_version",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub_governance_reads.py",
+      "line": 82,
+      "symbol": "get_governance_overview",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub_governance_reads.py",
+      "line": 153,
+      "symbol": "get_governance_overview",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub_governance_reads.py",
+      "line": 279,
+      "symbol": "list_raven_flags",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub_governance_writes_lists.py",
+      "line": 103,
+      "symbol": "approve_provider",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub_projects.py",
+      "line": 231,
+      "symbol": "create_project_endpoint",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub_users.py",
+      "line": 109,
+      "symbol": "_sync_policy_db_admin",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub_users.py",
+      "line": 180,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/routers/ravenhub_users.py",
+      "line": 202,
+      "symbol": "upsert_user_endpoint",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/scripts/build_agent_installer_bundle.py",
+      "line": 78,
+      "symbol": "_register_with_superadmin_catalog",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/scripts/build_agent_installer_bundle.py",
+      "line": 107,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/scripts/build_agent_update_bundle.py",
+      "line": 63,
+      "symbol": "_register_with_superadmin_catalog",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/scripts/build_agent_update_bundle.py",
+      "line": 93,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/scripts/cleanup_orphaned_ravenhub_projects.py",
+      "line": 92,
+      "symbol": "main",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/scripts/cleanup_orphaned_ravenhub_projects.py",
+      "line": 157,
+      "symbol": "main",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/scripts/refresh_eni_cache.py",
+      "line": 102,
+      "symbol": "run",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/scripts/refresh_eni_cache.py",
+      "line": 108,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/scripts/refresh_eni_cache.py",
+      "line": 118,
+      "symbol": "run",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/scripts/render_agent_package.py",
+      "line": 95,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/scripts/render_agent_package.py",
+      "line": 329,
+      "symbol": "render_agent_package",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/scripts/simulate_events.py",
+      "line": 102,
+      "symbol": "main",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/alerter/alerter.py",
+      "line": 43,
+      "symbol": "process_code_signals",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/alerter/alerter.py",
+      "line": 62,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/alerter/alerter.py",
+      "line": 104,
+      "symbol": "process_code_signals",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/alerter/alerter.py",
+      "line": 152,
+      "symbol": "process_findings",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/alerter/cloudtrail_check.py",
+      "line": 25,
+      "symbol": "check",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/alerter/cloudtrail_check.py",
+      "line": 43,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/alerter/dispatcher.py",
+      "line": 48,
+      "symbol": "dispatch",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/alerter/dispatcher.py",
+      "line": 51,
+      "symbol": "_fire_sns",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/alerter/dispatcher.py",
+      "line": 58,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/alerter/dispatcher.py",
+      "line": 82,
+      "symbol": "_fire_webhook",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/alerter/dispatcher.py",
+      "line": 84,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/docs_index.py",
+      "line": 123,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/docs_index.py",
+      "line": 133,
+      "symbol": "_chunks",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/docs_index.py",
+      "line": 217,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/docs_index.py",
+      "line": 252,
+      "symbol": "load",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/engine.py",
+      "line": 93,
+      "symbol": "call_llm",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/engine.py",
+      "line": 127,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/history.py",
+      "line": 94,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/llm/__init__.py",
+      "line": 47,
+      "symbol": "_cfg",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/llm/__init__.py",
+      "line": 58,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/llm/__init__.py",
+      "line": 67,
+      "symbol": "_cfg",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/llm/anthropic.py",
+      "line": 91,
+      "symbol": "complete",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/llm/anthropic.py",
+      "line": 122,
+      "symbol": "complete",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/llm/openai_compat.py",
+      "line": 99,
+      "symbol": "complete",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/llm/openai_compat.py",
+      "line": 131,
+      "symbol": "complete",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/prompts.py",
+      "line": 47,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/prompts.py",
+      "line": 61,
+      "symbol": "build_system_prompt",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/tools.py",
+      "line": 116,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/tools.py",
+      "line": 125,
+      "symbol": "get_summary_stats",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/tools.py",
+      "line": 376,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/chat/tools.py",
+      "line": 383,
+      "symbol": "compare_periods",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/code_fallback.py",
+      "line": 50,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/code_fallback.py",
+      "line": 54,
+      "symbol": "regex_fallback",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 78,
+      "symbol": "resolve_user_in_org",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 95,
+      "symbol": "resolve_user_in_org",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 188,
+      "symbol": "add_approved",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 227,
+      "symbol": "add_approved",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 230,
+      "symbol": "add_blacklisted",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 264,
+      "symbol": "add_blacklisted",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 352,
+      "symbol": "create_project",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 369,
+      "symbol": "create_project_from_sync",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 372,
+      "symbol": "get_project_by_external_ref",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 377,
+      "symbol": "get_project_by_external_ref",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 406,
+      "symbol": "delete_project_by_external_ref",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 416,
+      "symbol": "get_or_create_user_for_sync",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 436,
+      "symbol": "get_or_create_user_for_sync",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 457,
+      "symbol": "list_projects",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 465,
+      "symbol": "list_projects",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 468,
+      "symbol": "list_org_users",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 470,
+      "symbol": "list_org_users",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 475,
+      "symbol": "list_project_members",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 477,
+      "symbol": "list_project_members",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 504,
+      "symbol": "create_or_touch_raven_flag",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 535,
+      "symbol": "create_or_touch_raven_flag",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 538,
+      "symbol": "list_pending_raven_flags",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 544,
+      "symbol": "list_pending_raven_flags",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 549,
+      "symbol": "get_provider_status_across_org",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 601,
+      "symbol": "get_provider_status_across_org",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 609,
+      "symbol": "resolve_raven_flag",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 656,
+      "symbol": "<assign>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/governance_crud.py",
+      "line": 660,
+      "symbol": "resolve_raven_flag",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/policy_queries.py",
+      "line": 39,
+      "symbol": "load_policy_context",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/policy_queries.py",
+      "line": 80,
+      "symbol": "load_policy_context",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/policy_queries.py",
+      "line": 83,
+      "symbol": "project_ids_for_user",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/policy_queries.py",
+      "line": 85,
+      "symbol": "project_ids_for_user",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/policy_queries.py",
+      "line": 92,
+      "symbol": "get_identity",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/policy_queries.py",
+      "line": 100,
+      "symbol": "get_identity",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/seeding.py",
+      "line": 61,
+      "symbol": "ensure_org",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/seeding.py",
+      "line": 69,
+      "symbol": "ensure_org",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/seeding.py",
+      "line": 78,
+      "symbol": "upsert_users",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/seeding.py",
+      "line": 109,
+      "symbol": "upsert_users",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/seeding.py",
+      "line": 146,
+      "symbol": "seed_org_lists",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/seeding.py",
+      "line": 240,
+      "symbol": "seed_org_lists",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/identity_resolver/source_ec2.py",
+      "line": 20,
+      "symbol": "resolve",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/identity_resolver/source_ec2.py",
+      "line": 25,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/identity_resolver/source_ec2.py",
+      "line": 46,
+      "symbol": "resolve",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/identity_resolver/source_idc.py",
+      "line": 20,
+      "symbol": "resolve",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/identity_resolver/source_idc.py",
+      "line": 34,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/identity_resolver/source_idc.py",
+      "line": 67,
+      "symbol": "resolve",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/identity_resolver/source_nac.py",
+      "line": 20,
+      "symbol": "resolve",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/identity_resolver/source_nac.py",
+      "line": 31,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/identity_resolver/source_nac.py",
+      "line": 49,
+      "symbol": "resolve",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/ingestor/pipeline.py",
+      "line": 104,
+      "symbol": "process",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/jobs/hourly_rollup.py",
+      "line": 400,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/jobs/shadow_matrix_digest.py",
+      "line": 73,
+      "symbol": "_load_flags",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/normalizer/eni_filter.py",
+      "line": 42,
+      "symbol": "load_eni_patterns",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/normalizer/eni_filter.py",
+      "line": 49,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/email.py",
+      "line": 92,
+      "symbol": "ensure_verified",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/email.py",
+      "line": 119,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/email.py",
+      "line": 146,
+      "symbol": "send",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/email.py",
+      "line": 187,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/email.py",
+      "line": 240,
+      "symbol": "send_welcome",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/email.py",
+      "line": 265,
+      "symbol": "send_agent_otp",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/email.py",
+      "line": 302,
+      "symbol": "send_alert",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/hub_alerts.py",
+      "line": 27,
+      "symbol": "_emit",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/hub_alerts.py",
+      "line": 61,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/hub_licence_gate.py",
+      "line": 63,
+      "symbol": "probe",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/hub_licence_gate.py",
+      "line": 79,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/hub_licence_gate.py",
+      "line": 91,
+      "symbol": "probe",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/hub_licence_gate.py",
+      "line": 121,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/notify/hub_licence_gate.py",
+      "line": 131,
+      "symbol": "note_error",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/raven_notify.py",
+      "line": 45,
+      "symbol": "notify_raven_mcp_approved",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/device_info.py",
+      "line": 98,
+      "symbol": "_get_device_name",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/device_info.py",
+      "line": 121,
+      "symbol": "_get_device_name",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/device_info.py",
+      "line": 164,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/device_info.py",
+      "line": 179,
+      "symbol": "get_device_info",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/hub_client.py",
+      "line": 34,
+      "symbol": "renew_device_token",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/hub_client.py",
+      "line": 55,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/hub_client.py",
+      "line": 81,
+      "symbol": "renew_device_token",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/hub_client.py",
+      "line": 84,
+      "symbol": "post_retina_scan",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/hub_client.py",
+      "line": 135,
+      "symbol": "_do_ingest",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/hub_client.py",
+      "line": 194,
+      "symbol": "post_retina_scan",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/normaliser.py",
+      "line": 36,
+      "symbol": "_normalise_dim",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/normaliser.py",
+      "line": 54,
+      "symbol": "_normalise_dim",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/breakdown.py",
+      "line": 20,
+      "symbol": "provider_contributions",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/breakdown.py",
+      "line": 47,
+      "symbol": "provider_contributions",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/breakdown.py",
+      "line": 50,
+      "symbol": "score_detail",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/breakdown.py",
+      "line": 58,
+      "symbol": "score_detail",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/policy.py",
+      "line": 97,
+      "symbol": "policy_multiplier",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/policy.py",
+      "line": 104,
+      "symbol": "policy_multiplier",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/posture_score.py",
+      "line": 148,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/posture_score.py",
+      "line": 172,
+      "symbol": "c_ghost_assets",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/posture_score.py",
+      "line": 282,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/posture_score.py",
+      "line": 287,
+      "symbol": "c_provider_count",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/risk_score.py",
+      "line": 30,
+      "symbol": "_base_weight",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/risk_score.py",
+      "line": 40,
+      "symbol": "_base_weight",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/risk_score.py",
+      "line": 53,
+      "symbol": "risk_score",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/risk_score.py",
+      "line": 68,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/risk_score.py",
+      "line": 94,
+      "symbol": "risk_score",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/risk_score.py",
+      "line": 97,
+      "symbol": "risk_band",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/scoring/risk_score.py",
+      "line": 103,
+      "symbol": "risk_band",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/services/authorize.py",
+      "line": 84,
+      "symbol": "authorize",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/agent_store.py",
+      "line": 89,
+      "symbol": "generate_otp",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/agent_store.py",
+      "line": 91,
+      "symbol": "generate_otp",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/agent_store.py",
+      "line": 93,
+      "symbol": "hash_otp",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/agent_store.py",
+      "line": 95,
+      "symbol": "hash_otp",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/agent_store.py",
+      "line": 97,
+      "symbol": "check_otp",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/findings_query.py",
+      "line": 90,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/findings_query.py",
+      "line": 97,
+      "symbol": "_scan_by_field",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/findings_store.py",
+      "line": 77,
+      "symbol": "read",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/findings_store.py",
+      "line": 92,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/findings_store.py",
+      "line": 100,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/findings_store.py",
+      "line": 187,
+      "symbol": "read",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/identity_store.py",
+      "line": 32,
+      "symbol": "_load_csv",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/identity_store.py",
+      "line": 38,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/identity_store.py",
+      "line": 53,
+      "symbol": "lookup",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/identity_store.py",
+      "line": 61,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 65,
+      "symbol": "storage_config_present_on_disk",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 88,
+      "symbol": "storage_config_present_on_disk",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 108,
+      "symbol": "delete",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 138,
+      "symbol": "__init__",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 210,
+      "symbol": "__init__",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 266,
+      "symbol": "__init__",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 386,
+      "symbol": "delete_object",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 393,
+      "symbol": "delete_objects",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 490,
+      "symbol": "_apply_storage_dict",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 531,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 537,
+      "symbol": "get_object_store",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/report_store.py",
+      "line": 71,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/summarizer/agg_helpers.py",
+      "line": 17,
+      "symbol": "count_by",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/summarizer/agg_helpers.py",
+      "line": 21,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/summarizer/agg_helpers.py",
+      "line": 40,
+      "symbol": "count_by_hour",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/summarizer/agg_helpers.py",
+      "line": 47,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/summarizer/agg_helpers.py",
+      "line": 62,
+      "symbol": "top_sources",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/summarizer/agg_helpers.py",
+      "line": 66,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/summarizer/aggregator.py",
+      "line": 22,
+      "symbol": "aggregate",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/summarizer/aggregator.py",
+      "line": 36,
+      "symbol": "aggregate",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/summarizer/summarizer.py",
+      "line": 50,
+      "symbol": "update_today",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/summarizer/summarizer.py",
+      "line": 122,
+      "symbol": "_read_all_findings",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/summarizer/summarizer.py",
+      "line": 143,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "scripts/build_pitch_docx.py",
+      "line": 36,
+      "symbol": "main",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "",
+      "outcome": "accepted"
+    }
   ]
 }

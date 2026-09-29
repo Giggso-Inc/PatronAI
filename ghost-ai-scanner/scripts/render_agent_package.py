@@ -47,6 +47,11 @@ SH_TEMPLATE              = TEMPLATE_DIR / "setup_agent.sh.template"
 PS1_TEMPLATE             = TEMPLATE_DIR / "setup_agent.ps1.template"
 UNINSTALL_SH_TEMPLATE    = TEMPLATE_DIR / "uninstall_agent.sh.template"
 UNINSTALL_PS1_TEMPLATE   = TEMPLATE_DIR / "uninstall_agent.ps1.template"
+# Agent protocol version — independent of the app's own VERSION file (this
+# versions the heartbeat/scan/update wire format and script bodies, not the
+# ghost-ai-scanner app). Bumped whenever apply_update.*'s update bundle
+# should carry a newer heartbeat/scan/hook_chain/pre_commit_hook/diagnose.
+AGENT_VERSION_FILE       = Path(__file__).parent.parent / "agent" / "AGENT_VERSION"
 
 
 def render_agent_package(
@@ -119,6 +124,63 @@ def render_agent_package(
         inline_diagnose_sh  = diag_sh_path.read_text(encoding="utf-8")  if diag_sh_path.exists()  else ""
         inline_diagnose_ps1 = diag_ps1_path.read_text(encoding="utf-8") if diag_ps1_path.exists() else ""
 
+        # Self-update — same inline-at-render-time pattern as diagnose.*
+        # above. apply_update.* is generic (reads pending_update.json /
+        # config.json at runtime, bakes in no per-recipient secrets), so it
+        # is safe to inline verbatim rather than needing its own {{TOKEN}}-
+        # style substitution pass.
+        apply_update_sh_path  = TEMPLATE_DIR / "apply_update.sh"
+        apply_update_ps1_path = TEMPLATE_DIR / "apply_update.ps1"
+        inline_apply_update_sh  = apply_update_sh_path.read_text(encoding="utf-8")  if apply_update_sh_path.exists()  else ""
+        inline_apply_update_ps1 = apply_update_ps1_path.read_text(encoding="utf-8") if apply_update_ps1_path.exists() else ""
+
+        # The remaining per-device scripts (heartbeat/scan/hook_chain/
+        # pre_commit_hook) are ALSO extracted to standalone files under
+        # agent/install/ - same inline-at-render-time pattern, and the same
+        # reason: apply_update.* ships a bundle of exactly these files
+        # (build_agent_update_bundle.py), which needs them addressable on
+        # disk rather than embedded as here-strings inside these two
+        # installer templates.
+        heartbeat_sh_path   = TEMPLATE_DIR / "heartbeat.sh"
+        heartbeat_ps1_path  = TEMPLATE_DIR / "heartbeat.ps1"
+        hook_chain_sh_path  = TEMPLATE_DIR / "hook_chain.sh"
+        hook_chain_ps1_path = TEMPLATE_DIR / "hook_chain.ps1"
+        pre_commit_sh_path  = TEMPLATE_DIR / "pre_commit_hook.sh"
+        pre_commit_ps1_path = TEMPLATE_DIR / "pre_commit_hook.ps1"
+        scan_sh_path        = TEMPLATE_DIR / "scan.sh"
+        scan_ps1_path       = TEMPLATE_DIR / "scan.ps1"
+
+        inline_heartbeat_sh   = heartbeat_sh_path.read_text(encoding="utf-8")   if heartbeat_sh_path.exists()   else ""
+        inline_heartbeat_ps1  = heartbeat_ps1_path.read_text(encoding="utf-8")  if heartbeat_ps1_path.exists()  else ""
+        inline_hook_chain_sh  = hook_chain_sh_path.read_text(encoding="utf-8")  if hook_chain_sh_path.exists()  else ""
+        inline_hook_chain_ps1 = hook_chain_ps1_path.read_text(encoding="utf-8") if hook_chain_ps1_path.exists() else ""
+        inline_pre_commit_sh  = pre_commit_sh_path.read_text(encoding="utf-8")  if pre_commit_sh_path.exists()  else ""
+        inline_pre_commit_ps1 = pre_commit_ps1_path.read_text(encoding="utf-8") if pre_commit_ps1_path.exists() else ""
+
+        # scan.ps1/scan.sh each carry their OWN {{INLINE_SCAN_PYTHON}}
+        # placeholder (see agent/install/scan_*.py.frag). renderer.render()
+        # does a single regex.sub() pass over the OUTER template's text, so
+        # a {{...}} marker sitting inside the VALUE this pass substitutes in
+        # (rather than in the outer template's own text) is never re-scanned
+        # by that same pass and would survive verbatim in the final output.
+        # Resolving it here, before scan.ps1/scan.sh's content is handed to
+        # the outer render() call as INLINE_SCAN_PS1/INLINE_SCAN_SH, avoids
+        # that trap.
+        inline_scan_sh  = scan_sh_path.read_text(encoding="utf-8").replace(
+            "{{INLINE_SCAN_PYTHON}}", inline_scan_python) if scan_sh_path.exists() else ""
+        inline_scan_ps1 = scan_ps1_path.read_text(encoding="utf-8").replace(
+            "{{INLINE_SCAN_PYTHON}}", inline_scan_python) if scan_ps1_path.exists() else ""
+
+        # agent_version is baked in ONLY as the value written to
+        # agent_version.txt at install time — heartbeat.* reads that file at
+        # runtime rather than having a version string frozen into its own
+        # source, so apply_update.* can bump it later without rewriting
+        # heartbeat.* itself.
+        agent_version = (
+            AGENT_VERSION_FILE.read_text(encoding="utf-8").strip()
+            if AGENT_VERSION_FILE.exists() else "0.0.0"
+        )
+
         # ── Pass 1: placeholder render to get token ───────────
         placeholder_ctx = {
             "RECIPIENT_NAME":      recipient_name,
@@ -135,9 +197,20 @@ def render_agent_package(
             "AUTHORIZED_GET_URL":  "PENDING",
             "URLS_REFRESH_URL":    "PENDING",
             "AUTHORIZED_DOMAINS":  auth_domains_str,
+            "AGENT_VERSION":       agent_version,
             "INLINE_SCAN_PYTHON":  inline_scan_python,
             "INLINE_DIAGNOSE_SH":  inline_diagnose_sh,
             "INLINE_DIAGNOSE_PS1": inline_diagnose_ps1,
+            "INLINE_APPLY_UPDATE_SH":  inline_apply_update_sh,
+            "INLINE_APPLY_UPDATE_PS1": inline_apply_update_ps1,
+            "INLINE_HEARTBEAT_SH":     inline_heartbeat_sh,
+            "INLINE_HEARTBEAT_PS1":    inline_heartbeat_ps1,
+            "INLINE_HOOK_CHAIN_SH":    inline_hook_chain_sh,
+            "INLINE_HOOK_CHAIN_PS1":   inline_hook_chain_ps1,
+            "INLINE_PRE_COMMIT_HOOK_SH":  inline_pre_commit_sh,
+            "INLINE_PRE_COMMIT_HOOK_PS1": inline_pre_commit_ps1,
+            "INLINE_SCAN_SH":  inline_scan_sh,
+            "INLINE_SCAN_PS1": inline_scan_ps1,
         }
         pre_sh = renderer.render(str(SH_TEMPLATE), placeholder_ctx)
 
@@ -176,9 +249,20 @@ def render_agent_package(
             "AUTHORIZED_GET_URL": urls.get("authorized_get_url", ""),
             "URLS_REFRESH_URL":   urls.get("urls_refresh_url", ""),
             "AUTHORIZED_DOMAINS": auth_domains_str,  # fallback if URL unreachable
+            "AGENT_VERSION":      agent_version,
             "INLINE_SCAN_PYTHON": inline_scan_python,
             "INLINE_DIAGNOSE_SH":  inline_diagnose_sh,
             "INLINE_DIAGNOSE_PS1": inline_diagnose_ps1,
+            "INLINE_APPLY_UPDATE_SH":  inline_apply_update_sh,
+            "INLINE_APPLY_UPDATE_PS1": inline_apply_update_ps1,
+            "INLINE_HEARTBEAT_SH":     inline_heartbeat_sh,
+            "INLINE_HEARTBEAT_PS1":    inline_heartbeat_ps1,
+            "INLINE_HOOK_CHAIN_SH":    inline_hook_chain_sh,
+            "INLINE_HOOK_CHAIN_PS1":   inline_hook_chain_ps1,
+            "INLINE_PRE_COMMIT_HOOK_SH":  inline_pre_commit_sh,
+            "INLINE_PRE_COMMIT_HOOK_PS1": inline_pre_commit_ps1,
+            "INLINE_SCAN_SH":  inline_scan_sh,
+            "INLINE_SCAN_PS1": inline_scan_ps1,
         }
         sh_script  = renderer.render(str(SH_TEMPLATE),  final_ctx)
         ps1_script = renderer.render(str(PS1_TEMPLATE), final_ctx)

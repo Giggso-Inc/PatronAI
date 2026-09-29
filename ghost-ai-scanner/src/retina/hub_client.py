@@ -120,6 +120,18 @@ def post_retina_scan(
 
     key = agent_key or os.environ.get("RAVEN_AGENT_KEY", "")
 
+    # Licence gate — skip silently when the org's licence has lapsed.
+    try:
+        from notify.hub_licence_gate import note_error, should_skip
+    except ImportError:
+        try:
+            from src.notify.hub_licence_gate import note_error, should_skip
+        except ImportError:
+            note_error = None
+            should_skip = None
+    if should_skip is not None and should_skip(base, key):
+        return False
+
     def _do_ingest(token_id: str) -> bool:
         scan_id = str(uuid.uuid4())
         body = {
@@ -172,6 +184,8 @@ def post_retina_scan(
                     _log.warning("retina ingest retry failed after renewal: %s",
                                  retry_exc)
             return False
+        if note_error is not None:
+            note_error(e)
         _log.warning("retina ingest HTTP error %s for token %s: %s",
                      e.code, hub_token_id[:8], e.reason)
     except Exception as e:

@@ -80,7 +80,7 @@
 import logging
 import os
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -146,6 +146,15 @@ class UserDetailResponse(BaseModel):
     total_events: Optional[int] = None
     score: Optional[dict] = None
     logs: Optional[list] = None
+
+
+class AgentVersionResponse(BaseModel):
+    viewer_email: str
+    target_email: str
+    authorized: bool
+    message: Optional[str] = None
+    agent_version: Optional[str] = None
+    last_seen_at: Optional[str] = None
 
 
 # =============================================================
@@ -343,6 +352,92 @@ def _load_events(store: BlobIndexStore, email: str, is_admin: bool) -> tuple:
         y_summary = {}
 
     return events, summary, y_summary, source_date
+
+
+def _parse_heartbeat_timestamp(raw: str) -> Optional[datetime]:
+    """Parse a heartbeat's self-reported timestamp into an aware UTC datetime,
+    or None if it can't be parsed.
+
+    The two installer templates emit different, incompatible shapes:
+    setup_agent.sh.template's datetime.now(timezone.utc).isoformat() is a
+    real offset-aware ISO string, but setup_agent.ps1.template's
+    Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" appends a literal "Z" to LOCAL
+    time — "Z" is not an offset specifier in a .NET custom format string, so
+    that is not actually UTC. Comparing these as raw strings (as
+    api.py::_freshest_heartbeat does) silently picks the wrong device for a
+    user with agents on both platforms; parsing first avoids inheriting that
+    bug into a new endpoint. The Windows-side timestamp itself is still
+    mislabelled at the source — tracked separately, not a fix this endpoint
+    can make.
+    """
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _latest_heartbeat_version(store: BlobIndexStore, email: str) -> tuple[Optional[str], Optional[str]]:
+    """Most recent agent_heartbeat's reported version for `email`, read from
+    the authoritative single-blob heartbeat store — one JSON object per
+    agent token, overwritten on every check-in at
+    ocsf/agent/heartbeats/{token}/latest.json (AgentStore.get_heartbeat) —
+    rather than scanning findings.
+
+    A findings-scan implementation was tried first and replaced: findings
+    JSONL is append-ordered, and store.findings.read(check_date, limit=500)
+    has no ORDER BY (S3 Select) and no true ordering on its GetObject
+    fallback either, so a 500-row cap returns the OLDEST 500 rows of the
+    day, not the newest. Heartbeats fire every 5 minutes per device; with
+    more than ~2 devices in an org that cap is passed before mid-morning,
+    so the old implementation silently returned a stale-or-null version
+    while reporting 200 OK. Reading the single overwritten blob per token
+    has no such cap and needs no day-by-day walk.
+
+    This solves the same "freshest heartbeat across a user's devices"
+    problem api.py's _freshest_heartbeat already solves for the workforce-
+    score endpoint, but is not a call to that helper: it compares raw
+    timestamp strings, which breaks across the two installers' incompatible
+    formats (see _parse_heartbeat_timestamp). Parsed comparison lives here
+    instead of being inherited.
+
+    A timestamp materially in the future (more than 5 minutes of clock
+    skew) is treated as unparseable and skipped — a compromised or
+    misconfigured agent must not be able to permanently win every future
+    comparison by reporting one bad heartbeat.
+
+    Returns (version, timestamp) for the freshest heartbeat across all of
+    this email's registered agent tokens, or (None, None) if the user has
+    no tokens or none of them have ever reported a parseable heartbeat.
+    """
+    em = email.lower()
+    catalog = store.agent.list_catalog()
+    tokens = [e["token"] for e in catalog
+              if (e.get("recipient_email") or "").lower() == em and e.get("token")]
+
+    now = datetime.now(timezone.utc)
+    best_version: Optional[str] = None
+    best_ts_raw: Optional[str] = None
+    best_ts_parsed: Optional[datetime] = None
+
+    for token in tokens:
+        hb = store.agent.get_heartbeat(token)
+        if not hb:
+            continue
+        ts_raw = hb.get("timestamp") or ""
+        ts_parsed = _parse_heartbeat_timestamp(ts_raw)
+        if ts_parsed is None or ts_parsed > now + timedelta(minutes=5):
+            continue
+        if best_ts_parsed is None or ts_parsed > best_ts_parsed:
+            best_ts_parsed = ts_parsed
+            best_ts_raw = ts_raw
+            best_version = hb.get("agent_version") or None
+
+    return best_version, best_ts_raw
 
 
 def _kpis(events: list, y_summary: dict) -> dict:
@@ -1041,4 +1136,61 @@ def get_user_detail(
         total_events=len(user_events),
         score=score_detail(user_events, policy_ctx),
         logs=_user_logs(user_events),
+    )
+
+
+@router.get("/agent-version", response_model=AgentVersionResponse)
+def get_agent_version(
+    target_email: EmailStr = Query(..., description="Email of the user whose installed agent version to look up"),
+    viewer_email: str = Depends(_verify_ravenhub_identity),
+) -> AgentVersionResponse:
+    """The version most recently reported by this user's deployed hook agent
+    in its periodic HEARTBEAT check-in (see src/normalizer/agent.py::
+    _parse_heartbeat) — for a caller (raven-enterprise's Hub) that wants to
+    show "what PatronAI agent version is this seat running" alongside
+    Raven's and Cowork's own version fields, without needing PatronAI's
+    dashboard UI.
+
+    Same access model as GET /user/detail (mirrors it deliberately — same
+    kind of per-user lookup a non-admin has no business making for anyone
+    but themselves): admins may look up anyone; non-admins may only look up
+    themselves (viewer_email == target_email). Otherwise 200 OK with
+    authorized=false and no data — a privilege gate, not an auth failure.
+
+    KNOWN, INHERITED GAP (not introduced by this route): _resolve_is_admin
+    is TEMP-relaxed to accept any email this deployment recognises, with no
+    org check, and the bucket below is resolved from the TARGET rather than
+    the viewer — so a legitimately-provisioned admin of one org can read
+    another org's agent version and last-seen time. This mirrors
+    GET /user/detail exactly; it is not new here, and is accepted for now
+    on that basis rather than fixed silently. Tracked against the
+    _resolve_is_admin TODO, not scoped to this endpoint alone.
+
+    agent_version/last_seen_at are both None (not an error) when none of
+    this email's registered agent tokens has ever reported a parseable
+    heartbeat — a real, expected state (never installed, or every
+    heartbeat this token sent failed to parse), not a service failure.
+    agent_version can be None while last_seen_at is set: the agent checked
+    in, but that specific heartbeat did not carry a version string.
+    """
+    viewer_norm = viewer_email
+    target_norm = str(target_email).strip().lower()
+
+    try:
+        viewer_is_admin = _resolve_is_admin(viewer_norm)
+    except HTTPException:
+        viewer_is_admin = False
+
+    if not (viewer_is_admin or viewer_norm == target_norm):
+        return AgentVersionResponse(
+            viewer_email=viewer_norm, target_email=target_norm, authorized=False,
+            message="Not authorized to view this user's data.",
+        )
+
+    store = _blob_store(target_norm)
+    agent_version, last_seen_at = _latest_heartbeat_version(store, target_norm)
+
+    return AgentVersionResponse(
+        viewer_email=viewer_norm, target_email=target_norm, authorized=True,
+        agent_version=agent_version, last_seen_at=last_seen_at,
     )

@@ -18,7 +18,6 @@
 # =============================================================
 
 import os
-import sys
 import logging
 from pathlib import Path
 
@@ -35,8 +34,14 @@ COMPANY_SLUG       = os.environ.get("COMPANY_SLUG",            "company")
 STRICT_MIN_RULES   = int(os.environ.get("STRICT_MIN_RULES",    "50"))
 
 
-def validate_env():
-    """Fail fast if required environment variables are missing."""
+def validate_env() -> bool:
+    """Load persisted Hub storage config; return True when a bucket is configured.
+
+    Marketplace / AMI first boot often has no S3 credentials yet — Bootstrap UI
+    collects them later. In that case we warn and return False so main.py can
+    start Nginx-facing services (Streamlit/API) in bootstrap-wait mode instead
+    of ``sys.exit(1)``.
+    """
     # Restore storage mode/bucket from Hub provision file before bucket check.
     try:
         from store.object_store import load_persisted_storage_config, default_bucket
@@ -48,14 +53,20 @@ def validate_env():
     except Exception as exc:
         log.debug("storage config load skipped: %s", exc)
     if not BUCKET:
-        log.critical("MARAUDER_SCAN_BUCKET not set — cannot start")
-        sys.exit(1)
+        log.warning(
+            "MARAUDER_SCAN_BUCKET not set — starting in bootstrap-wait mode "
+            "(object store deferred until Hub Bootstrap saves storage credentials)"
+        )
+        return False
     log.info(f"Bucket: {BUCKET} | Region: {REGION} | Cloud: {CLOUD_PROVIDER}")
+    return True
 
 
 def build_store():
-    """Initialise BlobIndexStore."""
+    """Initialise BlobIndexStore. Requires a non-empty BUCKET."""
     from blob_index_store import BlobIndexStore
+    if not BUCKET:
+        raise RuntimeError("build_store() called without MARAUDER_SCAN_BUCKET")
     store = BlobIndexStore(BUCKET, REGION)
     log.info(f"Store ready: {store}")
     return store
@@ -102,8 +113,12 @@ def seed_config_files(store) -> None:
     """
     from store.object_store import boto3_s3_client, default_bucket
 
-    s3 = boto3_s3_client()
     bucket = default_bucket() or BUCKET
+    if not bucket:
+        log.warning("seed_config_files skipped — no object-store bucket configured yet")
+        return
+
+    s3 = boto3_s3_client()
 
     def _exists(key: str) -> bool:
         """Return True if key exists in the bucket."""
@@ -145,7 +160,7 @@ def seed_config_files(store) -> None:
     settings_local = _LOCAL_CONFIG / "settings.json"
     if settings_local.exists() and not _exists("config/settings.json"):
         try:
-            s3.upload_file(str(settings_local), BUCKET, "config/settings.json",
+            s3.upload_file(str(settings_local), bucket, "config/settings.json",
                            ExtraArgs={"ContentType": "application/json"})
             log.info("Seeded config/settings.json (first deploy)")
         except Exception as e:
@@ -154,6 +169,9 @@ def seed_config_files(store) -> None:
 
 def maybe_backfill(store):
     """Run 7-day backfill on first deploy if no summary exists."""
+    if not (getattr(store, "bucket", None) or BUCKET):
+        log.info("maybe_backfill skipped — no bucket configured yet")
+        return
     from summarizer import Summarizer
     if not store.summary.read():
         log.info("No summary found — running first-deploy backfill")
