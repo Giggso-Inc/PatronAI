@@ -156,7 +156,8 @@ class AgentStore(BaseStore):
             # POST /api/v1/devices/token/emit and stored here to link
             # this Patron agent to the Hub Card system. Set after creation
             # via set_hub_token_id(). Empty until linked.
-            "raven_hub_token_id":   "",
+            "raven_hub_token_id":     "",
+            "raven_hub_token_secret": "",  # paired proof secret; stored alongside token_id
         }
         status = {"token": token, "status": "pending", "updated_at": created_at}
         # authorized.csv: one domain per line, no header — agent fetches on every scan
@@ -492,8 +493,9 @@ class AgentStore(BaseStore):
             log.warning("get_hub_token_id failed [%s]: %s", token, e)
             return ""
 
-    def set_hub_token_id(self, token: str, hub_token_id: str) -> bool:
-        """Write raven_hub_token_id into meta.json for a Patron agent.
+    def set_hub_token_id(self, token: str, hub_token_id: str,
+                         hub_token_secret: str = "") -> bool:
+        """Write raven_hub_token_id (and optional secret) into meta.json.
 
         Called by the admin API after issuing a Hub device token so the
         two systems are linked. Safe to call multiple times — overwrites
@@ -507,10 +509,12 @@ class AgentStore(BaseStore):
                 return False
             meta = json.loads(raw)
             meta["raven_hub_token_id"] = hub_token_id.strip()
+            if hub_token_secret:
+                meta["raven_hub_token_secret"] = hub_token_secret.strip()
             self._put(f"{HOOK_AGENTS_PREFIX}/{token}/meta.json",
                       json.dumps(meta).encode(), "application/json")
-            log.info("set_hub_token_id: linked patron %s to hub token %s",
-                     token[:8], hub_token_id[:8])
+            log.info("set_hub_token_id: linked patron %s to hub token %s (secret=%s)",
+                     token[:8], hub_token_id[:8], "yes" if hub_token_secret else "no")
             return True
         except Exception as e:
             log.error("set_hub_token_id failed [%s]: %s", token, e)
