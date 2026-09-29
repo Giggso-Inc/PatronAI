@@ -3,43 +3,13 @@
   "findings": [
     [
       "ghost-ai-scanner/alembic/env.py",
-      35,
-      "run_migrations_offline"
-    ],
-    [
-      "ghost-ai-scanner/alembic/env.py",
       47,
       "run_migrations_online"
     ],
     [
-      "ghost-ai-scanner/alembic/versions/0002_rename_team_to_project.py",
-      22,
-      "upgrade"
-    ],
-    [
-      "ghost-ai-scanner/alembic/versions/0002_rename_team_to_project.py",
-      45,
-      "downgrade"
-    ],
-    [
-      "ghost-ai-scanner/alembic/versions/0003_scoped_giggso_override.py",
-      25,
-      "upgrade"
-    ],
-    [
-      "ghost-ai-scanner/alembic/versions/0003_scoped_giggso_override.py",
-      30,
-      "downgrade"
-    ],
-    [
       "ghost-ai-scanner/alembic/versions/0004_deny_override.py",
       25,
       "upgrade"
-    ],
-    [
-      "ghost-ai-scanner/alembic/versions/0004_deny_override.py",
-      35,
-      "downgrade"
     ],
     [
       "ghost-ai-scanner/alembic/versions/0005_project_external_ref.py",
@@ -47,23 +17,8 @@
       "upgrade"
     ],
     [
-      "ghost-ai-scanner/alembic/versions/0005_project_external_ref.py",
-      36,
-      "downgrade"
-    ],
-    [
       "ghost-ai-scanner/alembic/versions/0006_raven_flagged_tools.py",
       35,
-      "upgrade"
-    ],
-    [
-      "ghost-ai-scanner/alembic/versions/0006_raven_flagged_tools.py",
-      66,
-      "downgrade"
-    ],
-    [
-      "ghost-ai-scanner/alembic/versions/0007_remove_giggso_baseline.py",
-      44,
       "upgrade"
     ],
     [
@@ -75,11 +30,6 @@
       "ghost-ai-scanner/alembic/versions/0b106c6c7a43_initial_policy_schema.py",
       21,
       "upgrade"
-    ],
-    [
-      "ghost-ai-scanner/alembic/versions/0b106c6c7a43_initial_policy_schema.py",
-      133,
-      "downgrade"
     ],
     [
       "ghost-ai-scanner/api.py",
@@ -95,21 +45,6 @@
       "ghost-ai-scanner/api.py",
       450,
       "get_agent_status"
-    ],
-    [
-      "ghost-ai-scanner/api.py",
-      555,
-      "user_report"
-    ],
-    [
-      "ghost-ai-scanner/api.py",
-      606,
-      "<try>"
-    ],
-    [
-      "ghost-ai-scanner/api.py",
-      632,
-      "user_report"
     ],
     [
       "ghost-ai-scanner/dashboard/app.py",
@@ -1307,11 +1242,6 @@
       "create_project_endpoint"
     ],
     [
-      "ghost-ai-scanner/routers/ravenhub_settings.py",
-      91,
-      "_audit_changes"
-    ],
-    [
       "ghost-ai-scanner/routers/ravenhub_users.py",
       109,
       "_sync_policy_db_admin"
@@ -1530,16 +1460,6 @@
       "ghost-ai-scanner/src/code_fallback.py",
       54,
       "regex_fallback"
-    ],
-    [
-      "ghost-ai-scanner/src/db/engine.py",
-      60,
-      "run_migrations"
-    ],
-    [
-      "ghost-ai-scanner/src/db/engine.py",
-      72,
-      "<try>"
     ],
     [
       "ghost-ai-scanner/src/db/governance_crud.py",
@@ -1842,9 +1762,69 @@
       "send_alert"
     ],
     [
+      "ghost-ai-scanner/src/notify/hub_alerts.py",
+      27,
+      "_emit"
+    ],
+    [
+      "ghost-ai-scanner/src/notify/hub_alerts.py",
+      49,
+      "<try>"
+    ],
+    [
       "ghost-ai-scanner/src/raven_notify.py",
       45,
       "notify_raven_mcp_approved"
+    ],
+    [
+      "ghost-ai-scanner/src/retina/device_info.py",
+      98,
+      "_get_device_name"
+    ],
+    [
+      "ghost-ai-scanner/src/retina/device_info.py",
+      121,
+      "_get_device_name"
+    ],
+    [
+      "ghost-ai-scanner/src/retina/device_info.py",
+      164,
+      "<try>"
+    ],
+    [
+      "ghost-ai-scanner/src/retina/device_info.py",
+      179,
+      "get_device_info"
+    ],
+    [
+      "ghost-ai-scanner/src/retina/hub_client.py",
+      34,
+      "renew_device_token"
+    ],
+    [
+      "ghost-ai-scanner/src/retina/hub_client.py",
+      55,
+      "<try>"
+    ],
+    [
+      "ghost-ai-scanner/src/retina/hub_client.py",
+      81,
+      "renew_device_token"
+    ],
+    [
+      "ghost-ai-scanner/src/retina/hub_client.py",
+      84,
+      "post_retina_scan"
+    ],
+    [
+      "ghost-ai-scanner/src/retina/hub_client.py",
+      123,
+      "_do_ingest"
+    ],
+    [
+      "ghost-ai-scanner/src/retina/hub_client.py",
+      180,
+      "post_retina_scan"
     ],
     [
       "ghost-ai-scanner/src/retina/normaliser.py",

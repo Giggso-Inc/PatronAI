@@ -4,12 +4,10 @@
 # UPDATED: 2026-09-02
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: HTTP client for the RavenHub Card retina ingest endpoint.
-#          Follows the same urllib.request + RAVEN_HUB_URL +
-#          X-Raven-Agent pattern used by src/notify/hub_alerts.py.
+#          Uses RAVEN_HUB_URL plus per-device proof secret auth.
 #
 #          POST /api/v1/retina/ingest
-#          Auth: token_id in the request body (the Hub device token
-#          issued by an admin for this specific (org, host) pair).
+#          Auth: token_id in the request body plus X-Raven-Device-Secret.
 #
 # DEPENDS: json, os, uuid, urllib (stdlib only)
 # AUDIT LOG:
@@ -24,29 +22,90 @@ import os
 import urllib.error
 import urllib.request
 import uuid
+from typing import Callable
 
 _log = logging.getLogger("marauder-scan.retina.hub_client")
 
-_ASSEMBLER_VERSION = "1.0.0"
+_ASSEMBLER_VERSION = "1.2.0"  # keep in sync with main.py VERSION comment
 _TIMEOUT_SECS      = 8
+_DEVICE_SECRET_HEADER = "X-Raven-Device-Secret"
+
+
+def renew_device_token(
+    hub_token_id: str,
+    hub_url: str | None = None,
+    store_token_fn: Callable[[str], None] | None = None,
+) -> str | None:
+    """POST /api/v1/devices/token/renew — called when ingest returns 401.
+
+    hub_token_id: the expired (or expiring) device token id.
+    hub_url:      overrides RAVEN_HUB_URL env var.
+    store_token_fn: optional callback(new_token_id) to persist the new token.
+                    Caller is responsible for also updating the token secret
+                    via the link endpoint if needed.
+
+    Returns the new token_id on success, None on revocation (403) or error.
+    Revocation (403 with 'access_revoked') means the user is no longer in the
+    workforce — Patron should surface this to the developer and stop scanning.
+    """
+    base = (hub_url or os.environ.get("RAVEN_HUB_URL", "")).rstrip("/")
+    if not base or not hub_token_id:
+        return None
+
+    try:
+        body = json.dumps({"token_id": hub_token_id}).encode()
+        req = urllib.request.Request(
+            f"{base}/api/v1/devices/token/renew",
+            data=body,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=_TIMEOUT_SECS) as resp:
+            if 200 <= resp.status < 300:
+                data = json.loads(resp.read().decode())
+                new_id = data.get("token_id", "")
+                if new_id and store_token_fn:
+                    store_token_fn(new_id)
+                _log.info("retina token renewed: %s → %s",
+                          hub_token_id[:8], new_id[:8] if new_id else "?")
+                return new_id
+    except urllib.error.HTTPError as e:
+        if e.code == 403:
+            _log.warning("retina token renewal denied (access revoked) for %s",
+                         hub_token_id[:8])
+        else:
+            _log.warning("retina token renewal HTTP %s for %s: %s",
+                         e.code, hub_token_id[:8], e.reason)
+    except Exception as e:
+        _log.warning("retina token renewal failed for %s: %s", hub_token_id[:8], e)
+    return None
 
 
 def post_retina_scan(
     hub_token_id: str,
+    hub_token_secret: str,
     retina_hash: str,
     dimensions: dict[str, list[str]],
     hub_url: str | None = None,
     agent_key: str | None = None,
+    store_token_fn: Callable[[str], None] | None = None,
+    device_name: str | None = None,
+    hardware_uid: str | None = None,
+    os_version: str | None = None,
 ) -> bool:
     """POST a retina scan to the RavenHub Card ingest endpoint.
 
-    hub_token_id: the device token issued by the Hub admin for this machine.
+    hub_token_id: the device token id issued by the Hub admin for this machine.
+    hub_token_secret: the one-time per-device proof secret paired with token_id.
     retina_hash: 64-char hex SHA-256 produced by normaliser.compute_hash().
     dimensions:  normalised D1-D7 dict (already normalised, not raw).
     hub_url:     overrides RAVEN_HUB_URL env var (useful in tests).
-    agent_key:   overrides RAVEN_AGENT_KEY env var.
+    agent_key:   optional legacy X-Raven-Agent header for deployments that log it.
+    store_token_fn: optional callback(new_token_id) — called when the token is
+                    renewed mid-scan so the caller can persist the new id.
 
-    Returns True on HTTP 200, False on any error (never raises).
+    Returns True on any 2xx, False on any error (never raises).
+    On 401 (expired token), automatically attempts renewal once and retries.
     """
     base = (hub_url or os.environ.get("RAVEN_HUB_URL", "")).rstrip("/")
     if not base:
@@ -55,37 +114,64 @@ def post_retina_scan(
     if not hub_token_id:
         _log.debug("hub_token_id empty — retina ingest skipped")
         return False
+    if not hub_token_secret:
+        _log.debug("hub_token_secret empty — retina ingest skipped")
+        return False
 
     key = agent_key or os.environ.get("RAVEN_AGENT_KEY", "")
-    scan_id = str(uuid.uuid4())
 
-    body = {
-        "token_id":          hub_token_id,
-        "scan_id":           scan_id,
-        "assembler_version": _ASSEMBLER_VERSION,
-        "retina_hash":       retina_hash,
-        "dimensions":        dimensions,
-        "schema_version":    "1",
-    }
-
-    try:
+    def _do_ingest(token_id: str) -> bool:
+        scan_id = str(uuid.uuid4())
+        body = {
+            "token_id":          token_id,
+            "scan_id":           scan_id,
+            "assembler_version": _ASSEMBLER_VERSION,
+            "retina_hash":       retina_hash,
+            "dimensions":        dimensions,
+            "schema_version":    "1",
+        }
+        # Device metadata — only include when present so older Hub versions
+        # that don't know these fields are unaffected (they're Optional on
+        # the Hub's Pydantic model).
+        if device_name:
+            body["device_name"] = device_name
+        if hardware_uid:
+            body["hardware_uid"] = hardware_uid
+        if os_version:
+            body["os_version"] = os_version
         req = urllib.request.Request(
             f"{base}/api/v1/retina/ingest",
             data=json.dumps(body).encode(),
             method="POST",
             headers={
                 "Content-Type": "application/json",
+                _DEVICE_SECRET_HEADER: hub_token_secret,
                 **({"X-Raven-Agent": key} if key else {}),
             },
         )
         with urllib.request.urlopen(req, timeout=_TIMEOUT_SECS) as resp:
-            # Accept any 2xx (Hub may return 201 Created on first ingest).
             ok = 200 <= resp.status < 300
             if not ok:
                 _log.warning("retina ingest HTTP %s for token %s",
-                             resp.status, hub_token_id[:8])
+                             resp.status, token_id[:8])
             return ok
+
+    try:
+        return _do_ingest(hub_token_id)
     except urllib.error.HTTPError as e:
+        if e.code == 401:
+            # Token expired — attempt renewal then retry once.
+            _log.info("retina ingest 401 for token %s — attempting renewal",
+                      hub_token_id[:8])
+            new_id = renew_device_token(hub_token_id, hub_url=hub_url,
+                                        store_token_fn=store_token_fn)
+            if new_id:
+                try:
+                    return _do_ingest(new_id)
+                except Exception as retry_exc:
+                    _log.warning("retina ingest retry failed after renewal: %s",
+                                 retry_exc)
+            return False
         _log.warning("retina ingest HTTP error %s for token %s: %s",
                      e.code, hub_token_id[:8], e.reason)
     except Exception as e:
