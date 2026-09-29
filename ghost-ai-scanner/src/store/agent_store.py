@@ -493,6 +493,18 @@ class AgentStore(BaseStore):
             log.warning("get_hub_token_id failed [%s]: %s", token, e)
             return ""
 
+    def get_hub_token_secret(self, token: str) -> str:
+        """Return whether a hub_token_secret is stored for this agent, or '' if not."""
+        try:
+            token = self._safe_token(token)
+            raw = self._get(f"{HOOK_AGENTS_PREFIX}/{token}/meta.json")
+            if not raw:
+                return ""
+            return json.loads(raw).get("raven_hub_token_secret", "")
+        except Exception as e:
+            log.warning("get_hub_token_secret failed [%s]: %s", token, e)
+            return ""
+
     def set_hub_token_id(self, token: str, hub_token_id: str,
                          hub_token_secret: str = "") -> bool:
         """Write raven_hub_token_id (and optional secret) into meta.json.

@@ -76,6 +76,8 @@ async def link_hub_token(
     if not hub_token:
         raise HTTPException(400, "raven_hub_token_id must not be empty")
     hub_secret = (body.raven_hub_token_secret or "").strip()
+    if not hub_secret:
+        raise HTTPException(400, "raven_hub_token_secret must not be empty")
 
     ok = store.set_hub_token_id(patron_token, hub_token, hub_token_secret=hub_secret)
     if not ok:
@@ -85,7 +87,7 @@ async def link_hub_token(
         "status": "linked",
         "patron_token": patron_token,
         "raven_hub_token_id": hub_token,
-        "secret_stored": bool(hub_secret),
+        "raven_hub_token_secret_set": True,
     }
 
 
@@ -102,9 +104,12 @@ async def get_hub_token_link(
     any device.
     """
     hub_token = store.get_hub_token_id(patron_token)
+    hub_secret = store.get_hub_token_secret(patron_token)
     return {
         "patron_token": patron_token,
         "linked": bool(hub_token),
+        "raven_hub_token_id": hub_token,
+        "raven_hub_token_secret_set": bool(hub_secret),
     }
 
 
