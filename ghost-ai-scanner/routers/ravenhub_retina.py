@@ -55,6 +55,7 @@ def _get_store(request: Request):
 
 class LinkPayload(BaseModel):
     raven_hub_token_id: str
+    raven_hub_token_secret: str = ""  # proof secret paired with token_id; required for retina scanning
 
 
 @router.post("/retina/link/{patron_token}")
@@ -63,19 +64,22 @@ async def link_hub_token(
     body: LinkPayload = ...,
     store=Depends(_get_store),
 ):
-    """Store the Hub device token for a Patron agent.
+    """Store the Hub device token (and proof secret) for a Patron agent.
 
     Call this after POST /api/v1/devices/token/emit on the Hub returns a
-    token_id. Pass that token_id here as raven_hub_token_id so the retina
-    assembler can begin posting fingerprints for this agent.
+    token_id + token_secret. Both must be stored so the retina assembler
+    can authenticate its scan POSTs to the Hub.
 
     Returns 404 if the patron_token has no meta.json (agent does not exist).
     """
     hub_token = (body.raven_hub_token_id or "").strip()
     if not hub_token:
         raise HTTPException(400, "raven_hub_token_id must not be empty")
+    hub_secret = (body.raven_hub_token_secret or "").strip()
+    if not hub_secret:
+        raise HTTPException(400, "raven_hub_token_secret must not be empty")
 
-    ok = store.set_hub_token_id(patron_token, hub_token)
+    ok = store.set_hub_token_id(patron_token, hub_token, hub_token_secret=hub_secret)
     if not ok:
         raise HTTPException(404, f"No agent found for patron token {patron_token[:8]!r}")
 
@@ -83,6 +87,7 @@ async def link_hub_token(
         "status": "linked",
         "patron_token": patron_token,
         "raven_hub_token_id": hub_token,
+        "raven_hub_token_secret_set": True,
     }
 
 
@@ -99,9 +104,12 @@ async def get_hub_token_link(
     any device.
     """
     hub_token = store.get_hub_token_id(patron_token)
+    hub_secret = store.get_hub_token_secret(patron_token)
     return {
         "patron_token": patron_token,
         "linked": bool(hub_token),
+        "raven_hub_token_id": hub_token,
+        "raven_hub_token_secret_set": bool(hub_secret),
     }
 
 

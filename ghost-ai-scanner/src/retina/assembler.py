@@ -14,14 +14,14 @@
 #            5. POST to Hub only if the hash changed or it is the
 #               first scan for this agent
 #
-#          Agents without a raven_hub_token_id in their meta.json are
+#          Agents without complete Hub token credentials in meta.json are
 #          silently skipped — they have not been linked to the Hub yet.
 #
 #          The assembler is STATELESS between calls. All state is in S3.
 #
 # S3 paths used:
 #   Read:  config/HOOK_AGENTS/catalog.json          (agent list)
-#   Read:  config/HOOK_AGENTS/{token}/meta.json     (hub_token_id, email)
+#   Read:  config/HOOK_AGENTS/{token}/meta.json     (hub token credentials, email)
 #   Read:  ocsf/agent/scans/{token}/latest.json     (raw scan from agent)
 #   Read:  ocsf/agent/retina/{token}/last.json      (last posted hash)
 #   Write: ocsf/agent/retina/{token}/last.json      (update after post)
@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 from .collector   import extract_dimensions
 from .normaliser  import normalise, compute_hash
 from .hub_client  import post_retina_scan
+from .device_info import get_device_info
 
 if TYPE_CHECKING:
     from store.base_store import BaseStore
@@ -89,7 +90,8 @@ class RetinaAssembler:
         # Read agent metadata to get the Hub device token.
         meta = self._read_meta(patron_token)
         hub_token_id = (meta.get("raven_hub_token_id") or "").strip()
-        if not hub_token_id:
+        hub_token_secret = (meta.get("raven_hub_token_secret") or "").strip()
+        if not hub_token_id or not hub_token_secret:
             return "skipped"
 
         # Read the agent's latest endpoint scan from S3.
@@ -108,11 +110,17 @@ class RetinaAssembler:
         if last_hash == new_hash:
             return "unchanged"
 
-        # POST to Hub.
+        # POST to Hub — include device metadata so the estate UI can show
+        # Device name / OS / hardware UID without a separate lookup.
+        dev = get_device_info()
         ok = post_retina_scan(
             hub_token_id=hub_token_id,
+            hub_token_secret=hub_token_secret,
             retina_hash=new_hash,
             dimensions=norm_dims,
+            device_name=dev.get("device_name") or None,
+            hardware_uid=dev.get("hardware_uid") or None,
+            os_version=dev.get("os_version") or None,
         )
         if ok:
             # Only persist the new hash when the Hub POST succeeded AND the
