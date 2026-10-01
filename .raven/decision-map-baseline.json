@@ -192,20 +192,20 @@
     },
     {
       "file": "ghost-ai-scanner/dashboard/ghost_dashboard.py",
-      "line": 116,
+      "line": 118,
       "symbol": "_render_support",
       "reason": "",
       "reviewer": "",
-      "timestamp": "",
+      "timestamp": "2026-10-01T14:03:54.409993+00:00",
       "outcome": "accepted"
     },
     {
       "file": "ghost-ai-scanner/dashboard/ghost_dashboard.py",
-      "line": 123,
+      "line": 126,
       "symbol": "_render_settings",
       "reason": "",
       "reviewer": "",
-      "timestamp": "",
+      "timestamp": "2026-10-01T14:03:54.409993+00:00",
       "outcome": "accepted"
     },
     {
