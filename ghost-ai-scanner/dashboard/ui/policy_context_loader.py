@@ -36,7 +36,6 @@ import streamlit as st
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
-from scoring.policy import PolicyContext            # noqa: E402
 from scoring.policy_resolver import context_from_csv  # noqa: E402
 from .tabs import provider_lists_io as _io           # noqa: E402
 

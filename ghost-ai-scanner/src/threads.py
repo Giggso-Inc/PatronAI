@@ -26,7 +26,7 @@ log = logging.getLogger("marauder-scan.threads")
 
 STREAMLIT_PORT = int(os.environ.get("STREAMLIT_PORT", "8501"))
 DEFAULT_INTERVAL = int(os.environ.get("SCAN_INTERVAL_SECS", "300"))
-INTEGRATION_API_PORT = int(os.environ.get("INTEGRATION_API_PORT", "8002")) 
+INTEGRATION_API_PORT = int(os.environ.get("INTEGRATION_API_PORT", "8002"))
 
 
 def scanner_loop(store, resolver, settings: dict, stop: threading.Event):

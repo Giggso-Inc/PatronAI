@@ -23,7 +23,7 @@ from typing import Iterable
 import streamlit as st
 
 from .manager_tab_ai_inventory_data import (
-    PHASE_1A_CATEGORIES, CATEGORY_LABELS, phase_1a_only, dedup_latest,
+    CATEGORY_LABELS, phase_1a_only, dedup_latest,
 )
 from .time_fmt import fmt as fmt_time
 

@@ -213,6 +213,7 @@ class _FakeFlag:
         self.requested_by = "dev@giggso.com"
         self.note = None
         self.added_at = None
+        self.device_count = 0
 
 
 class _FakeProject:
