@@ -14,14 +14,17 @@
 #            5. POST to Hub only if the hash changed or it is the
 #               first scan for this agent
 #
-#          Agents without complete Hub token credentials in meta.json are
-#          silently skipped — they have not been linked to the Hub yet.
+#          Agents without complete Hub token credentials in meta.json fire
+#          a best-effort identity-based self-heal link attempt (B-62) and
+#          are skipped for this cycle either way — they are not yet linked
+#          to the Hub, whether or not this cycle's attempt succeeds.
 #
 #          The assembler is STATELESS between calls. All state is in S3.
 #
 # S3 paths used:
 #   Read:  config/HOOK_AGENTS/catalog.json          (agent list)
 #   Read:  config/HOOK_AGENTS/{token}/meta.json     (hub token credentials, email)
+#   Read:  config/HOOK_AGENTS/{token}/status.json   (reported hostname, B-62)
 #   Read:  ocsf/agent/scans/{token}/latest.json     (raw scan from agent)
 #   Read:  ocsf/agent/retina/{token}/last.json      (last posted hash)
 #   Write: ocsf/agent/retina/{token}/last.json      (update after post)
@@ -62,8 +65,8 @@ class RetinaAssembler:
 
     def run_all(self) -> dict:
         """Run the retina cycle for all active agents. Returns summary stats."""
-        stats = {"agents_checked": 0, "scans_posted": 0,
-                 "unchanged": 0, "skipped_no_token": 0, "errors": 0}
+        stats = {"agents_checked": 0, "scans_posted": 0, "unchanged": 0,
+                  "skipped_no_token": 0, "skipped_no_scan": 0, "errors": 0}
         tokens = self._list_agent_tokens()
         for token in tokens:
             stats["agents_checked"] += 1
@@ -73,8 +76,10 @@ class RetinaAssembler:
                     stats["scans_posted"] += 1
                 elif result == "unchanged":
                     stats["unchanged"] += 1
-                elif result == "skipped":
+                elif result == "skipped_no_token":
                     stats["skipped_no_token"] += 1
+                elif result == "skipped_no_scan":
+                    stats["skipped_no_scan"] += 1
                 elif result == "error":
                     stats["errors"] += 1
             except Exception as e:
@@ -86,20 +91,24 @@ class RetinaAssembler:
     # ── Per-agent logic ───────────────────────────────────────────────────────
 
     def _run_one(self, patron_token: str) -> str:
-        """Process one agent. Returns: 'posted'|'unchanged'|'skipped'|'error'."""
+        """Process one agent. Returns:
+        'posted'|'unchanged'|'skipped_no_token'|'skipped_no_scan'|'error'.
+        The two skip reasons are kept distinct (B-62) so operators can tell
+        "never linked to the Hub yet" (self-heal is attempted) apart from
+        "linked, just hasn't scanned yet" (nothing to attempt)."""
         # Read agent metadata to get the Hub device token.
         meta = self._read_meta(patron_token)
         hub_token_id = (meta.get("raven_hub_token_id") or "").strip()
         hub_token_secret = (meta.get("raven_hub_token_secret") or "").strip()
         if not hub_token_id or not hub_token_secret:
             self._try_link_by_identity(patron_token, meta)
-            return "skipped"
+            return "skipped_no_token"
 
         # Read the agent's latest endpoint scan from S3.
         scan = self._read_scan(patron_token)
         if scan is None:
             _log.debug("no scan yet for agent %s", patron_token[:8])
-            return "skipped"
+            return "skipped_no_scan"
 
         # Extract and normalise dimensions.
         raw_dims   = extract_dimensions(scan)
@@ -195,18 +204,16 @@ class RetinaAssembler:
         host_hint = (status.get("device_id") or "").strip()
         if not host_hint:
             return
-        try:
-            result = request_hub_link_by_identity(
-                patron_token=patron_token,
-                recipient_email=recipient_email,
-                host_hint=host_hint,
-            )
-            if result == "linked":
-                _log.info("retina: hub link-by-identity completed for agent %s",
-                          patron_token[:8])
-        except Exception as e:
-            _log.debug("retina: hub link-by-identity attempt failed for %s: %s",
-                       patron_token[:8], e)
+        # request_hub_link_by_identity never raises (see its own docstring) --
+        # no try/except needed here; it degrades to "error" internally.
+        result = request_hub_link_by_identity(
+            patron_token=patron_token,
+            recipient_email=recipient_email,
+            host_hint=host_hint,
+        )
+        if result == "linked":
+            _log.info("retina: hub link-by-identity completed for agent %s",
+                      patron_token[:8])
 
     def _read_scan(self, token: str) -> dict | None:
         try:

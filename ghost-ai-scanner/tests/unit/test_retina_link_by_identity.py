@@ -59,7 +59,7 @@ def test_unlinked_agent_attempts_identity_link(assembler_module):
         mock_link.return_value = "linked"
         result = assembler._run_one("tok-1234")
 
-    assert result == "skipped"  # unchanged external contract this cycle
+    assert result == "skipped_no_token"
     mock_link.assert_called_once_with(
         patron_token="tok-1234",
         recipient_email="dev@example.com",
@@ -141,6 +141,24 @@ def test_request_hub_link_by_identity_posts_expected_payload():
     assert result == "linked"
     assert captured["url"].endswith("/api/v1/devices/patron-link-by-identity")
     assert any(k.lower() == "x-raven-agent" for k in captured["headers"])
+
+
+def test_unlinked_agent_no_match_result_does_not_raise(assembler_module):
+    """Hub responding 'no_match' (not yet enrolled on the Hub side either) is
+    a normal, expected outcome -- must not raise or be treated differently
+    from any other non-'linked' result. Documents that the self-heal simply
+    retries next cycle with no further action taken here."""
+    meta = {"recipient_email": "dev@example.com"}
+    status = {"device_id": "linuxbox"}
+    store = _store_with(meta=meta, status=status)
+    assembler = assembler_module(store)
+
+    with patch("retina.assembler.request_hub_link_by_identity") as mock_link:
+        mock_link.return_value = "no_match"
+        result = assembler._run_one("tok-1234")
+
+    assert result == "skipped_no_token"
+    mock_link.assert_called_once()
 
 
 def test_request_hub_link_by_identity_never_raises_on_network_error():
