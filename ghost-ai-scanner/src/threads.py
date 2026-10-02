@@ -114,8 +114,12 @@ def retina_loop(store, stop: threading.Event):
     Agents without a raven_hub_token_id set in their meta.json are silently
     skipped — they have not yet been linked to the Hub Card system.
     """
-    from retina import RetinaAssembler
-    assembler = RetinaAssembler(store)
+    try:
+        from retina import RetinaAssembler
+        assembler = RetinaAssembler(store)
+    except Exception as exc:
+        log.error("Retina loop failed to initialise — thread will not run: %s", exc, exc_info=True)
+        return
     log.info("Retina loop started (interval=%ss)", RETINA_INTERVAL_SECS)
 
     while not stop.is_set():
