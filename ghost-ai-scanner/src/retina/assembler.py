@@ -14,14 +14,17 @@
 #            5. POST to Hub only if the hash changed or it is the
 #               first scan for this agent
 #
-#          Agents without complete Hub token credentials in meta.json are
-#          silently skipped — they have not been linked to the Hub yet.
+#          Agents without complete Hub token credentials in meta.json fire
+#          a best-effort identity-based self-heal link attempt (B-62) and
+#          are skipped for this cycle either way — they are not yet linked
+#          to the Hub, whether or not this cycle's attempt succeeds.
 #
 #          The assembler is STATELESS between calls. All state is in S3.
 #
 # S3 paths used:
 #   Read:  config/HOOK_AGENTS/catalog.json          (agent list)
 #   Read:  config/HOOK_AGENTS/{token}/meta.json     (hub token credentials, email)
+#   Read:  config/HOOK_AGENTS/{token}/status.json   (reported hostname, B-62)
 #   Read:  ocsf/agent/scans/{token}/latest.json     (raw scan from agent)
 #   Read:  ocsf/agent/retina/{token}/last.json      (last posted hash)
 #   Write: ocsf/agent/retina/{token}/last.json      (update after post)
@@ -39,7 +42,7 @@ from typing import TYPE_CHECKING
 
 from .collector   import extract_dimensions
 from .normaliser  import normalise, compute_hash
-from .hub_client  import post_retina_scan
+from .hub_client  import post_retina_scan, request_hub_link_by_identity
 from .device_info import get_device_info
 
 if TYPE_CHECKING:
@@ -62,8 +65,8 @@ class RetinaAssembler:
 
     def run_all(self) -> dict:
         """Run the retina cycle for all active agents. Returns summary stats."""
-        stats = {"agents_checked": 0, "scans_posted": 0,
-                 "unchanged": 0, "skipped_no_token": 0, "errors": 0}
+        stats = {"agents_checked": 0, "scans_posted": 0, "unchanged": 0,
+                  "skipped_no_token": 0, "skipped_no_scan": 0, "errors": 0}
         tokens = self._list_agent_tokens()
         for token in tokens:
             stats["agents_checked"] += 1
@@ -73,8 +76,10 @@ class RetinaAssembler:
                     stats["scans_posted"] += 1
                 elif result == "unchanged":
                     stats["unchanged"] += 1
-                elif result == "skipped":
+                elif result == "skipped_no_token":
                     stats["skipped_no_token"] += 1
+                elif result == "skipped_no_scan":
+                    stats["skipped_no_scan"] += 1
                 elif result == "error":
                     stats["errors"] += 1
             except Exception as e:
@@ -86,19 +91,24 @@ class RetinaAssembler:
     # ── Per-agent logic ───────────────────────────────────────────────────────
 
     def _run_one(self, patron_token: str) -> str:
-        """Process one agent. Returns: 'posted'|'unchanged'|'skipped'|'error'."""
+        """Process one agent. Returns:
+        'posted'|'unchanged'|'skipped_no_token'|'skipped_no_scan'|'error'.
+        The two skip reasons are kept distinct (B-62) so operators can tell
+        "never linked to the Hub yet" (self-heal is attempted) apart from
+        "linked, just hasn't scanned yet" (nothing to attempt)."""
         # Read agent metadata to get the Hub device token.
         meta = self._read_meta(patron_token)
         hub_token_id = (meta.get("raven_hub_token_id") or "").strip()
         hub_token_secret = (meta.get("raven_hub_token_secret") or "").strip()
         if not hub_token_id or not hub_token_secret:
-            return "skipped"
+            self._try_link_by_identity(patron_token, meta)
+            return "skipped_no_token"
 
         # Read the agent's latest endpoint scan from S3.
         scan = self._read_scan(patron_token)
         if scan is None:
             _log.debug("no scan yet for agent %s", patron_token[:8])
-            return "skipped"
+            return "skipped_no_scan"
 
         # Extract and normalise dimensions.
         raw_dims   = extract_dimensions(scan)
@@ -164,6 +174,46 @@ class RetinaAssembler:
             return json.loads(raw) if raw else {}
         except Exception:
             return {}
+
+    def _read_status(self, token: str) -> dict:
+        try:
+            raw = self._store._get(f"{_AGENTS_PREFIX}/{token}/status.json")
+            return json.loads(raw) if raw else {}
+        except Exception:
+            return {}
+
+    # ── Hub link self-heal (B-62) ──────────────────────────────────────────────────────────
+
+    def _try_link_by_identity(self, patron_token: str, meta: dict) -> None:
+        """Best-effort self-heal: when this agent has never been linked to a
+        Hub device token (no raven_hub_token_id in meta.json), ask the Hub to
+        find and complete the link using identity alone (recipient_email +
+        hostname), rather than waiting on Raven's self-enroll to have carried
+        our patron_token forward at install time -- which only happens when
+        PatronAI installs BEFORE Raven on the same machine. Neither installer
+        script is changed by this: the Hub does the matching and, on success,
+        POSTs to our own /retina/link endpoint exactly as /patron-link already
+        does today, so this call writes no local state itself -- the next
+        cycle simply finds the secret meta.json now has and proceeds normally.
+        Cheap and safe to retry every cycle until a match is found.
+        """
+        recipient_email = (meta.get("recipient_email") or "").strip()
+        if not recipient_email:
+            return
+        status = self._read_status(patron_token)
+        host_hint = (status.get("device_id") or "").strip()
+        if not host_hint:
+            return
+        # request_hub_link_by_identity never raises (see its own docstring) --
+        # no try/except needed here; it degrades to "error" internally.
+        result = request_hub_link_by_identity(
+            patron_token=patron_token,
+            recipient_email=recipient_email,
+            host_hint=host_hint,
+        )
+        if result == "linked":
+            _log.info("retina: hub link-by-identity completed for agent %s",
+                      patron_token[:8])
 
     def _read_scan(self, token: str) -> dict | None:
         try:
