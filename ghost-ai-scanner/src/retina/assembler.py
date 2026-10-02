@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING
 
 from .collector   import extract_dimensions
 from .normaliser  import normalise, compute_hash
-from .hub_client  import post_retina_scan
+from .hub_client  import post_retina_scan, request_hub_link_by_identity
 from .device_info import get_device_info
 
 if TYPE_CHECKING:
@@ -92,6 +92,7 @@ class RetinaAssembler:
         hub_token_id = (meta.get("raven_hub_token_id") or "").strip()
         hub_token_secret = (meta.get("raven_hub_token_secret") or "").strip()
         if not hub_token_id or not hub_token_secret:
+            self._try_link_by_identity(patron_token, meta)
             return "skipped"
 
         # Read the agent's latest endpoint scan from S3.
@@ -164,6 +165,48 @@ class RetinaAssembler:
             return json.loads(raw) if raw else {}
         except Exception:
             return {}
+
+    def _read_status(self, token: str) -> dict:
+        try:
+            raw = self._store._get(f"{_AGENTS_PREFIX}/{token}/status.json")
+            return json.loads(raw) if raw else {}
+        except Exception:
+            return {}
+
+    # ── Hub link self-heal (B-62) ──────────────────────────────────────────────────────────
+
+    def _try_link_by_identity(self, patron_token: str, meta: dict) -> None:
+        """Best-effort self-heal: when this agent has never been linked to a
+        Hub device token (no raven_hub_token_id in meta.json), ask the Hub to
+        find and complete the link using identity alone (recipient_email +
+        hostname), rather than waiting on Raven's self-enroll to have carried
+        our patron_token forward at install time -- which only happens when
+        PatronAI installs BEFORE Raven on the same machine. Neither installer
+        script is changed by this: the Hub does the matching and, on success,
+        POSTs to our own /retina/link endpoint exactly as /patron-link already
+        does today, so this call writes no local state itself -- the next
+        cycle simply finds the secret meta.json now has and proceeds normally.
+        Cheap and safe to retry every cycle until a match is found.
+        """
+        recipient_email = (meta.get("recipient_email") or "").strip()
+        if not recipient_email:
+            return
+        status = self._read_status(patron_token)
+        host_hint = (status.get("device_id") or "").strip()
+        if not host_hint:
+            return
+        try:
+            result = request_hub_link_by_identity(
+                patron_token=patron_token,
+                recipient_email=recipient_email,
+                host_hint=host_hint,
+            )
+            if result == "linked":
+                _log.info("retina: hub link-by-identity completed for agent %s",
+                          patron_token[:8])
+        except Exception as e:
+            _log.debug("retina: hub link-by-identity attempt failed for %s: %s",
+                       patron_token[:8], e)
 
     def _read_scan(self, token: str) -> dict | None:
         try:
