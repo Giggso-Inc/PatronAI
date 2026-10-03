@@ -53,8 +53,8 @@ class UsersStore(BaseStore):
             data = json.loads(raw)
             return data if isinstance(data, dict) else {}
         except json.JSONDecodeError:
-            log.error(f"users.json corrupt — returning empty map; "
-                      f"will not auto-migrate (corruption is human-fix territory)")
+            log.error("users.json corrupt — returning empty map; "
+                      "will not auto-migrate (corruption is human-fix territory)")
             return {}
 
     def get(self, email: str) -> Optional[dict]:

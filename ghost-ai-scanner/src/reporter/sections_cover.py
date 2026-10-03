@@ -11,7 +11,6 @@ from datetime import date
 from reportlab.platypus import (
     Paragraph, Spacer, Table, TableStyle, HRFlowable, PageBreak
 )
-from reportlab.lib.units import inch
 from .styles import (
     get_styles, DARK_BLUE, WHITE, LIGHT_GRAY, MID_GRAY, MID_BLUE
 )

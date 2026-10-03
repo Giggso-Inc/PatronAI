@@ -210,7 +210,9 @@ class Alerter:
 
         # Raven Hub taxonomy V2 (best-effort; no-op without RAVEN_HUB_URL)
         try:
-            from notify.hub_alerts import emit_denylisted, emit_shadow_discovered
+            from notify.hub_alerts import (
+                emit_denylisted, emit_shadow_discovered, emit_user_first_use,
+            )
             org = self._company or "unknown"
             eid = f"patron:{src_ip}:{provider}:{date.today().isoformat()}"
             tool = provider or event.get("domain", "unknown")
@@ -229,6 +231,13 @@ class Alerter:
                     org, eid + ":shadow", tool, user=owner, device=device,
                     outcome=hub_outcome, domain=domain, hostname=host,
                 )
+                if owner:
+                    emit_user_first_use(
+                        org,
+                        f"patron:user_first:{owner}:{tool}",
+                        tool, user=owner, device=device,
+                        outcome=hub_outcome, domain=domain, hostname=host,
+                    )
         except Exception as e:
             log.debug("hub emit skipped: %s", e)
 

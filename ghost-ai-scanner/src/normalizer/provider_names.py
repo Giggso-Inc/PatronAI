@@ -17,7 +17,6 @@ import csv
 import logging
 import os
 from functools import lru_cache
-from typing import Optional
 
 log = logging.getLogger("marauder-scan.normalizer.provider_names")
 

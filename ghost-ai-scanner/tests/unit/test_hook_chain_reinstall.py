@@ -48,7 +48,13 @@ def _extract_chain_library(template_text: str) -> str:
 
 @pytest.fixture(scope="module")
 def chain_lib_text() -> str:
-    return _extract_chain_library(_TEMPLATE.read_text(encoding="utf-8"))
+    text = _extract_chain_library(_TEMPLATE.read_text(encoding="utf-8"))
+    # If the template hasn't been built, the body is a {{placeholder}}.
+    # Fall back to the source hook_chain.sh directly.
+    if text.strip().startswith("{{"):
+        hook_chain = _ROOT / "agent" / "install" / "hook_chain.sh"
+        return hook_chain.read_text(encoding="utf-8")
+    return text
 
 
 def _run_bash(script: str) -> subprocess.CompletedProcess:

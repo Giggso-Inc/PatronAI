@@ -11,8 +11,7 @@
 
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums  import TA_LEFT, TA_CENTER, TA_RIGHT
-from reportlab.lib.units  import inch
+from reportlab.lib.enums  import TA_LEFT, TA_CENTER
 
 # ── Colour palette ────────────────────────────────────────────
 DARK_BLUE   = colors.HexColor("#1B2A4A")

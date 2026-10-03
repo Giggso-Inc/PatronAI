@@ -15,7 +15,6 @@
 
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Optional
 
 log = logging.getLogger("marauder-scan.alerter.cloudtrail_check")
 

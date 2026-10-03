@@ -1,0 +1,179 @@
+name: PR Activity → Raven Hub
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  pull_request_review:
+    types: [submitted]
+  issue_comment:
+    types: [created]
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    # Never block CI — this is an observability side-channel, not a gate.
+    continue-on-error: true
+
+    steps:
+      # ── Pull Request events ─────────────────────────────────────────────────
+      - name: Send PR event to Raven Hub
+        if: github.event_name == 'pull_request'
+        env:
+          RAVEN_HUB_URL: ${{ secrets.RAVEN_HUB_URL }}
+          RAVEN_AGENT_KEY: ${{ secrets.RAVEN_AGENT_KEY }}
+          # GITHUB_TOKEN is the built-in, auto-provisioned workflow token.
+          # It is NOT a manually configured secret — GitHub injects it for
+          # every run and it expires when the job ends.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_REPO: ${{ github.event.pull_request.base.repo.full_name }}
+          PR_ORG: ${{ github.event.pull_request.base.repo.owner.login }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_STATE: ${{ github.event.pull_request.state }}
+          PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
+          PR_CLOSED_AT: ${{ github.event.pull_request.closed_at }}
+          PR_ADDITIONS: ${{ github.event.pull_request.additions }}
+          PR_DELETIONS: ${{ github.event.pull_request.deletions }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          API_URL: ${{ github.api_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          # Paginate /pulls/{n}/files — GitHub caps each page at 100, overall
+          # at 3000 (30 pages). Loop until a page returns fewer than 100 items
+          # or the safety cap is hit. jq exits 0 on empty stdin → guard with
+          # [ -z "$BATCH" ] && BATCH='[]' before merging.
+          PAGE=1
+          FILES='[]'
+          while true; do
+            BATCH=$(curl -sf \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "${API_URL}/repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100&page=${PAGE}" \
+              | jq '[.[] | {filename: .filename, additions: .additions, deletions: .deletions}]' \
+              || echo '[]')
+            [ -z "$BATCH" ] && BATCH='[]'
+            COUNT=$(echo "$BATCH" | jq 'length')
+            FILES=$(printf '%s\n%s' "$FILES" "$BATCH" | jq -s 'add // []')
+            [ "$COUNT" -lt 100 ] && break
+            PAGE=$((PAGE + 1))
+            [ "$PAGE" -gt 30 ] && break  # GitHub's own 3000-file cap
+          done
+
+          # All values passed via --arg/--argjson — no shell interpolation into
+          # JSON, safe against PR titles or branch names with special characters.
+          PAYLOAD=$(jq -n \
+            --arg     url          "$PR_URL" \
+            --arg     repo         "$PR_REPO" \
+            --arg     org_name     "$PR_ORG" \
+            --arg     author       "$PR_AUTHOR" \
+            --arg     head_branch  "$PR_HEAD_BRANCH" \
+            --arg     base_branch  "$PR_BASE_BRANCH" \
+            --arg     head_sha     "$PR_HEAD_SHA" \
+            --arg     state        "$PR_STATE" \
+            --arg     merged_at    "$PR_MERGED_AT" \
+            --arg     closed_at    "$PR_CLOSED_AT" \
+            --argjson additions    "${PR_ADDITIONS:-0}" \
+            --argjson deletions    "${PR_DELETIONS:-0}" \
+            --argjson files        "$FILES" \
+            '{
+              url:         $url,
+              repo:        $repo,
+              org_name:    $org_name,
+              author:      $author,
+              head_branch: $head_branch,
+              base_branch: $base_branch,
+              head_sha:    $head_sha,
+              state:       $state,
+              merged_at:   (if $merged_at  == "" then null else $merged_at  end),
+              closed_at:   (if $closed_at  == "" then null else $closed_at  end),
+              additions:   $additions,
+              deletions:   $deletions,
+              files:       $files
+            }')
+
+          curl -sf -o /dev/null -X POST \
+            "${RAVEN_HUB_URL}/api/v1/github/pull-requests" \
+            -H "X-Raven-Agent: ${RAVEN_AGENT_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" || true
+
+      # ── Pull Request Review events ──────────────────────────────────────────
+      - name: Send review event to Raven Hub
+        if: github.event_name == 'pull_request_review'
+        env:
+          RAVEN_HUB_URL: ${{ secrets.RAVEN_HUB_URL }}
+          RAVEN_AGENT_KEY: ${{ secrets.RAVEN_AGENT_KEY }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_ORG: ${{ github.event.pull_request.base.repo.owner.login }}
+          REVIEWER: ${{ github.event.review.user.login }}
+          REVIEW_STATE: ${{ github.event.review.state }}
+          SUBMITTED_AT: ${{ github.event.review.submitted_at }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          # Read body length from the raw event JSON — avoids multiline text in env.
+          BODY_LEN=$(jq '.review.body // "" | length' "$GITHUB_EVENT_PATH")
+
+          PAYLOAD=$(jq -n \
+            --arg     pr_url       "$PR_URL" \
+            --arg     org_name     "$PR_ORG" \
+            --arg     reviewer     "$REVIEWER" \
+            --arg     author       "$PR_AUTHOR" \
+            --arg     state        "$(echo "$REVIEW_STATE" | tr '[:lower:]' '[:upper:]')" \
+            --arg     submitted_at "$SUBMITTED_AT" \
+            --argjson body_len     "$BODY_LEN" \
+            '{
+              pr_url:       $pr_url,
+              org_name:     $org_name,
+              reviewer:     $reviewer,
+              author:       $author,
+              state:        $state,
+              submitted_at: (if $submitted_at == "" then null else $submitted_at end),
+              body_len:     $body_len
+            }')
+
+          curl -sf -o /dev/null -X POST \
+            "${RAVEN_HUB_URL}/api/v1/github/pull-requests/reviews" \
+            -H "X-Raven-Agent: ${RAVEN_AGENT_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" || true
+
+      # ── Plain PR comment events ─────────────────────────────────────────────
+      # issue_comment fires for BOTH issue comments and PR comments — GitHub
+      # distinguishes them only by whether `issue.pull_request` is present.
+      # This is the event that captures Raven's /raven-pr-review step-1
+      # report, and any plain human comment — neither reaches pr_reviews.
+      - name: Send comment event to Raven Hub
+        if: github.event_name == 'issue_comment' && github.event.issue.pull_request != null
+        env:
+          RAVEN_HUB_URL: ${{ secrets.RAVEN_HUB_URL }}
+          RAVEN_AGENT_KEY: ${{ secrets.RAVEN_AGENT_KEY }}
+          PR_URL: ${{ github.event.issue.pull_request.html_url }}
+          PR_ORG: ${{ github.repository_owner }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          CREATED_AT: ${{ github.event.comment.created_at }}
+        run: |
+          # Read body length from the raw event JSON — avoids multiline text in env.
+          BODY_LEN=$(jq '.comment.body // "" | length' "$GITHUB_EVENT_PATH")
+
+          PAYLOAD=$(jq -n \
+            --arg     pr_url       "$PR_URL" \
+            --arg     org_name     "$PR_ORG" \
+            --arg     author       "$COMMENT_AUTHOR" \
+            --arg     created_at   "$CREATED_AT" \
+            --argjson body_len     "$BODY_LEN" \
+            '{
+              pr_url:     $pr_url,
+              org_name:   $org_name,
+              author:     $author,
+              created_at: (if $created_at == "" then null else $created_at end),
+              body_len:   $body_len
+            }')
+
+          curl -sf -o /dev/null -X POST \
+            "${RAVEN_HUB_URL}/api/v1/github/pull-requests/comments" \
+            -H "X-Raven-Agent: ${RAVEN_AGENT_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" || true
