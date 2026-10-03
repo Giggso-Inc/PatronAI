@@ -20,11 +20,12 @@
 #          The assembler is STATELESS between calls. All state is in S3.
 #
 # S3 paths used:
-#   Read:  config/HOOK_AGENTS/catalog.json          (agent list)
-#   Read:  config/HOOK_AGENTS/{token}/meta.json     (hub token credentials, email)
-#   Read:  ocsf/agent/scans/{token}/latest.json     (raw scan from agent)
-#   Read:  ocsf/agent/retina/{token}/last.json      (last posted hash)
-#   Write: ocsf/agent/retina/{token}/last.json      (update after post)
+#   Read:  config/HOOK_AGENTS/catalog.json              (agent list)
+#   Read:  config/HOOK_AGENTS/{token}/meta.json         (hub token credentials, email)
+#   Read:  ocsf/agent/scans/{token}/latest.json         (raw scan from agent)
+#   Read:  ocsf/agent/heartbeats/{token}/latest.json    (per-device metadata from heartbeat.sh)
+#   Read:  ocsf/agent/retina/{token}/last.json          (last posted hash)
+#   Write: ocsf/agent/retina/{token}/last.json          (update after post)
 #
 # DEPENDS: json, logging (stdlib); retina.collector, normaliser, hub_client
 # AUDIT LOG:
@@ -37,19 +38,19 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from .collector   import extract_dimensions
-from .normaliser  import normalise, compute_hash
-from .hub_client  import post_retina_scan
-from .device_info import get_device_info
+from .collector  import extract_dimensions
+from .normaliser import normalise, compute_hash
+from .hub_client import post_retina_scan
 
 if TYPE_CHECKING:
     from store.base_store import BaseStore
 
 _log = logging.getLogger("marauder-scan.retina.assembler")
 
-_SCAN_PREFIX   = "ocsf/agent/scans"
-_RETINA_PREFIX = "ocsf/agent/retina"
-_AGENTS_PREFIX = "config/HOOK_AGENTS"
+_SCAN_PREFIX      = "ocsf/agent/scans"
+_RETINA_PREFIX    = "ocsf/agent/retina"
+_AGENTS_PREFIX    = "config/HOOK_AGENTS"
+_HEARTBEAT_PREFIX = "ocsf/agent/heartbeats"
 
 
 class RetinaAssembler:
@@ -110,17 +111,22 @@ class RetinaAssembler:
         if last_hash == new_hash:
             return "unchanged"
 
-        # POST to Hub — include device metadata so the estate UI can show
-        # Device name / OS / hardware UID without a separate lookup.
-        dev = get_device_info()
+        # Read per-agent device metadata from that agent's own heartbeat record.
+        # heartbeat.sh runs on each employee's machine and uploads
+        # ocsf/agent/heartbeats/{token}/latest.json with device_id, device_uuid,
+        # os_name, os_version — keyed by that specific agent's token, so these
+        # values genuinely describe the employee's device, not this server.
+        hb = self._read_heartbeat(patron_token)
+        os_name = (hb.get("os_name") or "").strip()
+        os_ver  = (hb.get("os_version") or "").strip()
         ok = post_retina_scan(
             hub_token_id=hub_token_id,
             hub_token_secret=hub_token_secret,
             retina_hash=new_hash,
             dimensions=norm_dims,
-            device_name=dev.get("device_name") or None,
-            hardware_uid=dev.get("hardware_uid") or None,
-            os_version=dev.get("os_version") or None,
+            device_name=hb.get("device_id") or None,
+            hardware_uid=hb.get("device_uuid") or None,
+            os_version=(f"{os_name} {os_ver}".strip()) or None,
         )
         if ok:
             # Only persist the new hash when the Hub POST succeeded AND the
@@ -181,6 +187,22 @@ class RetinaAssembler:
         except Exception:
             pass
         return ""
+
+    def _read_heartbeat(self, token: str) -> dict:
+        """Read the agent's own heartbeat record from S3.
+
+        heartbeat.sh runs on each employee's machine and uploads
+        ocsf/agent/heartbeats/{token}/latest.json containing real per-device
+        fields (device_id, device_uuid, os_name, os_version). This is the
+        correct source for device metadata — not get_device_info(), which
+        reads the server's own environment and is wrong for every agent.
+        Returns empty dict if the key is missing or unreadable (non-fatal).
+        """
+        try:
+            raw = self._store._get(f"{_HEARTBEAT_PREFIX}/{token}/latest.json")
+            return json.loads(raw) if raw else {}
+        except Exception:
+            return {}
 
     def _write_last_hash(self, token: str, retina_hash: str) -> bool:
         """Write the last posted hash to S3. Returns True on success."""
