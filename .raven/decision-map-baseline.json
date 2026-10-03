@@ -3413,6 +3413,33 @@
       "outcome": "accepted"
     },
     {
+      "file": "ghost-ai-scanner/src/retina/hub_client.py",
+      "line": 197,
+      "symbol": "request_hub_link_by_identity",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-03T02:39:07.325404+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/hub_client.py",
+      "line": 226,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-03T02:39:07.325404+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/retina/hub_client.py",
+      "line": 251,
+      "symbol": "request_hub_link_by_identity",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-03T02:39:07.325404+00:00",
+      "outcome": "accepted"
+    },
+    {
       "file": "ghost-ai-scanner/src/retina/normaliser.py",
       "line": 36,
       "symbol": "_normalise_dim",

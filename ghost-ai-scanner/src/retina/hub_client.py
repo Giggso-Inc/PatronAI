@@ -192,3 +192,60 @@ def post_retina_scan(
         _log.warning("retina ingest failed for token %s: %s",
                      hub_token_id[:8], e)
     return False
+
+
+def request_hub_link_by_identity(
+    patron_token: str,
+    recipient_email: str,
+    host_hint: str,
+    org: str | None = None,
+    hub_url: str | None = None,
+    agent_key: str | None = None,
+) -> str:
+    """POST /api/v1/devices/patron-link-by-identity — ask the Hub to pair this
+    agent with its own device token, for agents installed without Raven's
+    self-enroll flow carrying our patron_token forward (B-62: retina linking
+    had no trigger when PatronAI and Raven are installed independently or out
+    of order; this is the self-healing counterpart run from assembler._run_one
+    on every cycle until a match succeeds).
+
+    Unlike post_retina_scan, we have no hub_token_id/secret yet — that is
+    exactly what we are asking the Hub to find and hand off (server-to-server,
+    directly to PatronAI's own /retina/link endpoint) based on identity alone.
+
+    Returns one of: "linked" | "no_match" | "skipped" | "failed" | "error".
+    Never raises.
+    """
+    base = (hub_url or os.environ.get("RAVEN_HUB_URL", "")).rstrip("/")
+    key  = agent_key or os.environ.get("RAVEN_AGENT_KEY", "")
+    org  = org or os.environ.get("COMPANY_SLUG", "")
+    if not base or not key or not org or not recipient_email or not host_hint:
+        _log.debug("request_hub_link_by_identity: missing base/key/org/email/host — skipped")
+        return "error"
+
+    try:
+        body = json.dumps({
+            "org":           org,
+            "person_email":  recipient_email,
+            "host_hint":     host_hint,
+            "patron_token":  patron_token,
+        }).encode()
+        req = urllib.request.Request(
+            f"{base}/api/v1/devices/patron-link-by-identity",
+            data=body,
+            method="POST",
+            headers={"Content-Type": "application/json", "X-Raven-Agent": key},
+        )
+        with urllib.request.urlopen(req, timeout=_TIMEOUT_SECS) as resp:
+            data = json.loads(resp.read().decode())
+            result = data.get("status", "error")
+            if result == "linked":
+                _log.info("hub link-by-identity succeeded for %s (%s)",
+                          patron_token[:8], recipient_email)
+            return result
+    except urllib.error.HTTPError as e:
+        _log.debug("hub link-by-identity HTTP %s for %s: %s",
+                   e.code, patron_token[:8], e.reason)
+    except Exception as e:
+        _log.debug("hub link-by-identity failed for %s: %s", patron_token[:8], e)
+    return "error"
