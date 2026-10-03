@@ -64,6 +64,30 @@ def test_run_all_with_empty_catalog_returns_zero_stats(store_and_assembler):
     assert stats["errors"] == 0
 
 
+def test_device_metadata_comes_from_heartbeat_not_server(store_and_assembler):
+    """Root-cause guard: assembler must read per-agent heartbeat, NOT get_device_info().
+
+    get_device_info() returns the server's own hostname/OS — wrong for every agent.
+    _read_heartbeat(token) reads ocsf/agent/heartbeats/{token}/latest.json which
+    heartbeat.sh uploads from each employee's own machine — correct per-agent source.
+    """
+    _, assembler = store_and_assembler
+    # Confirm get_device_info is NOT imported at all in assembler
+    import retina.assembler as asm_mod
+    assert not hasattr(asm_mod, "get_device_info"), (
+        "get_device_info must NOT be imported in assembler — it reads the server's "
+        "own environment and is wrong for every agent. Use _read_heartbeat() instead."
+    )
+    # Confirm _read_heartbeat helper exists
+    assert hasattr(assembler, "_read_heartbeat"), "_read_heartbeat helper missing"
+    # Confirm it reads from the right S3 path
+    import inspect
+    src = inspect.getsource(assembler._read_heartbeat)
+    assert "ocsf/agent/heartbeats" in src, (
+        "_read_heartbeat must read from ocsf/agent/heartbeats/{token}/latest.json"
+    )
+
+
 def test_retina_loop_init_crash_is_caught(tmp_path):
     """PR #60: threads.retina_loop must log and return on init crash — not die silently."""
     import threading
