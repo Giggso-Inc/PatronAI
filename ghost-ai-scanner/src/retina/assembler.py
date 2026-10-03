@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from .collector  import extract_dimensions
@@ -51,6 +52,10 @@ _SCAN_PREFIX      = "ocsf/agent/scans"
 _RETINA_PREFIX    = "ocsf/agent/retina"
 _AGENTS_PREFIX    = "config/HOOK_AGENTS"
 _HEARTBEAT_PREFIX = "ocsf/agent/heartbeats"
+
+# Force a Hub re-POST after this many seconds even when the hash is unchanged,
+# so last_scan_at stays fresh and the device never shows as stale in the UI.
+_FORCE_REPOST_SECS = 23 * 3600  # 23 hours
 
 
 class RetinaAssembler:
@@ -106,9 +111,15 @@ class RetinaAssembler:
         norm_dims  = normalise(raw_dims)
         new_hash   = compute_hash(norm_dims)
 
-        # Skip if hash unchanged since last post.
-        last_hash  = self._read_last_hash(patron_token)
-        if last_hash == new_hash:
+        # Skip if hash unchanged AND last post is recent enough.
+        # If hash is unchanged but it has been > _FORCE_REPOST_SECS since the
+        # last Hub POST, we re-POST anyway so last_scan_at stays fresh and the
+        # device does not appear stale in the UI despite being actively scanned.
+        last_record  = self._read_last_record(patron_token)
+        last_hash    = last_record.get("retina_hash", "")
+        last_posted  = last_record.get("posted_at", 0)
+        age_secs     = time.time() - last_posted
+        if last_hash == new_hash and age_secs < _FORCE_REPOST_SECS:
             return "unchanged"
 
         # Read per-agent device metadata from that agent's own heartbeat record.
@@ -137,6 +148,7 @@ class RetinaAssembler:
                 _log.info("retina posted for agent %s hash %s",
                           patron_token[:8], new_hash[:12])
                 return "posted"
+
             _log.warning("retina posted to Hub but hash persist failed for %s",
                          patron_token[:8])
         return "error"
@@ -179,14 +191,17 @@ class RetinaAssembler:
             _log.debug("scan read failed for %s: %s", token[:8], e)
             return None
 
-    def _read_last_hash(self, token: str) -> str:
+    def _read_last_record(self, token: str) -> dict:
+        """Read the last-posted record {retina_hash, posted_at} from S3.
+
+        posted_at is a Unix timestamp (float). Returns empty dict on miss,
+        which causes age_secs to be huge → forces a re-POST on first cycle.
+        """
         try:
             raw = self._store._get(f"{_RETINA_PREFIX}/{token}/last.json")
-            if raw:
-                return json.loads(raw).get("retina_hash", "")
+            return json.loads(raw) if raw else {}
         except Exception:
-            pass
-        return ""
+            return {}
 
     def _read_heartbeat(self, token: str) -> dict:
         """Read the agent's own heartbeat record from S3.
@@ -205,9 +220,12 @@ class RetinaAssembler:
             return {}
 
     def _write_last_hash(self, token: str, retina_hash: str) -> bool:
-        """Write the last posted hash to S3. Returns True on success."""
+        """Write {retina_hash, posted_at} to S3. Returns True on success."""
         try:
-            payload = json.dumps({"retina_hash": retina_hash}).encode()
+            payload = json.dumps({
+                "retina_hash": retina_hash,
+                "posted_at": time.time(),
+            }).encode()
             self._store._put(
                 f"{_RETINA_PREFIX}/{token}/last.json",
                 payload,
