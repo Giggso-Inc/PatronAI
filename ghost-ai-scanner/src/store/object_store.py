@@ -151,6 +151,8 @@ class S3ObjectStore(ObjectStore):
             request_checksum_calculation="when_required",
             response_checksum_validation="when_required",
             retries={"max_attempts": 3, "mode": "standard"},
+            connect_timeout=5,
+            read_timeout=10,
         )
         kwargs: dict[str, Any] = {
             "region_name": os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1",
