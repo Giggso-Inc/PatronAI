@@ -143,12 +143,18 @@ Unique on `(bucket, object_key)`.
 **Verified sources only** (never client-controlled JSON body — spoofing risk):
 
 1. Explicit `actor_email=` / `actor_user_id=` on `record_object_put` / `BaseStore._put`
+   (e.g. `UsersStore.upsert(added_by=…)`, `UsersStore.remove(removed_by=…)`,
+   `SettingsStore.write(written_by=email)`)
 2. Request-scoped context: Raven identity / `resolve_actor` → `set_object_actor`
-3. `with object_actor(email=…)` (e.g. chat history, UsersStore `added_by`)
+3. Streamlit dashboard auth gates (`dashboard/ui/auth_gate.py`, `dashboard/auth.py`)
+   call `set_object_actor(email=…)` on every authenticated rerun so **all**
+   `BaseStore` subclasses (`agent_store`, `settings_store`, `findings_store`, …)
+   inherit the logged-in admin without per-store `actor_email=` kwargs
+4. `with object_actor(email=…)` (e.g. chat history)
 
-If none apply, `actor_email` / `actor_user_id` stay `NULL`. The object is still
-recorded (hash + key + time). Payload fields like `recipient_email` are **not**
-copied into `actor_email`.
+If none apply (scanner/ingestor/system jobs with no human session), `actor_email`
+/ `actor_user_id` stay `NULL`. The object is still recorded (hash + key + time).
+Payload fields like `recipient_email` are **not** copied into `actor_email`.
 
 ### 3.4 Privacy / retention
 

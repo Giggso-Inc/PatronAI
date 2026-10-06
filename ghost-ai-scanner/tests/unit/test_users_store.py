@@ -26,6 +26,24 @@ sys.path.insert(0, str(REPO / "src"))
 
 def _make_store(initial_payload=None):
     """Build a UsersStore where _get returns initial_payload (None=missing)."""
+    import importlib.util
+    # Load users_store without store/__init__.py (avoids polars on bare envs).
+    if "store.users_store" not in sys.modules:
+        pkg = sys.modules.setdefault("store", type(sys)("store"))
+        pkg.__path__ = [str(REPO / "src" / "store")]
+        bs = type(sys)("store.base_store")
+
+        class _Base:
+            pass
+
+        bs.BaseStore = _Base
+        sys.modules["store.base_store"] = bs
+        path = REPO / "src" / "store" / "users_store.py"
+        spec = importlib.util.spec_from_file_location("store.users_store", path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["store.users_store"] = mod
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
     from store.users_store import UsersStore
     s = UsersStore.__new__(UsersStore)
     s.bucket = "test-bucket"
@@ -152,6 +170,15 @@ def test_remove_deletes_user():
     assert ok is True
     body = json.loads(s._put.call_args[0][1])
     assert "alice@x.com" not in body
+
+
+def test_remove_passes_removed_by_as_actor_email():
+    s = _make_store({"alice@x.com": {"role": "manager", "is_admin": False,
+                                      "added_at": "2026-04-26T00:00:00Z",
+                                      "added_by": "admin"}})
+    s.remove("alice@x.com", removed_by="Admin@Corp.com")
+    kwargs = s._put.call_args.kwargs
+    assert kwargs.get("actor_email") == "admin@corp.com"
 
 
 def test_remove_missing_user_is_noop():

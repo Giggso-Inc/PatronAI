@@ -89,16 +89,22 @@ class UsersStore(BaseStore):
             actor_email=actor or None,
         )
 
-    def remove(self, email: str) -> bool:
+    def remove(self, email: str, removed_by: str = "") -> bool:
         """Delete a user. No-op if not present. Returns True on success."""
         email = (email or "").strip().lower()
         users = self.read_all()
         if email not in users:
             return True
         users.pop(email, None)
-        return self._put(USERS_KEY,
-                         json.dumps(users, indent=2).encode(),
-                         "application/json")
+        actor = (removed_by or "").strip().lower()
+        if actor == "migration":
+            actor = ""
+        return self._put(
+            USERS_KEY,
+            json.dumps(users, indent=2).encode(),
+            "application/json",
+            actor_email=actor or None,
+        )
 
     def is_authorised(self, email: str) -> bool:
         """Quick yes/no — used by the auth gate."""

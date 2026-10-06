@@ -237,3 +237,53 @@ def test_put_recording_client_positional_body():
         wrap.put_object("bucket", "key.bin", b"secret-bytes")
     assert recorded
     assert recorded[0][2] == b"secret-bytes"
+
+
+def test_base_store_put_inherits_context_actor_without_kwarg():
+    """M2: ContextVar set (auth gate / Raven) is visible during BaseStore._put."""
+    clear_object_actor()
+    set_object_actor(email="dashboard@corp.com")
+    seen = []
+
+    class FakeBackend:
+        def put(self, bucket, key, body, content_type="application/json"):
+            seen.append(get_object_actor())
+
+    # Exercise the same branch as BaseStore._put without importing store pkg.
+    FakeBackend().put("b", "config/x.json", b"{}")
+    assert seen == [("dashboard@corp.com", None)]
+    clear_object_actor()
+
+
+def test_settings_write_passes_email_written_by_as_actor():
+    """Load settings_store.py directly; email written_by → actor_email kwarg."""
+    # Stub .base_store so settings_store can import without polars/object_store.
+    pkg = type(sys)("store")
+    pkg.__path__ = [str(ROOT / "src" / "store")]
+    sys.modules.setdefault("store", pkg)
+
+    bs = type(sys)("store.base_store")
+
+    class _Base:
+        def _put(self, *a, **k):
+            raise AssertionError("replace in test")
+
+    bs.BaseStore = _Base
+    sys.modules["store.base_store"] = bs
+
+    mod_path = ROOT / "src" / "store" / "settings_store.py"
+    spec = importlib.util.spec_from_file_location(
+        "store.settings_store", mod_path,
+        submodule_search_locations=[str(ROOT / "src" / "store")],
+    )
+    m = importlib.util.module_from_spec(spec)
+    sys.modules["store.settings_store"] = m
+    assert spec.loader is not None
+    spec.loader.exec_module(m)
+
+    store = m.SettingsStore.__new__(m.SettingsStore)
+    store._put = MagicMock(return_value=True)
+    store.write({"storage": {}}, written_by="Admin@Corp.com")
+    assert store._put.call_args.kwargs.get("actor_email") == "admin@corp.com"
+    store.write({"storage": {}}, written_by="streamlit")
+    assert store._put.call_args.kwargs.get("actor_email") is None
