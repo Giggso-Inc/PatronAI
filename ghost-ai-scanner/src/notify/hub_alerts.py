@@ -196,9 +196,29 @@ def emit_tamper(
     user: str = "", device: str = "",
 ) -> bool:
     """Integrity failure on Patron agent files/folders (admins + developer)."""
+    from datetime import datetime, timezone
+
     pl = dict(payload or {})
     pl.setdefault("messaging_event", "patron_tamper")
+    # Action-specific product event so matrix picks modified/deleted/added/base_fail.
+    et = str(pl.get("event_type") or "").strip().upper()
+    if et:
+        suffix = {
+            "MODIFIED": "modified",
+            "DELETED": "deleted",
+            "ADDED": "added",
+            "BASE_FAIL": "base_fail",
+            "WATCH_DIE": "watch_die",
+        }.get(et, "modified")
+        pl["messaging_event"] = f"patron_tamper_{suffix}"
     pl.setdefault("resource", pl.get("file_path") or detail or "tamper")
     pl.setdefault("resource_kind", "antitamper")
+    if user:
+        pl.setdefault("user", user)
+        pl.setdefault("user_email", user)
+    pl.setdefault(
+        "timestamp",
+        datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
     return _emit(org, "patron_tamper", event_id, detail or "Patron agent tamper",
                  payload=pl, user=user, device=device)
