@@ -26,7 +26,7 @@ def _infer_kind(tool: str, outcome: str = "") -> str:
 
 def _emit(org: str, code: str, event_id: str, detail: str = "",
           payload: dict | None = None,
-          user: str = "", device: str = "") -> None:
+          user: str = "", device: str = "") -> bool:
     # Prefer raven_be when cut over; fall back to Hub (which may forward).
     be = (os.environ.get("RAVEN_AUTH_URL") or os.environ.get("RAVEN_BE_URL") or "").rstrip("/")
     hub = (os.environ.get("RAVEN_HUB_URL") or "").rstrip("/")
@@ -35,14 +35,14 @@ def _emit(org: str, code: str, event_id: str, detail: str = "",
     elif hub:
         base, path = hub, "/api/v1/alerts/events"
     else:
-        return
+        return False
     key = os.environ.get("RAVEN_AGENT_KEY", "")
     try:
         from .hub_licence_gate import note_error, should_skip
     except ImportError:
         from hub_licence_gate import note_error, should_skip  # type: ignore
     if should_skip(base, key):
-        return
+        return False
     pl = dict(payload or {})
     if user:
         pl.setdefault("user", user)
@@ -66,10 +66,12 @@ def _emit(org: str, code: str, event_id: str, detail: str = "",
                      **({"X-Raven-Agent": key} if key else {})},
         )
         urllib.request.urlopen(req, timeout=8)
+        return True
     except Exception as e:
         if note_error(e):
-            return
+            return False
         _log.warning("patron hub emit failed: %s", e)
+        return False
 
 
 def emit_shadow_discovered(
@@ -186,3 +188,17 @@ def emit_pending_decisions(
               "threshold_days": days,
               "messaging_event": code,
           })
+
+
+def emit_tamper(
+    org: str, event_id: str, detail: str = "",
+    payload: dict | None = None,
+    user: str = "", device: str = "",
+) -> bool:
+    """Integrity failure on Patron agent files/folders (admins + developer)."""
+    pl = dict(payload or {})
+    pl.setdefault("messaging_event", "patron_tamper")
+    pl.setdefault("resource", pl.get("file_path") or detail or "tamper")
+    pl.setdefault("resource_kind", "antitamper")
+    return _emit(org, "patron_tamper", event_id, detail or "Patron agent tamper",
+                 payload=pl, user=user, device=device)
