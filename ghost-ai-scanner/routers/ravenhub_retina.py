@@ -26,10 +26,13 @@
 
 from __future__ import annotations
 
+import os
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
+
+from store.agent_store import AgentStore
 
 # patron_token is always a UUID (hex digits and hyphens). Enforcing this
 # here prevents path-traversal attacks where a caller passes "../../../..."
@@ -45,12 +48,25 @@ def _validate_token(patron_token: str) -> str:
 router = APIRouter()
 
 
-def _get_store(request: Request):
-    """Pull the AgentStore from the app state (set in api.py startup)."""
-    store = getattr(request.app.state, "agent_store", None)
-    if store is None:
-        raise HTTPException(500, "agent_store not initialised")
-    return store
+def _get_store() -> AgentStore:
+    """Build the AgentStore from env vars for the retina link endpoints.
+
+    Mirrors api.py's own _get_store() pattern. app.state.agent_store is
+    never populated at startup, so pulling from there always 500s; this
+    builds the store directly instead.
+
+    Returns:
+        AgentStore: Backed by MARAUDER_SCAN_BUCKET in AWS_REGION.
+
+    Raises:
+        HTTPException: 503 if MARAUDER_SCAN_BUCKET is not configured — matches
+            api.py's own _get_store() for the same condition.
+    """
+    bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
+    if not bucket:
+        raise HTTPException(503, "MARAUDER_SCAN_BUCKET not configured")
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    return AgentStore(bucket, region)
 
 
 class LinkPayload(BaseModel):
