@@ -255,29 +255,35 @@ def test_base_store_put_inherits_context_actor_without_kwarg():
     clear_object_actor()
 
 
-def test_settings_write_passes_email_written_by_as_actor():
-    """Load settings_store.py directly; email written_by → actor_email kwarg."""
-    # Stub .base_store so settings_store can import without polars/object_store.
+def test_settings_write_passes_email_written_by_as_actor(monkeypatch):
+    """Email written_by → actor_email kwarg; labels like streamlit stay None.
+
+    C1: use monkeypatch.setitem so stubbed sys.modules entries are restored
+    after the test — bare assignment permanently broke later suites
+    (e.g. test_retina_assembler_blobstore).
+    """
     pkg = type(sys)("store")
     pkg.__path__ = [str(ROOT / "src" / "store")]
-    sys.modules.setdefault("store", pkg)
+    monkeypatch.setitem(sys.modules, "store", pkg)
 
     bs = type(sys)("store.base_store")
 
     class _Base:
-        def _put(self, *a, **k):
-            raise AssertionError("replace in test")
+        pass
 
     bs.BaseStore = _Base
-    sys.modules["store.base_store"] = bs
+    monkeypatch.setitem(sys.modules, "store.base_store", bs)
 
     mod_path = ROOT / "src" / "store" / "settings_store.py"
+    # Real dotted name so relative `from .base_store` resolves; monkeypatch
+    # restores the prior sys.modules entry (or deletes) after the test.
     spec = importlib.util.spec_from_file_location(
-        "store.settings_store", mod_path,
+        "store.settings_store",
+        mod_path,
         submodule_search_locations=[str(ROOT / "src" / "store")],
     )
     m = importlib.util.module_from_spec(spec)
-    sys.modules["store.settings_store"] = m
+    monkeypatch.setitem(sys.modules, "store.settings_store", m)
     assert spec.loader is not None
     spec.loader.exec_module(m)
 

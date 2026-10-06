@@ -17,20 +17,36 @@
 
 import json
 import sys
+import importlib.util
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
+_UsersStoreCls = None
 
-def _make_store(initial_payload=None):
-    """Build a UsersStore where _get returns initial_payload (None=missing)."""
-    import importlib.util
-    # Load users_store without store/__init__.py (avoids polars on bare envs).
-    if "store.users_store" not in sys.modules:
-        pkg = sys.modules.setdefault("store", type(sys)("store"))
+
+def _load_users_store_cls():
+    """Import UsersStore without permanently poisoning sys.modules (PR #64 C1)."""
+    global _UsersStoreCls
+    if _UsersStoreCls is not None:
+        return _UsersStoreCls
+
+    # Prefer the real package when deps (polars) are available — CI path.
+    try:
+        from store.users_store import UsersStore as _Cls
+        _UsersStoreCls = _Cls
+        return _UsersStoreCls
+    except ModuleNotFoundError:
+        pass
+
+    stub_keys = ("store", "store.base_store", "store.users_store")
+    saved = {k: sys.modules[k] for k in stub_keys if k in sys.modules}
+    try:
+        pkg = type(sys)("store")
         pkg.__path__ = [str(REPO / "src" / "store")]
+        sys.modules["store"] = pkg
         bs = type(sys)("store.base_store")
 
         class _Base:
@@ -44,7 +60,19 @@ def _make_store(initial_payload=None):
         sys.modules["store.users_store"] = mod
         assert spec.loader is not None
         spec.loader.exec_module(mod)
-    from store.users_store import UsersStore
+        _UsersStoreCls = mod.UsersStore
+        return _UsersStoreCls
+    finally:
+        for k in stub_keys:
+            if k in saved:
+                sys.modules[k] = saved[k]
+            else:
+                sys.modules.pop(k, None)
+
+
+def _make_store(initial_payload=None):
+    """Build a UsersStore where _get returns initial_payload (None=missing)."""
+    UsersStore = _load_users_store_cls()
     s = UsersStore.__new__(UsersStore)
     s.bucket = "test-bucket"
     s.region = "us-east-1"
