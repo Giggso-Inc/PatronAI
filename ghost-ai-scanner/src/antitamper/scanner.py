@@ -93,8 +93,13 @@ def _sign_key() -> bytes:
     tok = (
         os.environ.get("RAVEN_AGENT_KEY")
         or os.environ.get("PATRON_AGENT_TOKEN")
-        or f"patron-local:{socket.gethostname()}"
-    )
+        or ""
+    ).strip()
+    if not tok:
+        raise RuntimeError(
+            "RAVEN_AGENT_KEY or PATRON_AGENT_TOKEN is required for antitamper "
+            "baseline signing (hostname fallback removed — not a secret)"
+        )
     return tok.encode("utf-8")
 
 
@@ -102,11 +107,54 @@ def _sign(body: str) -> str:
     return hmac.new(_sign_key(), body.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def build_baseline() -> Path:
+def _latest_signed_baseline() -> tuple[Path | None, dict | None]:
+    """Most recent signed baseline under BASELINE_ROOT (any version)."""
+    if not BASELINE_ROOT.is_dir():
+        return None, None
+    dirs = sorted(
+        (p for p in BASELINE_ROOT.iterdir() if p.is_dir()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for d in dirs:
+        try:
+            body = (d / "manifest.json").read_text(encoding="utf-8")
+            sig = (d / "manifest.sig").read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        try:
+            if not hmac.compare_digest(sig, _sign(body)):
+                continue
+            return d, json.loads(body)
+        except (ValueError, RuntimeError):
+            continue
+    return None, None
+
+
+def build_baseline(*, force: bool = False) -> Path:
     """Hash + copy protected files into version-stamped golden store.
 
     Call only from official install/upgrade. Does not emit tamper events.
+    Refuses to absorb a dirty live tree vs a prior signed baseline unless
+    force=True or ANTITAMPER_FORCE_BASELINE=1 (upgrade scripts after a
+    verified clean install tree).
     """
+    _ = _sign_key()  # fail closed without a real signing secret
+    prior_dir, prior = _latest_signed_baseline()
+    allow_force = force or (os.environ.get("ANTITAMPER_FORCE_BASELINE") or "").strip() in {
+        "1", "true", "TRUE", "yes", "YES",
+    }
+    if prior and not allow_force:
+        dirty = [f for f in scan(prior) if f[1] in {"MODIFIED", "DELETED"}]
+        if dirty:
+            sample = ", ".join(f[0] for f in dirty[:5])
+            raise RuntimeError(
+                f"refusing to re-baseline: {len(dirty)} file(s) diverge from "
+                f"prior golden at {prior_dir} ({sample}). Restore first, or "
+                "pass force=True / ANTITAMPER_FORCE_BASELINE=1 only after a "
+                "verified official upgrade tree."
+            )
+
     d = BASELINE_ROOT / _version()
     if d.exists():
         shutil.rmtree(d, ignore_errors=True)
@@ -145,7 +193,10 @@ def load_baseline() -> tuple[Path | None, dict | None, bool]:
         manifest = json.loads(body)
     except ValueError:
         return None, None, False
-    return d, manifest, hmac.compare_digest(sig, _sign(body))
+    try:
+        return d, manifest, hmac.compare_digest(sig, _sign(body))
+    except RuntimeError:
+        return d, manifest, False
 
 
 def scan(manifest: dict) -> list[tuple[str, str, str | None, str | None]]:
@@ -167,12 +218,32 @@ def scan(manifest: dict) -> list[tuple[str, str, str | None, str | None]]:
     return findings
 
 
+def _contained_under(root: Path, candidate: Path) -> bool:
+    try:
+        candidate.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def restore(baseline_dir: Path, rel: str) -> bool:
-    src = baseline_dir / "files" / rel
-    if not src.is_file():
+    """Copy a golden file back into the install tree.
+
+    Rejects path traversal (``..``, absolute rel) so a malicious rel cannot
+    write outside INSTALL_ROOT or read outside baseline/files.
+    """
+    rel_path = Path(rel)
+    if rel_path.is_absolute() or ".." in rel_path.parts:
+        return False
+    files_root = (baseline_dir / "files").resolve()
+    src = (files_root / rel_path).resolve()
+    if not _contained_under(files_root, src) or not src.is_file():
+        return False
+    install_root = INSTALL_ROOT.resolve()
+    dst = (install_root / rel_path).resolve()
+    if not _contained_under(install_root, dst):
         return False
     try:
-        dst = INSTALL_ROOT / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
         return True
@@ -311,6 +382,11 @@ if __name__ == "__main__":
 
     ap = argparse.ArgumentParser(description="Patron anti-tamper scanner")
     ap.add_argument("--baseline", action="store_true", help="Build golden baseline (upgrade path)")
+    ap.add_argument(
+        "--force",
+        action="store_true",
+        help="Allow re-baseline when live tree diverges from prior golden (official upgrade only)",
+    )
     ap.add_argument("--once", action="store_true", help="Single scan pass")
     ap.add_argument("--interval", type=int, default=30)
     ap.add_argument("--no-restore", action="store_true")
@@ -319,7 +395,7 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     if args.baseline:
-        path = build_baseline()
+        path = build_baseline(force=args.force)
         print(f"baseline written: {path}")
         try:
             from antitamper.ledger import upsert_enrollment

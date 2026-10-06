@@ -76,3 +76,27 @@ def test_baseline_sig_break_reported(install_tree):
     assert not sig_ok
     findings = sc.run_once(persist=False, emit=False)
     assert findings[0]["event_type"] == "BASE_FAIL"
+
+
+def test_sign_key_requires_secret(install_tree, monkeypatch):
+    monkeypatch.delenv("RAVEN_AGENT_KEY", raising=False)
+    monkeypatch.delenv("PATRON_AGENT_TOKEN", raising=False)
+    with pytest.raises(RuntimeError, match="required"):
+        sc._sign_key()
+
+
+def test_restore_rejects_path_traversal(install_tree):
+    d = sc.build_baseline()
+    assert sc.restore(d, "../outside.txt") is False
+    assert sc.restore(d, "..\\outside.txt") is False
+
+
+def test_rebaseline_refuses_dirty_tree(install_tree):
+    root, target = install_tree
+    sc.build_baseline()
+    target.write_text("SAFE = TAMPERED\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="refusing to re-baseline"):
+        sc.build_baseline()
+    # Official upgrade escape hatch after verified clean tree
+    target.write_text("SAFE = True\n", encoding="utf-8")
+    sc.build_baseline(force=True)
