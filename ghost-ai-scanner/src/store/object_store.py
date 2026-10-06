@@ -94,6 +94,56 @@ def storage_is_configured() -> bool:
     return storage_config_present_on_disk()
 
 
+
+def _record_put(bucket: str, key: str, body: bytes, content_type: str, mode: str) -> None:
+    """Best-effort content-hash ledger write; never blocks storage."""
+    try:
+        from db.object_blob_ledger import record_object_put
+        record_object_put(
+            bucket=bucket,
+            key=key,
+            body=body,
+            content_type=content_type,
+            storage_mode=mode,
+        )
+    except Exception as exc:
+        _log.debug("object_blob ledger unavailable: %s", exc)
+
+
+class _PutRecordingClient:
+    """Wrap a boto3 S3 client so put_object also lands in object_blobs."""
+
+    def __init__(self, client: Any, mode: str = "s3"):
+        self._client = client
+        self._mode = mode
+
+    def put_object(self, *args: Any, **kwargs: Any) -> Any:
+        # Snapshot body before boto3 consumes file-like streams.
+        body = kwargs.get("Body", b"")
+        if hasattr(body, "read"):
+            try:
+                body = body.read()
+            except Exception:
+                body = b""
+        if isinstance(body, str):
+            body = body.encode("utf-8")
+        raw = body if isinstance(body, (bytes, bytearray)) else bytes(body or b"")
+        if "Body" in kwargs:
+            kwargs = {**kwargs, "Body": raw}
+        resp = self._client.put_object(*args, **kwargs)
+        try:
+            bucket = kwargs.get("Bucket") or (args[0] if args else "")
+            key = kwargs.get("Key") or (args[1] if len(args) > 1 else "")
+            ctype = kwargs.get("ContentType") or "application/octet-stream"
+            _record_put(str(bucket or ""), str(key or ""), bytes(raw), str(ctype), self._mode)
+        except Exception as exc:
+            _log.debug("put_object ledger skip: %s", exc)
+        return resp
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+
 class ObjectStore:
     mode: str = "s3"
 
@@ -101,6 +151,11 @@ class ObjectStore:
         raise NotImplementedError
 
     def put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
+        data = body if isinstance(body, (bytes, bytearray)) else bytes(body or b"")
+        self._put(bucket, key, data, content_type)
+        _record_put(bucket, key, bytes(data), content_type, getattr(self, "mode", "s3"))
+
+    def _put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
         raise NotImplementedError
 
     def delete(self, bucket: str, key: str) -> None:
@@ -168,14 +223,15 @@ class S3ObjectStore(ObjectStore):
             kwargs["aws_access_key_id"] = access
         if secret:
             kwargs["aws_secret_access_key"] = secret
-        self.client = boto3.client("s3", **kwargs)
+        self._client = boto3.client("s3", **kwargs)
         self.mode = "local" if path or mode == "local" else "s3"
+        self.client = _PutRecordingClient(self._client, mode=self.mode)
 
     def get(self, bucket: str, key: str) -> bytes:
-        return self.client.get_object(Bucket=bucket, Key=key)["Body"].read()
+        return self._client.get_object(Bucket=bucket, Key=key)["Body"].read()
 
-    def put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
-        self.client.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
+    def _put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
+        self._client.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
 
     def delete(self, bucket: str, key: str) -> None:
         self.client.delete_object(Bucket=bucket, Key=key)
@@ -235,7 +291,7 @@ class AzureObjectStore(ObjectStore):
     def get(self, bucket: str, key: str) -> bytes:
         return self.service.get_blob_client(container=bucket, blob=key).download_blob().readall()
 
-    def put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
+    def _put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
         self.service.get_blob_client(container=bucket, blob=key).upload_blob(body, overwrite=True)
 
     def delete(self, bucket: str, key: str) -> None:
@@ -285,7 +341,7 @@ class GcsObjectStore(ObjectStore):
     def get(self, bucket: str, key: str) -> bytes:
         return self.client.bucket(bucket).blob(key).download_as_bytes()
 
-    def put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
+    def _put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
         self.client.bucket(bucket).blob(key).upload_from_string(body, content_type=content_type)
 
     def delete(self, bucket: str, key: str) -> None:
@@ -536,6 +592,8 @@ def get_object_store(force: bool = False) -> ObjectStore:
         else:
             _store = S3ObjectStore()
             _store.mode = mode
+            if isinstance(getattr(_store, "client", None), _PutRecordingClient):
+                _store.client._mode = mode
         _log.info("Patron object store mode=%s", _store.mode)
     return _store
 

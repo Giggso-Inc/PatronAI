@@ -55,4 +55,10 @@ def verify_ravenhub_identity(
     email = payload.get("email")
     if not email:
         raise HTTPException(status_code=401, detail="Identity token missing email claim")
-    return str(email).strip().lower()
+    email = str(email).strip().lower()
+    try:
+        from db.object_blob_ledger import set_object_actor
+        set_object_actor(email=email)
+    except Exception:
+        pass
+    return email

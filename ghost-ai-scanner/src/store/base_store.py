@@ -1,9 +1,11 @@
 # =============================================================
 # FILE: src/store/base_store.py
-# VERSION: 1.3.0
-# UPDATED: 2026-08-05
+# VERSION: 1.4.0
+# UPDATED: 2026-10-06
 # PURPOSE: Shared base class for all store modules — multi-cloud
 #          (S3/MinIO, Azure Blob, GCS) via object_store backends.
+#          _put goes through ObjectStore.put which records content
+#          hashes into the policy-DB object_blobs ledger (fail-open).
 # =============================================================
 
 import os
