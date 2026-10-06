@@ -151,8 +151,10 @@ class S3ObjectStore(ObjectStore):
             request_checksum_calculation="when_required",
             response_checksum_validation="when_required",
             retries={"max_attempts": 3, "mode": "standard"},
-            connect_timeout=5,
-            read_timeout=10,
+            # Env-tunable: large scan uploads/list pages may need more headroom
+            # than the small per-agent meta/status reads this was sized for.
+            connect_timeout=int(os.environ.get("S3_CONNECT_TIMEOUT_SECS", "5")),
+            read_timeout=int(os.environ.get("S3_READ_TIMEOUT_SECS", "10")),
         )
         kwargs: dict[str, Any] = {
             "region_name": os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1",

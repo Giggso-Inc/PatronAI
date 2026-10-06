@@ -26,9 +26,8 @@
 
 from __future__ import annotations
 
-import re
-
 import os
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
@@ -60,11 +59,12 @@ def _get_store() -> AgentStore:
         AgentStore: Backed by MARAUDER_SCAN_BUCKET in AWS_REGION.
 
     Raises:
-        HTTPException: 500 if MARAUDER_SCAN_BUCKET is not configured.
+        HTTPException: 503 if MARAUDER_SCAN_BUCKET is not configured — matches
+            api.py's own _get_store() for the same condition.
     """
     bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
     if not bucket:
-        raise HTTPException(500, "MARAUDER_SCAN_BUCKET not configured")
+        raise HTTPException(503, "MARAUDER_SCAN_BUCKET not configured")
     region = os.environ.get("AWS_REGION", "us-east-1")
     return AgentStore(bucket, region)
 
