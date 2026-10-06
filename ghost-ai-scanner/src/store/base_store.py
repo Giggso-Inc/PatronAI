@@ -56,10 +56,28 @@ class BaseStore:
             log.error(f"object get failed [{key}]: {e}")
             return b""
 
-    def _put(self, key: str, body: bytes, content_type: str = "application/json") -> bool:
-        """Write bytes. Returns True on success."""
+    def _put(
+        self,
+        key: str,
+        body: bytes,
+        content_type: str = "application/json",
+        *,
+        actor_email: str | None = None,
+        actor_user_id=None,
+    ) -> bool:
+        """Write bytes. Returns True on success.
+
+        Optional actor_* binds the object-blob ledger for this put only
+        (restores prior context afterward). Prefer request-scoped
+        ``set_object_actor`` / ``object_actor`` for Raven paths.
+        """
         try:
-            self._store.put(self.bucket, key, body, content_type=content_type)
+            if actor_email or actor_user_id is not None:
+                from db.object_blob_ledger import object_actor
+                with object_actor(email=actor_email, user_id=actor_user_id):
+                    self._store.put(self.bucket, key, body, content_type=content_type)
+            else:
+                self._store.put(self.bucket, key, body, content_type=content_type)
             return True
         except Exception as e:
             log.error(f"object put failed [{key}]: {e}")

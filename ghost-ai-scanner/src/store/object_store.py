@@ -119,7 +119,13 @@ class _PutRecordingClient:
 
     def put_object(self, *args: Any, **kwargs: Any) -> Any:
         # Snapshot body before boto3 consumes file-like streams.
-        body = kwargs.get("Body", b"")
+        # Support both keyword and positional Body (Bucket, Key, Body, ...).
+        if "Body" in kwargs:
+            body = kwargs.get("Body", b"")
+        elif len(args) >= 3:
+            body = args[2]
+        else:
+            body = b""
         if hasattr(body, "read"):
             try:
                 body = body.read()
@@ -130,6 +136,8 @@ class _PutRecordingClient:
         raw = body if isinstance(body, (bytes, bytearray)) else bytes(body or b"")
         if "Body" in kwargs:
             kwargs = {**kwargs, "Body": raw}
+        elif len(args) >= 3:
+            args = (args[0], args[1], raw, *args[3:])
         resp = self._client.put_object(*args, **kwargs)
         try:
             bucket = kwargs.get("Bucket") or (args[0] if args else "")

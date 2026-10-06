@@ -79,9 +79,15 @@ class UsersStore(BaseStore):
                                      datetime.now(timezone.utc).isoformat()),
             "added_by": existing.get("added_by", added_by or "admin"),
         }
-        return self._put(USERS_KEY,
-                         json.dumps(users, indent=2).encode(),
-                         "application/json")
+        actor = (added_by or existing.get("added_by") or "").strip().lower()
+        if actor == "migration":
+            actor = ""
+        return self._put(
+            USERS_KEY,
+            json.dumps(users, indent=2).encode(),
+            "application/json",
+            actor_email=actor or None,
+        )
 
     def remove(self, email: str) -> bool:
         """Delete a user. No-op if not present. Returns True on success."""

@@ -32,47 +32,49 @@ def test_content_sha256_and_file_name():
     assert file_name_from_key("users/users.json") == "users.json"
 
 
-def test_object_actor_contextvar():
+def test_object_actor_restores_prior_context():
     clear_object_actor()
     uid = uuid.uuid4()
     set_object_actor(email="Alice@Example.com", user_id=uid)
     assert get_object_actor() == ("alice@example.com", uid)
     with object_actor(email="bob@ex.com"):
         assert get_object_actor()[0] == "bob@ex.com"
+    assert get_object_actor() == ("alice@example.com", uid)
     clear_object_actor()
+    assert get_object_actor() == (None, None)
+
+
+class _Sess:
+    """Session stub: upsert via execute(), audit via add()."""
+
+    def __init__(self):
+        self.audits = []
+        self.upsert_stmts = []
+        self.committed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, stmt):
+        self.upsert_stmts.append(stmt)
+        return MagicMock()
+
+    def add(self, row):
+        self.audits.append(row)
+
+    def commit(self):
+        self.committed = True
 
 
 def test_record_put_upserts_and_appends_audit():
     clear_object_actor()
     uid = uuid.uuid4()
     set_object_actor(email="writer@ex.com", user_id=uid)
+    sess = _Sess()
 
-    existing = None
-    captured = {"audits": []}
-
-    class Sess:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-        def execute(self, stmt):
-            res = MagicMock()
-            res.scalar_one_or_none.return_value = existing
-            return res
-
-        def add(self, row):
-            # ObjectBlob has content_hash; audit has actor_email
-            if hasattr(row, "actor_email") or row.__class__.__name__ == "ObjectBlobAudit":
-                captured["audits"].append(row)
-            else:
-                captured["blob"] = row
-
-        def commit(self):
-            captured["committed"] = True
-
-    sess = Sess()
     with patch("db.engine.get_session", return_value=sess):
         ledger._record_object_put_inner(
             bucket="bkt",
@@ -84,21 +86,22 @@ def test_record_put_upserts_and_appends_audit():
             actor_user_id=None,
         )
 
-    blob = captured["blob"]
-    assert blob.file_name == "2026-10-06.jsonl"
-    assert blob.content_hash == hashlib.sha256(
-        b'{"email":"ignored@ex.com","ok":true}'
-    ).hexdigest()
-    assert blob.created_by == "writer@ex.com"
-    assert len(captured["audits"]) == 1
-    audit = captured["audits"][0]
+    assert len(sess.upsert_stmts) == 1
+    assert len(sess.audits) == 1
+    audit = sess.audits[0]
     assert audit.actor_email == "writer@ex.com"
+    assert audit.actor_user_id == uid
     assert audit.subject_key_hash == "abcdef0123456789"
     assert audit.object_key.endswith("2026-10-06.jsonl")
-    assert captured.get("committed") is True
+    assert audit.content_hash == hashlib.sha256(
+        b'{"email":"ignored@ex.com","ok":true}'
+    ).hexdigest()
+    assert sess.committed is True
 
-    # Update path + new audit row
-    existing = blob
+    # Second put appends another audit; first audit row unchanged (append-only).
+    first = sess.audits[0]
+    first_hash = first.content_hash
+    first_actor = first.actor_email
     set_object_actor(email="editor@ex.com")
     with patch("db.engine.get_session", return_value=sess):
         ledger._record_object_put_inner(
@@ -110,50 +113,64 @@ def test_record_put_upserts_and_appends_audit():
             actor_email=None,
             actor_user_id=None,
         )
-    assert existing.content_hash == hashlib.sha256(b"v2").hexdigest()
-    assert existing.updated_by == "editor@ex.com"
-    assert existing.created_by == "writer@ex.com"
-    assert len(captured["audits"]) == 2
+    assert len(sess.audits) == 2
+    assert sess.audits[0].content_hash == first_hash
+    assert sess.audits[0].actor_email == first_actor
+    assert sess.audits[1].actor_email == "editor@ex.com"
+    assert sess.audits[1].content_hash == hashlib.sha256(b"v2").hexdigest()
     clear_object_actor()
 
 
-def test_infer_email_from_json_body_when_no_actor():
+def test_explicit_actor_email_overrides_context():
     clear_object_actor()
-    captured = {"audits": []}
+    set_object_actor(email="ctx@ex.com")
+    sess = _Sess()
+    with patch("db.engine.get_session", return_value=sess):
+        ledger._record_object_put_inner(
+            bucket="bkt",
+            key="k.json",
+            body=b"{}",
+            content_type="application/json",
+            storage_mode="s3",
+            actor_email="Explicit@Ex.com",
+            actor_user_id=None,
+        )
+    assert sess.audits[0].actor_email == "explicit@ex.com"
+    clear_object_actor()
 
-    class Sess:
-        def __enter__(self):
-            return self
 
-        def __exit__(self, *a):
-            return False
-
-        def execute(self, stmt):
-            res = MagicMock()
-            res.scalar_one_or_none.return_value = None
-            return res
-
-        def add(self, row):
-            if hasattr(row, "actor_email") or "Audit" in row.__class__.__name__:
-                captured["audits"].append(row)
-            else:
-                captured["blob"] = row
-
-        def commit(self):
-            pass
-
-    with patch("db.engine.get_session", return_value=Sess()):
+def test_body_email_not_trusted_as_actor():
+    """M4: client JSON must not populate actor_email (spoofing)."""
+    clear_object_actor()
+    sess = _Sess()
+    with patch("db.engine.get_session", return_value=sess):
         ledger._record_object_put_inner(
             bucket="bkt",
             key="config/HOOK_AGENTS/tok/meta.json",
-            body=b'{"recipient_email":"agent.owner@ex.com","token":"tok"}',
+            body=b'{"recipient_email":"spoofed@ex.com","token":"tok"}',
             content_type="application/json",
             storage_mode="s3",
             actor_email=None,
             actor_user_id=None,
         )
-    assert captured["blob"].created_by == "agent.owner@ex.com"
-    assert captured["audits"][0].actor_email == "agent.owner@ex.com"
+    assert sess.audits[0].actor_email is None
+    assert len(sess.upsert_stmts) == 1
+
+
+def test_nothing_resolves_actor_stays_null():
+    clear_object_actor()
+    sess = _Sess()
+    with patch("db.engine.get_session", return_value=sess):
+        ledger._record_object_put_inner(
+            bucket="bkt",
+            key="ocsf/findings/x.json",
+            body=b"not-json",
+            content_type="application/json",
+            storage_mode="s3",
+            actor_email=None,
+            actor_user_id=None,
+        )
+    assert sess.audits[0].actor_email is None
 
 
 def test_record_object_put_fail_open():
@@ -200,3 +217,23 @@ def test_object_store_put_invokes_ledger():
         store.put("bucket", "k.json", b'{"a":1}')
     assert store.written[0] == "bucket"
     assert len(calls) == 1
+
+
+def test_put_recording_client_positional_body():
+    mod_path = ROOT / "src" / "store" / "object_store.py"
+    spec = importlib.util.spec_from_file_location("object_store_ledger_ut3", mod_path)
+    m = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(m)
+
+    recorded = []
+
+    class FakeClient:
+        def put_object(self, *args, **kwargs):
+            return {"ok": True}
+
+    with patch.object(m, "_record_put", side_effect=lambda *a, **k: recorded.append(a)):
+        wrap = m._PutRecordingClient(FakeClient(), mode="s3")
+        wrap.put_object("bucket", "key.bin", b"secret-bytes")
+    assert recorded
+    assert recorded[0][2] == b"secret-bytes"

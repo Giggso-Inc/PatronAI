@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import re
 import uuid
@@ -43,10 +42,12 @@ def set_object_actor(
 
 
 def clear_object_actor() -> None:
+    """Clear the request/job actor binding (usually for tests)."""
     _object_actor.set((None, None))
 
 
 def get_object_actor() -> _Actor:
+    """Return ``(email, user_id)`` currently bound for object puts."""
     return _object_actor.get()
 
 
@@ -55,6 +56,7 @@ def object_actor(
     email: str | None = None,
     user_id: uuid.UUID | str | None = None,
 ) -> Iterator[None]:
+    """Temporarily bind actor; always restores the previous binding on exit."""
     prev = _object_actor.get()
     set_object_actor(email=email, user_id=user_id)
     try:
@@ -64,6 +66,7 @@ def object_actor(
 
 
 def content_sha256(body: bytes | bytearray | memoryview | str | None) -> str:
+    """SHA-256 hex digest of object body bytes (empty body → empty-hash)."""
     if body is None:
         data = b""
     elif isinstance(body, str):
@@ -74,6 +77,7 @@ def content_sha256(body: bytes | bytearray | memoryview | str | None) -> str:
 
 
 def file_name_from_key(key: str) -> str:
+    """Last path segment of an object key (POSIX)."""
     name = PurePosixPath((key or "").strip()).name
     return name or (key or "").strip() or ""
 
@@ -99,33 +103,27 @@ def _parse_uuid(value: Any) -> uuid.UUID | None:
         return None
 
 
-def _email_from_body(data: bytes) -> str | None:
-    """Best-effort pull of a user email from JSON payloads."""
-    if not data or data[:1] not in (b"{", b"["):
-        return None
-    try:
-        payload = json.loads(data.decode("utf-8", errors="ignore"))
-    except Exception:
-        return None
-    if isinstance(payload, list) and payload:
-        payload = payload[0]
-    if not isinstance(payload, dict):
-        return None
-    for key in (
-        "email", "user_email", "actor_user", "recipient_email",
-        "added_by", "created_by", "username", "user",
-    ):
-        raw = payload.get(key)
-        if isinstance(raw, str):
-            cand = raw.strip().lower()
-            if _EMAIL_RE.match(cand):
-                return cand
+def _normalize_email(value: str | None) -> str | None:
+    cand = (value or "").strip().lower()
+    if cand and _EMAIL_RE.match(cand):
+        return cand
     return None
 
 
 def _subject_hash_from_key(key: str) -> str | None:
     m = _CHAT_HASH_RE.match(key or "")
     return m.group(1) if m else None
+
+
+def _resolve_verified_actor(
+    actor_email: str | None,
+    actor_user_id: uuid.UUID | str | None,
+) -> _Actor:
+    """Verified actors only: explicit args, then contextvar. Never JSON body."""
+    ctx_email, ctx_uid = get_object_actor()
+    email = _normalize_email(actor_email) or ctx_email
+    uid = _parse_uuid(actor_user_id) or ctx_uid
+    return email, uid
 
 
 def record_object_put(
@@ -153,6 +151,109 @@ def record_object_put(
         _log.warning("object_blob ledger skip [%s/%s]: %s", bucket, key, exc)
 
 
+def _upsert_blob(
+    session: Any,
+    *,
+    bucket: str,
+    key: str,
+    fname: str,
+    digest: str,
+    size: int,
+    content_type: str | None,
+    storage_mode: str | None,
+    email: str | None,
+    uid: uuid.UUID | None,
+    now: datetime,
+) -> None:
+    """Atomic upsert via ON CONFLICT — no TOCTOU SELECT/INSERT race."""
+    from db.models_object_blob import ObjectBlob
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    values = {
+        "bucket": bucket,
+        "object_key": key,
+        "file_name": fname or None,
+        "content_hash": digest,
+        "size_bytes": size,
+        "content_type": content_type,
+        "storage_mode": storage_mode,
+        "created_by": email,
+        "updated_by": email,
+        "created_by_user_id": uid,
+        "updated_by_user_id": uid,
+        "created_at": now,
+        "updated_at": now,
+    }
+    update_set = {
+        "content_hash": digest,
+        "size_bytes": size,
+        "updated_by": email,
+        "updated_by_user_id": uid,
+        "updated_at": now,
+    }
+    if fname:
+        update_set["file_name"] = fname
+    if content_type is not None:
+        update_set["content_type"] = content_type
+    if storage_mode is not None:
+        update_set["storage_mode"] = storage_mode
+    # Preserve original created_by when already set.
+    from sqlalchemy import case
+
+    stmt = (
+        pg_insert(ObjectBlob)
+        .values(**values)
+        .on_conflict_do_update(
+            constraint="uq_object_blobs_bucket_key",
+            set_={
+                **update_set,
+                "created_by": case(
+                    (ObjectBlob.created_by.is_(None), email),
+                    else_=ObjectBlob.created_by,
+                ),
+                "created_by_user_id": case(
+                    (ObjectBlob.created_by_user_id.is_(None), uid),
+                    else_=ObjectBlob.created_by_user_id,
+                ),
+            },
+        )
+    )
+    session.execute(stmt)
+
+
+def _append_audit(
+    session: Any,
+    *,
+    bucket: str,
+    key: str,
+    fname: str,
+    digest: str,
+    size: int,
+    content_type: str | None,
+    storage_mode: str | None,
+    email: str | None,
+    uid: uuid.UUID | None,
+    subject_hash: str | None,
+    now: datetime,
+) -> None:
+    from db.models_object_blob import ObjectBlobAudit
+
+    session.add(ObjectBlobAudit(
+        bucket=bucket,
+        object_key=key,
+        file_name=fname or None,
+        content_hash=digest,
+        size_bytes=size,
+        content_type=content_type,
+        storage_mode=storage_mode,
+        action="put",
+        actor_email=email,
+        actor_user_id=uid,
+        subject_key_hash=subject_hash,
+        recorded_at=now,
+    ))
+
+
 def _record_object_put_inner(
     *,
     bucket: str,
@@ -173,68 +274,36 @@ def _record_object_put_inner(
     fname = file_name_from_key(key)
     now = datetime.now(timezone.utc)
     subject_hash = _subject_hash_from_key(key)
-
-    ctx_email, ctx_uid = get_object_actor()
-    email = (actor_email or "").strip().lower() or ctx_email or _email_from_body(data)
-    uid = _parse_uuid(actor_user_id) or ctx_uid
+    email, uid = _resolve_verified_actor(actor_email, actor_user_id)
 
     from db.engine import get_session
-    from db.models_object_blob import ObjectBlob, ObjectBlobAudit
-    from sqlalchemy import select
 
     with get_session() as session:
-        row = session.execute(
-            select(ObjectBlob).where(
-                ObjectBlob.bucket == bucket,
-                ObjectBlob.object_key == key,
-            )
-        ).scalar_one_or_none()
-
-        if row is None:
-            row = ObjectBlob(
-                bucket=bucket,
-                object_key=key,
-                file_name=fname or None,
-                content_hash=digest,
-                size_bytes=len(data),
-                content_type=content_type,
-                storage_mode=storage_mode,
-                created_by=email,
-                updated_by=email,
-                created_by_user_id=uid,
-                updated_by_user_id=uid,
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(row)
-        else:
-            row.content_hash = digest
-            row.size_bytes = len(data)
-            row.file_name = fname or row.file_name
-            if content_type is not None:
-                row.content_type = content_type
-            if storage_mode is not None:
-                row.storage_mode = storage_mode
-            row.updated_by = email
-            row.updated_by_user_id = uid
-            row.updated_at = now
-            if row.created_by is None and email:
-                row.created_by = email
-            if row.created_by_user_id is None and uid is not None:
-                row.created_by_user_id = uid
-
-        session.add(ObjectBlobAudit(
+        _upsert_blob(
+            session,
             bucket=bucket,
-            object_key=key,
-            file_name=fname or None,
-            content_hash=digest,
-            size_bytes=len(data),
+            key=key,
+            fname=fname,
+            digest=digest,
+            size=len(data),
             content_type=content_type,
             storage_mode=storage_mode,
-            action="put",
-            actor_email=email,
-            actor_user_id=uid,
-            subject_key_hash=subject_hash,
-            recorded_at=now,
-        ))
+            email=email,
+            uid=uid,
+            now=now,
+        )
+        _append_audit(
+            session,
+            bucket=bucket,
+            key=key,
+            fname=fname,
+            digest=digest,
+            size=len(data),
+            content_type=content_type,
+            storage_mode=storage_mode,
+            email=email,
+            uid=uid,
+            subject_hash=subject_hash,
+            now=now,
+        )
         session.commit()

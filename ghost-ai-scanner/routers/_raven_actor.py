@@ -28,6 +28,9 @@ def resolve_actor(session, email: str):
     try:
         from db.object_blob_ledger import set_object_actor
         set_object_actor(email=email, user_id=getattr(actor, "id", None))
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging
+        logging.getLogger("marauder-scan.raven_actor").debug(
+            "object_blob actor bind skipped: %s", exc,
+        )
     return actor, org_id

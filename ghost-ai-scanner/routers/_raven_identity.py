@@ -59,6 +59,10 @@ def verify_ravenhub_identity(
     try:
         from db.object_blob_ledger import set_object_actor
         set_object_actor(email=email)
-    except Exception:
-        pass
+    except Exception as exc:
+        # Ledger is fail-open; never fail auth because actor bind failed.
+        import logging
+        logging.getLogger("marauder-scan.raven_identity").debug(
+            "object_blob actor bind skipped: %s", exc,
+        )
     return email

@@ -140,11 +140,26 @@ Unique on `(bucket, object_key)`.
 
 ### 3.3 How `actor_email` is filled
 
-1. Raven identity / `resolve_actor` (request user)  
-2. Explicit `object_actor(email=…)` (e.g. chat history)  
-3. Fallback from JSON body fields: `email`, `user_email`, `recipient_email`, `actor_user`, `user`, …  
+**Verified sources only** (never client-controlled JSON body — spoofing risk):
 
-If none apply, actor columns stay `NULL` (object is still recorded).
+1. Explicit `actor_email=` / `actor_user_id=` on `record_object_put` / `BaseStore._put`
+2. Request-scoped context: Raven identity / `resolve_actor` → `set_object_actor`
+3. `with object_actor(email=…)` (e.g. chat history, UsersStore `added_by`)
+
+If none apply, `actor_email` / `actor_user_id` stay `NULL`. The object is still
+recorded (hash + key + time). Payload fields like `recipient_email` are **not**
+copied into `actor_email`.
+
+### 3.4 Privacy / retention
+
+- Ledger stores **metadata only** (paths, hashes, actor emails) — not S3 body bytes.
+- Chat object keys use a privacy-safe email hash prefix (`chat/{sha16}/…`); plaintext
+  email is not required in the key.
+- `object_blob_audits` is append-only for forensics. **Retention / erasure** for
+  actor emails in the policy DB should follow org IAM / GDPR process (manual purge
+  or a future scheduled job). This differs from chat S3 objects, which use a
+  30-day lifecycle on the bucket objects themselves — the DB audit is the durable
+  “who wrote what hash” trail and is not auto-expired with the blob.
 
 ### 3.4 What is **not** audited
 
