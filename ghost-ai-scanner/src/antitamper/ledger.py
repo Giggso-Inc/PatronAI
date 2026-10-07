@@ -65,6 +65,27 @@ def record_event(finding: dict[str, Any], *, org_slug: str | None = None) -> str
         return str(row.tamper_id)
 
 
+def mark_hub_emitted(tamper_id: str | None) -> None:
+    """Best-effort flag that this ledger row was POSTed to Hub."""
+    if not tamper_id:
+        return
+    try:
+        from db import get_session
+        from db.models_antitamper import AntitamperEvent
+
+        tid = _parse_uuid(tamper_id)
+        if tid is None:
+            return
+        with get_session() as session:
+            row = session.get(AntitamperEvent, tid)
+            if row is None:
+                return
+            row.hub_emitted = True
+            session.commit()
+    except Exception as e:
+        _log.warning("mark_hub_emitted failed: %s", e)
+
+
 def upsert_enrollment(
     *,
     hostname: str,

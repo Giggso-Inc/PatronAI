@@ -15,8 +15,8 @@ from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
-# Match Hub ingest open-cause collapse window (alert_ingest.py).
-DEFAULT_TTL_SEC = int(os.environ.get("ANTITAMPER_EMIT_TTL_SEC") or 3600)
+# Match Hub antitamper open-cause collapse (30m) + digest window.
+DEFAULT_TTL_SEC = int(os.environ.get("ANTITAMPER_EMIT_TTL_SEC") or 1800)
 
 
 def fingerprint(

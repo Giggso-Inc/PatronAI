@@ -284,6 +284,8 @@ def run_once(
         }
         results.append(finding)
         _handle_finding(finding, org=org, persist=persist, emit=emit)
+        if emit:
+            _maybe_digest(org=org, user_email=user_email, hostname=finding.get("hostname"))
         return results
 
     for rel, event_type, old_h, new_h in scan(manifest):
@@ -306,7 +308,25 @@ def run_once(
         }
         results.append(finding)
         _handle_finding(finding, org=org, persist=persist, emit=emit)
+    if emit:
+        _maybe_digest(
+            org=org,
+            user_email=user_email,
+            hostname=socket.gethostname(),
+        )
     return results
+
+
+def _maybe_digest(*, org: str, user_email: str, hostname: str | None) -> None:
+    try:
+        from antitamper.digest import maybe_emit_burst_digest
+        maybe_emit_burst_digest(
+            hostname=str(hostname or socket.gethostname()),
+            org=org or "",
+            user_email=user_email or "",
+        )
+    except Exception as e:
+        _log.warning("patron antitamper digest check failed: %s", e)
 
 
 def _handle_finding(finding: dict, *, org: str, persist: bool, emit: bool) -> None:
@@ -341,9 +361,9 @@ def _handle_finding(finding: dict, *, org: str, persist: bool, emit: bool) -> No
             )
             return
         from notify.hub_alerts import emit_tamper
-        # Stable id — Hub ingest duplicate + 60m collapse are backstops.
+        # Stable id — Hub ingest duplicate + 30m collapse are backstops.
         eid = source_event_id("patron", fp)
-        emit_tamper(
+        ok = emit_tamper(
             org or "unknown",
             eid,
             detail=f"{finding['event_type']}: {finding['file_path']}",
@@ -361,9 +381,16 @@ def _handle_finding(finding: dict, *, org: str, persist: bool, emit: bool) -> No
                 "fingerprint": fp,
                 "messaging_event": "patron_tamper",
             },
-        ) and mark_emitted(
-            fp, meta={"event_type": finding.get("event_type"), "path": finding.get("file_path")}
         )
+        if ok:
+            mark_emitted(
+                fp, meta={"event_type": finding.get("event_type"), "path": finding.get("file_path")}
+            )
+            try:
+                from antitamper.ledger import mark_hub_emitted
+                mark_hub_emitted(tamper_id)
+            except Exception:
+                pass
     except Exception as e:
         _log.warning("patron antitamper emit failed: %s", e)
 
