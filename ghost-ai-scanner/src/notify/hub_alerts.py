@@ -26,7 +26,9 @@ def _infer_kind(tool: str, outcome: str = "") -> str:
 
 def _emit(org: str, code: str, event_id: str, detail: str = "",
           payload: dict | None = None,
-          user: str = "", device: str = "") -> bool:
+          user: str = "", device: str = "",
+          *, skip_open_dedup: bool = False,
+          messaging_event: str = "") -> bool:
     # Prefer raven_be when cut over; fall back to Hub (which may forward).
     be = (os.environ.get("RAVEN_AUTH_URL") or os.environ.get("RAVEN_BE_URL") or "").rstrip("/")
     hub = (os.environ.get("RAVEN_HUB_URL") or "").rstrip("/")
@@ -58,6 +60,10 @@ def _emit(org: str, code: str, event_id: str, detail: str = "",
         "resource": pl.get("resource") or pl.get("tool") or "",
         "resource_kind": pl.get("resource_kind") or "",
     }
+    if skip_open_dedup:
+        body["skip_open_dedup"] = True
+    if messaging_event:
+        body["messaging_event"] = messaging_event
     try:
         req = urllib.request.Request(
             f"{base}{path}",
@@ -222,3 +228,36 @@ def emit_tamper(
     )
     return _emit(org, "patron_tamper", event_id, detail or "Patron agent tamper",
                  payload=pl, user=user, device=device)
+
+
+def emit_tamper_digest(
+    org: str, event_id: str, detail: str = "",
+    payload: dict | None = None,
+    user: str = "", device: str = "",
+) -> bool:
+    """60m rollup of continuous local antitamper findings (admins + developer)."""
+    from datetime import datetime, timezone
+
+    pl = dict(payload or {})
+    pl.setdefault("messaging_event", "patron_tamper_digest")
+    pl.setdefault("event_type", "DIGEST")
+    pl.setdefault("resource", pl.get("file_path") or "antitamper_digest")
+    pl.setdefault("resource_kind", "antitamper_digest")
+    if user:
+        pl.setdefault("user", user)
+        pl.setdefault("user_email", user)
+    pl.setdefault(
+        "timestamp",
+        datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+    return _emit(
+        org,
+        "patron_tamper_digest",
+        event_id,
+        detail or "Patron agent continuous tamper digest",
+        payload=pl,
+        user=user,
+        device=device,
+        skip_open_dedup=True,
+        messaging_event="patron_tamper_digest",
+    )

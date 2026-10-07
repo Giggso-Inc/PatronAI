@@ -67,6 +67,9 @@ class AntitamperEvent(Base):
     check_interval_s: Mapped[int] = mapped_column(Integer, server_default=text("30"), nullable=False)
     email_sent: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
     hub_emitted: Mapped[bool] = mapped_column(Boolean, server_default=text("false"), nullable=False)
+    digest_emitted: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("false"), nullable=False
+    )
 
 
 class AntitamperEnrollment(Base):
