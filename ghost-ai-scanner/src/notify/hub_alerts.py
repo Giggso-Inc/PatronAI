@@ -235,7 +235,7 @@ def emit_tamper_digest(
     payload: dict | None = None,
     user: str = "", device: str = "",
 ) -> bool:
-    """60m rollup of continuous local antitamper findings (admins + developer)."""
+    """30m rollup of continuous local antitamper findings (admins + developer)."""
     from datetime import datetime, timezone
 
     pl = dict(payload or {})

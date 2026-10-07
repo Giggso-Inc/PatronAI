@@ -68,7 +68,8 @@ def test_build_summary_counts_and_paths():
     assert "src/new.bin" in s["added_list"]
     assert "no baseline" in s["base_fail_list"]
     assert s["window_minutes"] == 30
-    assert "~30m" in s["detail"]
+    # first→last span (~24m), not a hardcoded ~30m
+    assert "/~24m" in s["detail"] or "~24m" in s["detail"]
     assert s["user_email"] == "a.kathijaafrose@giggso.com"
 
 
@@ -83,12 +84,15 @@ class _Col:
         return self
 
 
-def _install_db_stub(rows, *, updated=None):
+def _install_db_stub(monkeypatch, rows, *, updated=None):
     class _Q:
         def filter(self, *_a, **_k):
             return self
 
         def order_by(self, *_a, **_k):
+            return self
+
+        def with_for_update(self, *_a, **_k):
             return self
 
         def limit(self, *_a, **_k):
@@ -97,9 +101,11 @@ def _install_db_stub(rows, *, updated=None):
         def all(self):
             return list(rows)
 
-        def update(self, *_a, **_k):
+        def update(self, values=None, *_a, **_k):
             if updated is not None:
                 updated["n"] += 1
+                if isinstance(values, dict):
+                    updated["values"] = dict(values)
             return len(rows)
 
     class _Sess:
@@ -122,18 +128,22 @@ def _install_db_stub(rows, *, updated=None):
     class AntitamperEvent:
         hostname = _Col()
         digest_emitted = _Col()
+        hub_emitted = _Col()
         timestamp = _Col()
         tamper_id = _Col()
         user_email = _Col()
 
     mm.AntitamperEvent = AntitamperEvent
-    sys.modules["db"] = dbm
-    sys.modules["db.models_antitamper"] = mm
+    # monkeypatch.setitem auto-reverts after the test — bare sys.modules
+    # assignment leaked a fake `db` package into later tests (CI C1).
+    monkeypatch.setitem(sys.modules, "db", dbm)
+    monkeypatch.setitem(sys.modules, "db.models_antitamper", mm)
 
 
-def test_maybe_emit_skips_when_too_few():
+def test_maybe_emit_skips_when_too_few(monkeypatch):
     now = datetime.now(timezone.utc)
     _install_db_stub(
+        monkeypatch,
         [
             SimpleNamespace(
                 tamper_id="only",
@@ -143,12 +153,12 @@ def test_maybe_emit_skips_when_too_few():
                 user_email="dev@giggso.com",
                 detail="",
             )
-        ]
+        ],
     )
     assert maybe_emit_burst_digest(hostname="host1", org="giggso", min_events=2) is None
 
 
-def test_maybe_emit_digest_when_burst_ready():
+def test_maybe_emit_digest_when_burst_ready(monkeypatch):
     now = datetime.now(timezone.utc)
     rows = [
         SimpleNamespace(
@@ -169,7 +179,7 @@ def test_maybe_emit_digest_when_burst_ready():
         ),
     ]
     updated = {"n": 0}
-    _install_db_stub(rows, updated=updated)
+    _install_db_stub(monkeypatch, rows, updated=updated)
 
     calls = []
     import notify.hub_alerts as hub_alerts
@@ -204,4 +214,6 @@ def test_maybe_emit_digest_when_burst_ready():
     assert "b.py" in payload["added_list"]
     assert payload.get("window_minutes") == 30
     assert updated["n"] == 1
+    assert updated.get("values", {}).get("digest_emitted") is True
+    assert updated.get("values", {}).get("hub_emitted") is True
     assert "a.kathijaafrose" in (calls[0].get("event_id") or calls[0].get("detail") or "") or True

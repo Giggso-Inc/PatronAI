@@ -144,8 +144,12 @@ def build_summary(rows: list[Any]) -> dict[str, Any]:
     added_list = _bullet_list(added, total_unique=added_n)
     base_fail_list = _bullet_list(base_fail, total_unique=base_n)
 
+    span_min = 30
+    if first_ts and last_ts:
+        span_sec = max(0, int((last_ts - first_ts).total_seconds()))
+        span_min = max(1, (span_sec + 59) // 60)
     detail = (
-        f"{len(rows)} events/~30m — "
+        f"{len(rows)} events/~{span_min}m — "
         f"modified {modified_n}, deleted {deleted_n}, "
         f"added {added_n}, baseline fail {base_n}"
     )
@@ -233,7 +237,9 @@ def maybe_emit_burst_digest(
                 q = q.filter(AntitamperEvent.user_email == actor)
             else:
                 q = q.filter(AntitamperEvent.user_email.is_(None))
-            rows = q.order_by(order_expr).limit(500).all()
+            # Lock undigested rows so concurrent watch loops cannot emit
+            # overlapping digests for the same host/user burst.
+            rows = q.order_by(order_expr).with_for_update().limit(500).all()
             if len(rows) < need:
                 return None
             oldest = _aware(rows[0].timestamp)
@@ -292,9 +298,14 @@ def maybe_emit_burst_digest(
                 return None
 
             ids = [r.tamper_id for r in rows]
+            # Hub received these via the digest — mark hub_emitted too so
+            # downstream "was Hub told?" bookkeeping does not undercount.
             session.query(AntitamperEvent).filter(
                 AntitamperEvent.tamper_id.in_(ids)
-            ).update({"digest_emitted": True}, synchronize_session=False)
+            ).update(
+                {"digest_emitted": True, "hub_emitted": True},
+                synchronize_session=False,
+            )
             session.commit()
             _log.info(
                 "antitamper digest emitted host=%s user=%s count=%s window=%ss",
