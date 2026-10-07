@@ -361,7 +361,7 @@ def _handle_finding(finding: dict, *, org: str, persist: bool, emit: bool) -> No
             )
             return
         from notify.hub_alerts import emit_tamper
-        # Stable id — Hub ingest duplicate + 60m collapse are backstops.
+        # Stable id — Hub ingest duplicate + 30m collapse are backstops.
         eid = source_event_id("patron", fp)
         ok = emit_tamper(
             org or "unknown",
