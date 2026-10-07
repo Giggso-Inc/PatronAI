@@ -64,10 +64,8 @@ def build_summary(rows: list[Any]) -> dict[str, Any]:
 
     first_s = first_ts.isoformat(timespec="seconds") if first_ts else ""
     last_s = last_ts.isoformat(timespec="seconds") if last_ts else ""
-    detail = (
-        f"{len(rows)} local antitamper event(s) over ~60m ({breakdown}). "
-        f"First: {first_s}; last: {last_s}. Paths: {path_label or '(none)'}."
-    )
+    # Short Hub detail — email body uses a key/value table from discrete fields.
+    detail = f"{len(rows)} events/~60m ({breakdown}) on continuous tamper window"
     return {
         "count": len(rows),
         "breakdown": breakdown,
