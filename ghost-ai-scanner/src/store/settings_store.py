@@ -59,7 +59,15 @@ class SettingsStore(BaseStore):
                 datetime.now(timezone.utc).isoformat()
             )
             body = json.dumps(settings, indent=2).encode()
-            ok = self._put(SETTINGS_KEY, body, "application/json")
+            # Prefer verified email as ledger actor; labels like "streamlit" are ignored.
+            actor = (written_by or "").strip().lower()
+            actor_email = actor if ("@" in actor and "." in actor.split("@")[-1]) else None
+            ok = self._put(
+                SETTINGS_KEY,
+                body,
+                "application/json",
+                actor_email=actor_email,
+            )
             if ok:
                 log.info(f"settings.json saved by {written_by}")
             return ok

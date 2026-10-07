@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Iterable, Optional, Sequence
+from typing import Optional, Sequence
 
 log = logging.getLogger("patronai.notify.email")
 

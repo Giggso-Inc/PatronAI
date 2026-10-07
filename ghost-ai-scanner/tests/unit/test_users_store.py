@@ -17,16 +17,62 @@
 
 import json
 import sys
+import importlib.util
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
+_UsersStoreCls = None
+
+
+def _load_users_store_cls():
+    """Import UsersStore without permanently poisoning sys.modules (PR #64 C1)."""
+    global _UsersStoreCls
+    if _UsersStoreCls is not None:
+        return _UsersStoreCls
+
+    # Prefer the real package when deps (polars) are available — CI path.
+    try:
+        from store.users_store import UsersStore as _Cls
+        _UsersStoreCls = _Cls
+        return _UsersStoreCls
+    except ModuleNotFoundError:
+        pass
+
+    stub_keys = ("store", "store.base_store", "store.users_store")
+    saved = {k: sys.modules[k] for k in stub_keys if k in sys.modules}
+    try:
+        pkg = type(sys)("store")
+        pkg.__path__ = [str(REPO / "src" / "store")]
+        sys.modules["store"] = pkg
+        bs = type(sys)("store.base_store")
+
+        class _Base:
+            pass
+
+        bs.BaseStore = _Base
+        sys.modules["store.base_store"] = bs
+        path = REPO / "src" / "store" / "users_store.py"
+        spec = importlib.util.spec_from_file_location("store.users_store", path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["store.users_store"] = mod
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        _UsersStoreCls = mod.UsersStore
+        return _UsersStoreCls
+    finally:
+        for k in stub_keys:
+            if k in saved:
+                sys.modules[k] = saved[k]
+            else:
+                sys.modules.pop(k, None)
+
 
 def _make_store(initial_payload=None):
     """Build a UsersStore where _get returns initial_payload (None=missing)."""
-    from store.users_store import UsersStore
+    UsersStore = _load_users_store_cls()
     s = UsersStore.__new__(UsersStore)
     s.bucket = "test-bucket"
     s.region = "us-east-1"
@@ -152,6 +198,15 @@ def test_remove_deletes_user():
     assert ok is True
     body = json.loads(s._put.call_args[0][1])
     assert "alice@x.com" not in body
+
+
+def test_remove_passes_removed_by_as_actor_email():
+    s = _make_store({"alice@x.com": {"role": "manager", "is_admin": False,
+                                      "added_at": "2026-04-26T00:00:00Z",
+                                      "added_by": "admin"}})
+    s.remove("alice@x.com", removed_by="Admin@Corp.com")
+    kwargs = s._put.call_args.kwargs
+    assert kwargs.get("actor_email") == "admin@corp.com"
 
 
 def test_remove_missing_user_is_noop():

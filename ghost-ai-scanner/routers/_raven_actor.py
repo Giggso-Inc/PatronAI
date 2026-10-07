@@ -25,4 +25,12 @@ def resolve_actor(session, email: str):
     actor, org_id, _projects = get_identity(session, email)
     if actor is None or org_id is None:
         raise HTTPException(status_code=403, detail=f"'{email}' isn't a policy-DB user yet")
+    try:
+        from db.object_blob_ledger import set_object_actor
+        set_object_actor(email=email, user_id=getattr(actor, "id", None))
+    except Exception as exc:
+        import logging
+        logging.getLogger("marauder-scan.raven_actor").debug(
+            "object_blob actor bind skipped: %s", exc,
+        )
     return actor, org_id

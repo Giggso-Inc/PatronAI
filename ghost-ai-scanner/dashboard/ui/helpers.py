@@ -15,8 +15,7 @@
 # =============================================================
 
 from .theme import (
-    SEV, SEV_ICON, TEXT_VALUE, TEXT_MUTED, TEXT_LINK,
-    BG_CARD, plotly_layout,
+    SEV, SEV_ICON, plotly_layout,
 )
 
 # Legacy color map (kept for callers that still import it) — now points

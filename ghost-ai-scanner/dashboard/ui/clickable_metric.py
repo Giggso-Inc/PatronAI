@@ -57,7 +57,7 @@ def clickable_metric(container, label: str, value,
             unsafe_allow_html=True,
         )
     btn_key = f"clk_{panel_key}_{label.replace(' ', '_').lower()}"
-    if container.button(f"↳ filter", key=btn_key):
+    if container.button("↳ filter", key=btn_key):
         set_drill(
             panel_key=panel_key,
             label=drill_label or f"{label}: {drill_value}",

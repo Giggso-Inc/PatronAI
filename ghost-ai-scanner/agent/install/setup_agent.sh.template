@@ -235,7 +235,7 @@ fi
 # Findings matched against unauthorised list; authorised list suppresses.
 SCAN_SCRIPT="$AGENT_DIR/scan.sh"
 # Source lives at agent/install/scan.sh, inlined verbatim at render time.
-# scan.sh's own {{INLINE_SCAN_PYTHON}} placeholder is resolved BEFORE this
+# scan.sh's own {{ INLINE_SCAN_PYTHON }} placeholder is resolved BEFORE this
 # outer substitution pass (render_agent_package.py pre-resolves it into
 # INLINE_SCAN_SH's value) - a nested {{...}} inside a substituted value is
 # not re-scanned by the same regex.sub() pass. See render_agent_package.py.
@@ -284,6 +284,15 @@ cat > "$APPLY_UPDATE_SCRIPT" << 'APPLY_UPDATE_EOF'
 APPLY_UPDATE_EOF
 chmod +x "$APPLY_UPDATE_SCRIPT"
 
+# ── Write log-rotation script (drops heartbeat entries older than 24 h) ──
+# Runs every 30 min alongside the scan. Pure stdlib — no third-party deps.
+# Source lives at agent/install/log_rotate.py, inlined verbatim at render time.
+LOG_ROTATE_SCRIPT="$AGENT_DIR/log_rotate.py"
+cat > "$LOG_ROTATE_SCRIPT" << 'LOG_ROTATE_EOF'
+{{INLINE_LOG_ROTATE_PY}}
+LOG_ROTATE_EOF
+chmod +x "$LOG_ROTATE_SCRIPT"
+
 # ── Schedule heartbeat (5 min) + scan (30 min) ────────────────
 if [ "$(uname -s)" = "Darwin" ]; then
   # Heartbeat — launchd, every 5 min
@@ -301,6 +310,22 @@ if [ "$(uname -s)" = "Darwin" ]; then
 PLIST_EOF
   launchctl unload "$PLIST_HB" 2>/dev/null || true
   launchctl load  "$PLIST_HB" 2>/dev/null || true
+
+  # Log rotation — launchd, once per day (drops heartbeat entries older than 24 h)
+  PLIST_ROTATE="$HOME/Library/LaunchAgents/com.patronai.log-rotate.plist"
+  cat > "$PLIST_ROTATE" << PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.patronai.log-rotate</string>
+  <key>ProgramArguments</key><array><string>$(command -v python3)</string><string>$LOG_ROTATE_SCRIPT</string></array>
+  <key>StartInterval</key><integer>86400</integer>
+  <key>RunAtLoad</key><false/>
+  <key>StandardErrorPath</key><string>$AGENT_DIR/log_rotate.log</string>
+</dict></plist>
+PLIST_EOF
+  launchctl unload "$PLIST_ROTATE" 2>/dev/null || true
+  launchctl load  "$PLIST_ROTATE" 2>/dev/null || true
 
   # Scan — launchd, every 30 min
   PLIST_SCAN="$HOME/Library/LaunchAgents/com.patronai.scan.plist"
@@ -338,11 +363,12 @@ elif [ "$_HAVE_CRON" -eq 0 ]; then
   # installs). The agent, config and git hook are all in place by now, so the
   # scan-on-commit path works - only the periodic scan and heartbeat are lost.
   # Warning, not _die: dying here used to abandon a fully working install.
-  _info "WARNING: crontab not found - skipping the heartbeat, periodic scan, and self-update."
+  _info "WARNING: crontab not found - skipping the heartbeat, periodic scan, self-update, and log rotation."
   _info "         Commit-time scanning still works. To enable them: sudo apt-get install -y cron"
   _info "         then re-run this installer, or add these lines by hand:"
   _info "           */5  * * * * /bin/bash $HEARTBEAT_SCRIPT"
   _info "           */30 * * * * /bin/bash $SCAN_RUNNER"
+  _info "           0 0 * * * python3 $LOG_ROTATE_SCRIPT >> $AGENT_DIR/log_rotate.log 2>&1"
   _info "           0    * * * * /bin/bash $APPLY_UPDATE_SCRIPT"
 else
   # Linux — crontab
@@ -354,6 +380,7 @@ else
   ( crontab -l 2>/dev/null | grep -v patronai || true
     echo "*/5  * * * * /bin/bash $HEARTBEAT_SCRIPT"
     echo "*/30 * * * * /bin/bash $SCAN_RUNNER"
+    echo "0    0 * * * python3 $LOG_ROTATE_SCRIPT >> $AGENT_DIR/log_rotate.log 2>&1"
     echo "0    * * * * /bin/bash $APPLY_UPDATE_SCRIPT"
   ) | crontab -
 fi

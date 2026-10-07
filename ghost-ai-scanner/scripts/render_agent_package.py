@@ -30,11 +30,9 @@
 #                       would break shebang detection on Linux/Mac.
 # =============================================================
 
-import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 from build_agent_artifacts import _build_macos_dmg, _build_windows_exe
 from scan_fragment_loader  import load_scan_fragments
@@ -171,6 +169,9 @@ def render_agent_package(
         inline_scan_ps1 = scan_ps1_path.read_text(encoding="utf-8").replace(
             "{{INLINE_SCAN_PYTHON}}", inline_scan_python) if scan_ps1_path.exists() else ""
 
+        log_rotate_py_path = TEMPLATE_DIR / "log_rotate.py"
+        inline_log_rotate_py = log_rotate_py_path.read_text(encoding="utf-8") if log_rotate_py_path.exists() else ""
+
         # agent_version is baked in ONLY as the value written to
         # agent_version.txt at install time — heartbeat.* reads that file at
         # runtime rather than having a version string frozen into its own
@@ -211,6 +212,7 @@ def render_agent_package(
             "INLINE_PRE_COMMIT_HOOK_PS1": inline_pre_commit_ps1,
             "INLINE_SCAN_SH":  inline_scan_sh,
             "INLINE_SCAN_PS1": inline_scan_ps1,
+            "INLINE_LOG_ROTATE_PY": inline_log_rotate_py,
         }
         pre_sh = renderer.render(str(SH_TEMPLATE), placeholder_ctx)
 
@@ -263,6 +265,7 @@ def render_agent_package(
             "INLINE_PRE_COMMIT_HOOK_PS1": inline_pre_commit_ps1,
             "INLINE_SCAN_SH":  inline_scan_sh,
             "INLINE_SCAN_PS1": inline_scan_ps1,
+            "INLINE_LOG_ROTATE_PY": inline_log_rotate_py,
         }
         sh_script  = renderer.render(str(SH_TEMPLATE),  final_ctx)
         ps1_script = renderer.render(str(PS1_TEMPLATE), final_ctx)

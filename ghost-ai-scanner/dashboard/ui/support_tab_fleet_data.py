@@ -17,7 +17,7 @@
 
 import json
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import timedelta
 
 log = logging.getLogger("patronai.ui.support_fleet.data")
 

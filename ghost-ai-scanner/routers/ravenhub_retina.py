@@ -26,10 +26,13 @@
 
 from __future__ import annotations
 
+import os
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
+
+from store.agent_store import AgentStore
 
 # patron_token is always a UUID (hex digits and hyphens). Enforcing this
 # here prevents path-traversal attacks where a caller passes "../../../..."
@@ -45,16 +48,30 @@ def _validate_token(patron_token: str) -> str:
 router = APIRouter()
 
 
-def _get_store(request: Request):
-    """Pull the AgentStore from the app state (set in api.py startup)."""
-    store = getattr(request.app.state, "agent_store", None)
-    if store is None:
-        raise HTTPException(500, "agent_store not initialised")
-    return store
+def _get_store() -> AgentStore:
+    """Build the AgentStore from env vars for the retina link endpoints.
+
+    Mirrors api.py's own _get_store() pattern. app.state.agent_store is
+    never populated at startup, so pulling from there always 500s; this
+    builds the store directly instead.
+
+    Returns:
+        AgentStore: Backed by MARAUDER_SCAN_BUCKET in AWS_REGION.
+
+    Raises:
+        HTTPException: 503 if MARAUDER_SCAN_BUCKET is not configured — matches
+            api.py's own _get_store() for the same condition.
+    """
+    bucket = os.environ.get("MARAUDER_SCAN_BUCKET", "")
+    if not bucket:
+        raise HTTPException(503, "MARAUDER_SCAN_BUCKET not configured")
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    return AgentStore(bucket, region)
 
 
 class LinkPayload(BaseModel):
     raven_hub_token_id: str
+    raven_hub_token_secret: str = ""  # proof secret paired with token_id; required for retina scanning
 
 
 @router.post("/retina/link/{patron_token}")
@@ -63,19 +80,22 @@ async def link_hub_token(
     body: LinkPayload = ...,
     store=Depends(_get_store),
 ):
-    """Store the Hub device token for a Patron agent.
+    """Store the Hub device token (and proof secret) for a Patron agent.
 
     Call this after POST /api/v1/devices/token/emit on the Hub returns a
-    token_id. Pass that token_id here as raven_hub_token_id so the retina
-    assembler can begin posting fingerprints for this agent.
+    token_id + token_secret. Both must be stored so the retina assembler
+    can authenticate its scan POSTs to the Hub.
 
     Returns 404 if the patron_token has no meta.json (agent does not exist).
     """
     hub_token = (body.raven_hub_token_id or "").strip()
     if not hub_token:
         raise HTTPException(400, "raven_hub_token_id must not be empty")
+    hub_secret = (body.raven_hub_token_secret or "").strip()
+    if not hub_secret:
+        raise HTTPException(400, "raven_hub_token_secret must not be empty")
 
-    ok = store.set_hub_token_id(patron_token, hub_token)
+    ok = store.set_hub_token_id(patron_token, hub_token, hub_token_secret=hub_secret)
     if not ok:
         raise HTTPException(404, f"No agent found for patron token {patron_token[:8]!r}")
 
@@ -83,6 +103,7 @@ async def link_hub_token(
         "status": "linked",
         "patron_token": patron_token,
         "raven_hub_token_id": hub_token,
+        "raven_hub_token_secret_set": True,
     }
 
 
@@ -99,9 +120,12 @@ async def get_hub_token_link(
     any device.
     """
     hub_token = store.get_hub_token_id(patron_token)
+    hub_secret = store.get_hub_token_secret(patron_token)
     return {
         "patron_token": patron_token,
         "linked": bool(hub_token),
+        "raven_hub_token_id": hub_token,
+        "raven_hub_token_secret_set": bool(hub_secret),
     }
 
 
