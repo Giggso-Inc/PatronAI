@@ -4,7 +4,7 @@ Revision ID: 0012_antitamper_digest
 Revises: 0011_antitamper
 Create Date: 2026-10-07
 
-Marks local ledger rows that have already been rolled into a 60-minute
+Marks local ledger rows that have already been rolled into a 30-minute
 burst digest Hub email so continuous tampering during Hub open-collapse
 still surfaces once as an aggregate.
 """
