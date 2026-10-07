@@ -4,7 +4,7 @@
 # PURPOSE : Drop heartbeat entries older than 24 h from agent.log.
 #           All other entry types (scan, update_failed, etc.) are
 #           kept indefinitely.
-# SCHEDULE: Every 30 min, alongside the scan job.
+# SCHEDULE: Once per day (86400s / cron 0 0 * * * / Windows 1440 min).
 # =============================================================
 from __future__ import annotations
 
@@ -36,9 +36,9 @@ def _keep(line: str, now: float) -> bool:
     if not ts_str:
         return True  # no timestamp -- keep to be safe
     try:
-        ts_clean = ts_str.rstrip("Z").replace("T", " ")
-        dt = datetime.datetime.strptime(ts_clean, "%Y-%m-%d %H:%M:%S")
-        entry_epoch = dt.replace(tzinfo=datetime.timezone.utc).timestamp()
+        ts_norm = ts_str.replace("Z", "+00:00")
+        dt = datetime.datetime.fromisoformat(ts_norm)
+        entry_epoch = dt.timestamp()
     except Exception:
         return True  # unparseable timestamp -- keep
 
@@ -57,7 +57,7 @@ def rotate() -> None:
     if dropped == 0:
         return  # nothing to do -- skip the write entirely
 
-    tmp = LOG_PATH.with_suffix(".log.tmp")
+    tmp = LOG_PATH.with_name(LOG_PATH.name + ".tmp")
     try:
         tmp.write_text(
             "\n".join(kept) + ("\n" if kept else ""),

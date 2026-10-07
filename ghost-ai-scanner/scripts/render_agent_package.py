@@ -30,11 +30,9 @@
 #                       would break shebang detection on Linux/Mac.
 # =============================================================
 
-import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 from build_agent_artifacts import _build_macos_dmg, _build_windows_exe
 from scan_fragment_loader  import load_scan_fragments
