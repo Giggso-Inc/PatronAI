@@ -32,7 +32,7 @@ AGENT_DIR="$HOME/.patronai"
 
 # ── 1. Stop and remove launchd jobs (Mac) ────────────────────
 if [ "$(uname -s)" = "Darwin" ]; then
-  for LABEL in com.patronai.heartbeat com.patronai.scan; do
+  for LABEL in com.patronai.heartbeat com.patronai.scan com.patronai.log-rotate; do
     PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
     if [ -f "$PLIST" ]; then
       launchctl unload "$PLIST" 2>/dev/null || true
