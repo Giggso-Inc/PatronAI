@@ -10,7 +10,7 @@
 # Rendered from a template; double-brace values substituted at invite time.
 #
 # Linux is the one platform where tshark is NOT exact-pinned: distro repos
-# lag well behind current Wireshark releases, so 4.6.8 is generally not
+# lag well behind current Wireshark releases, so 4.6.9 is generally not
 # available as a stock package. We take the distro build, enforce a MINIMUM
 # version here, and rely on capture_service.py's startup field check to catch
 # any dissector difference that actually matters (PLAN P4b).

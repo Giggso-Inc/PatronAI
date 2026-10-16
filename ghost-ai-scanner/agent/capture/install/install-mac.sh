@@ -23,7 +23,7 @@ COMPANY="{{COMPANY}}"
 URLS_JSON='{{URLS_JSON}}'
 WIRESHARK_URL="{{WIRESHARK_URL}}"
 
-WIRESHARK_VERSION="4.6.8"
+WIRESHARK_VERSION="4.6.9"
 DATA_DIR="/Library/Application Support/PatronAI/capture"
 CODE_DIR="$DATA_DIR/code"
 TSHARK="/Applications/Wireshark.app/Contents/MacOS/tshark"

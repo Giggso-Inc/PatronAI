@@ -474,7 +474,7 @@ def verify_tshark_fields(required=None) -> list:
     total loss. It is how AWS traffic (HTTP/2) and Gemini traffic (HTTP/3)
     each went undetected for days.
 
-    Pinning tshark 4.6.8 is not sufficient on its own: Linux endpoints take
+    Pinning tshark 4.6.9 is not sufficient on its own: Linux endpoints take
     whatever their distro ships, so this runs at startup on every platform
     rather than trusting the pin (PLAN section 0, P4b).
 
