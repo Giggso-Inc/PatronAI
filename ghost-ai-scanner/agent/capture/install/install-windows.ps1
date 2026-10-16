@@ -24,9 +24,9 @@ $Token       = "{{TOKEN}}"
 $DeviceId    = "{{DEVICE_ID}}"
 $Company     = "{{COMPANY}}"
 $UrlsJson    = '{{URLS_JSON}}'          # presigned-URL bundle, single-quoted: raw JSON
-$WiresharkUrl    = "{{WIRESHARK_URL}}"  # pinned 4.6.8 installer
+$WiresharkUrl    = "{{WIRESHARK_URL}}"  # pinned 4.6.9 installer
 
-$WiresharkVersion = "4.6.8"
+$WiresharkVersion = "4.6.9"
 $DataDir  = Join-Path $env:ProgramData "PatronAI\capture"
 $CodeDir  = Join-Path $DataDir "code"
 $Python   = "python"
@@ -109,7 +109,7 @@ if (Test-Path $TsharkExe) {
     # /S = silent. There is deliberately NO Npcap flag: the Wireshark User's
     # Guide states "the silent installer will not install Npcap" - silent mode
     # never installs it, and there is no switch to pass. Verified empirically
-    # too: this repo's dev machine has Wireshark 4.6.8 with no Npcap entry in
+    # too: a dev machine with Wireshark 4.6.x had no Npcap entry in
     # the uninstall registry, and tshark reads pcapng fine.
     #
     # That suits us exactly: tshark only READS pcapng here (pktmon does the
@@ -117,7 +117,16 @@ if (Test-Path $TsharkExe) {
     # Npcap OEM licensing question.
     #
     # Must be the .exe (NSIS), not the .msi - msiexec does not accept /S.
-    Start-Process -FilePath $installer -ArgumentList "/S", "/desktopicon=no" -Wait
+    #
+    # Launch through cmd.exe. Start-Process -ArgumentList "/S" quotes the
+    # switch, NSIS does not treat "/S" as silent, and the script aborts with
+    # exit 2 before tshark.exe exists. 4.6.9 also has no /desktopicon switch;
+    # passing one aborts the same way.
+    $proc = Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" `
+        -ArgumentList "/c `"`"$installer`" /S`"" -Wait -PassThru
+    if ($proc.ExitCode -ne 0) {
+        Die "Wireshark installer exited $($proc.ExitCode). $TsharkExe was not installed."
+    }
     Remove-Item $installer -Force -ErrorAction SilentlyContinue
 
     if (-not (Test-Path $TsharkExe)) { Die "Wireshark install did not produce $TsharkExe" }

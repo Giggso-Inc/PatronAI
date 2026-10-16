@@ -92,7 +92,7 @@ if ($OtpInput -notmatch '^\d{6}$') {
 Write-Info "Validating OTP..."
 $TmpMeta = Join-Path $env:TEMP "patronai-meta-$Token.json"
 try {
-    Invoke-WebRequest -Uri $MetaUrl -OutFile $TmpMeta -TimeoutSec 30
+    Invoke-WebRequest -Uri $MetaUrl -OutFile $TmpMeta -TimeoutSec 30 -UseBasicParsing
 } catch {
     Write-Fail "Cannot reach installation server. URL may have expired."
 }
@@ -333,16 +333,51 @@ if (Test-Path $AuthUrlFile) {
 # placeholders in scan_header.py.frag bind to the live values.
 $env:PATRONAI_TOKEN   = $Cfg.token
 $env:PATRONAI_COMPANY = $Cfg.company
-$Result = python -c @"
+# Single-quoted here-string. The scan source contains PowerShell
+# snippets with $(...), and a double-quoted here-string tries to expand
+# those, which makes scan.ps1 fail to parse. The task then exits without
+# uploading anything. Token and company are passed in the environment
+# above, so this block must not be expanded.
+# Write the scan to a file and run that file. python -c puts the program
+# on the command line, and Windows rejects a command line past 32 KB.
+# This scan is larger than that, so the scheduled task was exiting with
+# an empty result and nothing was uploaded.
+$ScanPy = Join-Path $AgentDir "endpoint_scan.py"
+$PythonExe = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
+if (-not $PythonExe) {
+    $PythonExe = Join-Path $env:LOCALAPPDATA "Programs\Python\Python311\python.exe"
+}
+@'
 {{INLINE_SCAN_PYTHON}}
-"@
+'@ | Set-Content -Path $ScanPy -Encoding UTF8
+$ErrFile = Join-Path $AgentDir "scan_err.txt"
+if (Test-Path $ErrFile) { Remove-Item $ErrFile -Force }
+$Result = & $PythonExe $ScanPy 2>$ErrFile
 
+$Log = Join-Path $AgentDir "agent.log"
+$Ts = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+$HttpStatus = 0
+$Bytes = 0
+if ($Result) { $Bytes = $Result.Length }
+if (-not $Result -and (Test-Path $ErrFile)) {
+    $ErrTail = ((Get-Content $ErrFile -Tail 2) -join " ") -replace '"', "'"
+    if ($ErrTail.Length -gt 300) { $ErrTail = $ErrTail.Substring(0, 300) }
+    "{`"ts`":`"$Ts`",`"type`":`"scan_error`",`"detail`":`"$ErrTail`"}" | Add-Content -Path $Log
+}
 if ($Result) {
     try {
-        Invoke-WebRequest -Uri $ScanUrl -Method Put -Body $Result `
-            -ContentType "application/json" -TimeoutSec 30 | Out-Null
-    } catch { <# non-fatal #> }
+        # -UseBasicParsing is required. Without it, Windows PowerShell 5.1
+        # stops on the Internet Explorer "script execution" prompt. A hidden
+        # scheduled task cannot answer that prompt, so the scan exits 0 and
+        # the findings never reach the dashboard.
+        $Resp = Invoke-WebRequest -Uri $ScanUrl -Method Put -Body $Result `
+            -ContentType "application/json" -TimeoutSec 120 -UseBasicParsing
+        $HttpStatus = [int]$Resp.StatusCode
+    } catch {
+        if ($_.Exception.Response) { $HttpStatus = [int]$_.Exception.Response.StatusCode }
+    }
 }
+"{`"ts`":`"$Ts`",`"type`":`"scan`",`"http_status`":$HttpStatus,`"bytes`":$Bytes}" | Add-Content -Path $Log
 '@ | Set-Content -Path $ScanScript -Encoding UTF8
 
 # ── Report install status ─────────────────────────────────────
@@ -355,7 +390,7 @@ $StatusPayload = @{
 
 try {
     Invoke-WebRequest -Uri $StatusPutUrl -Method Put -Body $StatusPayload `
-        -ContentType "application/json" -TimeoutSec 15 | Out-Null
+        -ContentType "application/json" -TimeoutSec 15 -UseBasicParsing | Out-Null
 } catch { <# non-fatal #> }
 
 # ── Write heartbeat script (URL refresh + identity + structured log) ──
@@ -497,13 +532,22 @@ shell.Run cmd, 0, False
 '@ | Set-Content -Path $HiddenLauncher -Encoding ASCII
 
 # ── Register Task Scheduler tasks ────────────────────────────
-function Register-PatronAITask($TaskName, $ScriptPath, $IntervalMinutes, $Desc) {
+function Register-PatronAITask($TaskName, $ScriptPath, $IntervalMinutes, $Desc, $LimitMinutes) {
     $Action   = New-ScheduledTaskAction -Execute "wscript.exe" `
         -Argument "//B `"$HiddenLauncher`" `"$ScriptPath`""
-    $Trigger  = New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
-        -Once -At (Get-Date)
-    $Settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 2) `
-        -StartWhenAvailable -DontStopIfGoingOnBatteries -RunOnlyIfNetworkAvailable -Hidden
+    # MaxValue keeps the repetition from ending. Without a duration, a
+    # "once, then repeat" trigger stops after the first stretch.
+    $Trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+        -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
+        -RepetitionDuration ([TimeSpan]::MaxValue)
+    # A laptop on battery must still scan. The default is "do not start
+    # on batteries", which is why a scan that worked on AC went quiet
+    # overnight. The scan limit is long because the endpoint walk plus
+    # the companion scanners does not finish in two minutes; the
+    # scheduler was killing it before the upload.
+    $Settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes $LimitMinutes) `
+        -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+        -RunOnlyIfNetworkAvailable -Hidden
     try {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
         Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger `
@@ -514,8 +558,8 @@ function Register-PatronAITask($TaskName, $ScriptPath, $IntervalMinutes, $Desc) 
     }
 }
 
-Register-PatronAITask "PatronAI-Heartbeat" $HeartbeatScript 5  "PatronAI liveness heartbeat"
-Register-PatronAITask "PatronAI-Scan"      $ScanScript      30 "PatronAI endpoint scan (packages/processes/browser)"
+Register-PatronAITask "PatronAI-Heartbeat" $HeartbeatScript 5  "PatronAI liveness heartbeat" 10
+Register-PatronAITask "PatronAI-Scan"      $ScanScript      30 "PatronAI endpoint scan (packages/processes/browser)" 45
 
 # Run first scan immediately in background
 Start-Process wscript.exe -ArgumentList "//B `"$HiddenLauncher`" `"$ScanScript`""
@@ -594,7 +638,7 @@ if ($EnablePacketbeat -eq "1") {
             $PrevProgressPreference = $ProgressPreference
             $ProgressPreference = 'SilentlyContinue'
             try {
-                Invoke-WebRequest -Uri "https://artifacts.elastic.co/downloads/beats/packetbeat/packetbeat-9.5.2-windows-x86_64.zip" -OutFile $PbZip -TimeoutSec 180
+                Invoke-WebRequest -Uri "https://artifacts.elastic.co/downloads/beats/packetbeat/packetbeat-9.5.2-windows-x86_64.zip" -OutFile $PbZip -TimeoutSec 180 -UseBasicParsing
             } finally {
                 $ProgressPreference = $PrevProgressPreference
             }
@@ -682,7 +726,7 @@ $PacketbeatStatusPayload = @{
 } | ConvertTo-Json -Compress
 try {
     Invoke-WebRequest -Uri $StatusPutUrl -Method Put -Body $PacketbeatStatusPayload `
-        -ContentType "application/json" -TimeoutSec 15 | Out-Null
+        -ContentType "application/json" -TimeoutSec 15 -UseBasicParsing | Out-Null
 } catch { <# non-fatal #> }
 
 # ── Drop the recipient-side diagnose script ──────────────────

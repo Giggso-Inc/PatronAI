@@ -97,11 +97,12 @@ UNINSTALL_PS1_TEMPLATE   = TEMPLATE_DIR / "uninstall_agent.ps1.template"
 CAPTURE_FILES = ["pktmon_to_jsonl.py", "common.py", "capture_service.py",
                  "sync_task.py", "uploader.py"]
 
-# Pinned Wireshark 4.6.8 x64 NSIS installer. The .exe, not the .msi:
+# Pinned Wireshark 4.6.9 x64 NSIS installer. The .exe, not the .msi:
 # msiexec rejects the /S switch the installer passes, and /S is also what
-# makes Wireshark skip its bundled Npcap.
+# makes Wireshark skip its bundled Npcap. The mirror only keeps the
+# current stable build in /win64/; 4.6.8 now 404s there.
 WIRESHARK_URL = ("https://2.na.dl.wireshark.org/win64/"
-                 "Wireshark-4.6.8-x64.exe")
+                 "Wireshark-4.6.9-x64.exe")
 
 
 # ── Scanner companion payload ─────────────────────────────────────────────

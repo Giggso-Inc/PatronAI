@@ -45,14 +45,15 @@ if not os.environ.get("LOCAL_STORAGE_SECRET_KEY"):
     raise SystemExit("LOCAL_STORAGE_SECRET_KEY unset - source .env first")
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 
-# Pinned Wireshark 4.6.8, Windows x64. The .exe (NSIS) NOT the .msi:
+# Pinned Wireshark 4.6.9, Windows x64. The .exe (NSIS) NOT the .msi:
 #   * msiexec does not accept /S, which the installer passes
 #   * /S is also what makes Wireshark skip Npcap - the User's Guide states
 #     "the silent installer will not install Npcap", and there is no flag
-# SHA256 published by wireshark.org for Wireshark-4.6.8-x64.exe.
+# Current stable on the /win64/ mirror. 4.6.8 was removed from that
+# directory and the old URL returns 404.
 WIRESHARK_URL = os.environ.get(
     "WIRESHARK_URL",
-    "https://2.na.dl.wireshark.org/win64/Wireshark-4.6.8-x64.exe")
+    "https://2.na.dl.wireshark.org/win64/Wireshark-4.6.9-x64.exe")
 
 
 def main() -> int:
@@ -93,7 +94,7 @@ def main() -> int:
         print("ERROR: capture_post missing from the bundle", file=sys.stderr)
         return 1
 
-    # 3. Substitute. The Wireshark values below are the real pinned 4.6.8
+    # 3. Substitute. The Wireshark values below are the real pinned 4.6.9
     #    Windows x64 NSIS installer and its published SHA256. The .exe is
     #    required, not the .msi: msiexec does not accept the /S switch the
     #    installer passes, and /S is also what makes Wireshark skip Npcap.
@@ -137,7 +138,7 @@ def main() -> int:
     print(f"Upload URL : {bundle['capture_post']['url']}")
     print(f"Manifest   : {len(manifest)} files hashed")
     print(f"Wireshark  : {WIRESHARK_URL}")
-    print("             downloaded only if 4.6.8 is not already installed")
+    print("             downloaded only if 4.6.9 is not already installed")
     print()
     print("Read the script before running it. To install (elevated PowerShell):")
     print(f'  powershell -ExecutionPolicy Bypass -File "{rendered}"')
