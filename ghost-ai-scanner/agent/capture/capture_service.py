@@ -48,8 +48,9 @@ HERE = Path(__file__).resolve().parent
 _stop = False
 
 
-def log(msg: str) -> None:
-    print(f"{datetime.now(timezone.utc).isoformat()} [capture] {msg}", flush=True)
+# Writes the log file itself rather than relying on the scheduled task's
+# cmd.exe redirect - see common.make_logger for why that mattered.
+log = common.make_logger("capture")
 
 
 def _handle_stop(signum, frame):

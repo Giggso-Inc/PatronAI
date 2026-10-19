@@ -34,6 +34,15 @@ _die()  { echo "[capture] X $*" >&2; exit 1; }
 
 echo; echo "PatronAI Capture Companion - Linux"; echo "=================================="; echo
 
+# ── 0. Clear any previous install FIRST ──────────────────────────────────
+# Every fleet upgrade is an install-over-live, and leaving the old service
+# running while overwriting its code is how you get an install that reports
+# success while the old binary keeps serving. Stop it up front; `|| true` so a
+# first-ever install (no units yet) is not an error.
+systemctl stop patronai-capture.service 2>/dev/null || true
+systemctl stop patronai-capture-sync.timer 2>/dev/null || true
+pkill -f capture_service.py 2>/dev/null || true
+
 # ── 1. Elevation ─────────────────────────────────────────────────────────
 if [ "$(id -u)" -ne 0 ]; then
   _info "Root is required (packet capture needs CAP_NET_RAW)."
@@ -158,7 +167,13 @@ WantedBy=timers.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable --now patronai-capture.service >/dev/null
+# `enable --now` does NOT restart a unit that is already running - it starts
+# it only if stopped. Installing over a live install would therefore leave the
+# OLD process running with the OLD code, and the operator would see a
+# successful install with none of the new behaviour. `restart` is what
+# guarantees the freshly written code is what actually runs.
+systemctl enable patronai-capture.service >/dev/null
+systemctl restart patronai-capture.service
 systemctl enable --now patronai-capture-sync.timer >/dev/null
 _ok "Registered patronai-capture.service (boot) and patronai-capture-sync.timer (hourly)"
 
