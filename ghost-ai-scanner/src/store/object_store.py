@@ -1,7 +1,8 @@
 # =============================================================
 # Multi-cloud object store backends for PatronAI finds/writes.
-# STORAGE_MODE=local|s3|azure|gcp — Azure/GCS from bootstrap provision
+# STORAGE_MODE=local|s3|azure|gcp|oci — Azure/GCS from bootstrap provision
 # or env (AZURE_*, GCP_*). S3/MinIO via AWS_* + optional endpoint.
+# OCI via OCI_* (API-key auth, not access-key/secret).
 # =============================================================
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -40,7 +41,7 @@ def _config_path() -> Optional[Path]:
 
 def storage_mode() -> str:
     mode = (os.environ.get("STORAGE_MODE") or "").strip().lower()
-    if mode in ("local", "minio", "s3", "azure", "gcp"):
+    if mode in ("local", "minio", "s3", "azure", "gcp", "oci"):
         return "local" if mode == "minio" else mode
     if (os.environ.get("AWS_ENDPOINT_URL") or os.environ.get("LOCAL_STORAGE_ENDPOINT") or "").strip():
         return "local"
@@ -49,6 +50,9 @@ def storage_mode() -> str:
     if (os.environ.get("GCP_SERVICE_ACCOUNT_JSON") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip():
         if not os.environ.get("AWS_ACCESS_KEY_ID"):
             return "gcp"
+    if (os.environ.get("OCI_NAMESPACE") or "").strip():
+        if not os.environ.get("AWS_ACCESS_KEY_ID"):
+            return "oci"
     return "s3"
 
 
@@ -78,6 +82,7 @@ def storage_config_present_on_disk() -> bool:
             storage.get("s3_bucket")
             or storage.get("azure_container_name")
             or storage.get("gcp_bucket")
+            or storage.get("oci_bucket")
             or storage.get("local_path")
         ):
             return True
@@ -312,6 +317,103 @@ class GcsObjectStore(ObjectStore):
         return out
 
 
+class OciObjectStore(ObjectStore):
+    """OCI Object Storage backend.
+
+    Auth is API-key based (user/tenancy OCID + fingerprint + PEM key), not an
+    access-key/secret pair, and every call needs the account's namespace.
+    Unlike Azure/GCS here, OCI DOES support presigning (via Pre-Authenticated
+    Requests), so this class also exposes generate_presigned_url() with the
+    same (operation, Params, ExpiresIn) shape boto3's S3 client uses —
+    get_object_store()/boto3_s3_client() return this object directly for
+    oci mode, so existing call sites (e.g. agent_store.py's
+    self.s3.generate_presigned_url(...)) work unmodified.
+    """
+
+    mode = "oci"
+
+    def __init__(self):
+        import oci
+
+        config = {
+            "user": (os.environ.get("OCI_USER_OCID") or "").strip(),
+            "tenancy": (os.environ.get("OCI_TENANCY_OCID") or "").strip(),
+            "region": (os.environ.get("OCI_REGION") or "").strip(),
+            "fingerprint": (os.environ.get("OCI_FINGERPRINT") or "").strip(),
+            "key_content": (os.environ.get("OCI_PRIVATE_KEY") or "").strip(),
+        }
+        self.namespace = (os.environ.get("OCI_NAMESPACE") or "").strip()
+        self.compartment_id = (os.environ.get("OCI_COMPARTMENT_ID") or "").strip()
+        if not self.namespace:
+            raise ValueError("OCI storage requires OCI_NAMESPACE")
+        self.client = oci.object_storage.ObjectStorageClient(config)
+
+    def get(self, bucket: str, key: str) -> bytes:
+        return self.client.get_object(self.namespace, bucket, key).data.content
+
+    def put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
+        self.client.put_object(self.namespace, bucket, key, body, content_type=content_type)
+
+    def delete(self, bucket: str, key: str) -> None:
+        self.client.delete_object(self.namespace, bucket, key)
+
+    def exists(self, bucket: str, key: str) -> bool:
+        try:
+            self.client.head_object(self.namespace, bucket, key)
+            return True
+        except Exception:
+            return False
+
+    def list_keys(
+        self,
+        bucket: str,
+        prefix: str = "",
+        max_keys: int = 5000,
+    ) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        start: Optional[str] = None
+        while True:
+            resp = self.client.list_objects(
+                self.namespace, bucket, prefix=prefix or None, start=start,
+                fields="name,size,timeModified",
+            )
+            for obj in resp.data.objects or []:
+                out.append({
+                    "Key": obj.name,
+                    "LastModified": getattr(obj, "time_modified", None),
+                    "Size": getattr(obj, "size", 0) or 0,
+                })
+                if len(out) >= max_keys:
+                    return out
+            start = getattr(resp.data, "next_start_with", None)
+            if not start:
+                break
+        return out
+
+    def generate_presigned_url(self, operation: str, Params: dict, ExpiresIn: int = 3600) -> str:
+        """boto3-shaped presign via OCI Pre-Authenticated Request (PAR).
+
+        Each call makes one real OCI API call (unlike SigV4's pure local
+        crypto) — OCI has no client-side URL-signing primitive.
+        """
+        import oci
+
+        bucket = Params["Bucket"]
+        key = Params["Key"]
+        access_type = "ObjectWrite" if operation == "put_object" else "ObjectRead"
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=ExpiresIn)
+        details = oci.object_storage.models.CreatePreauthenticatedRequestDetails(
+            name=f"patron-presign-{key}",
+            access_type=access_type,
+            time_expires=expires_at,
+            object_name=key,
+        )
+        par = self.client.create_preauthenticated_request(self.namespace, bucket, details)
+        region = (os.environ.get("OCI_REGION") or "").strip()
+        host = f"https://objectstorage.{region}.oraclecloud.com"
+        return f"{host}{par.data.access_uri}"
+
+
 # ── boto3-shaped facade (Azure/GCS + shared call sites) ──────────
 
 
@@ -408,6 +510,16 @@ class ObjectStoreS3Facade:
         ctype = (ExtraArgs or {}).get("ContentType", "application/octet-stream")
         with open(Filename, "rb") as fh:
             self.put_object(Bucket=Bucket, Key=Key, Body=fh.read(), ContentType=ctype)
+
+    def generate_presigned_url(self, operation_name: str, Params: Optional[dict] = None, ExpiresIn: int = 3600, **kwargs) -> str:
+        """Delegate to the backing store's own presign when it has one (OCI,
+        via Pre-Authenticated Requests). Azure/GCS backends have no presign
+        implementation here, same gap as before this method existed —
+        callers already treat any exception as "presign unavailable"."""
+        impl = getattr(self._store, "generate_presigned_url", None)
+        if impl is None:
+            raise NotImplementedError(f"presign not supported for mode={self._store.mode}")
+        return impl(operation_name, Params or {}, ExpiresIn)
 
     def get_bucket_lifecycle_configuration(self, Bucket: str, **kwargs) -> dict:
         raise _client_error("NoSuchLifecycleConfiguration")
@@ -522,6 +634,16 @@ def _apply_storage_dict(storage: dict[str, Any], *, force: bool = True) -> None:
     if storage.get("gcp_bucket"):
         _set("MARAUDER_SCAN_BUCKET", storage["gcp_bucket"])
         _set("OBJECT_BUCKET", storage["gcp_bucket"])
+    _set("OCI_USER_OCID", storage.get("oci_user_ocid") or "")
+    _set("OCI_TENANCY_OCID", storage.get("oci_tenancy_ocid") or "")
+    _set("OCI_REGION", storage.get("oci_region") or "")
+    _set("OCI_FINGERPRINT", storage.get("oci_fingerprint") or "")
+    _set("OCI_PRIVATE_KEY", storage.get("oci_private_key") or "")
+    _set("OCI_NAMESPACE", storage.get("oci_namespace") or "")
+    _set("OCI_COMPARTMENT_ID", storage.get("oci_compartment_id") or "")
+    if storage.get("oci_bucket"):
+        _set("MARAUDER_SCAN_BUCKET", storage["oci_bucket"])
+        _set("OBJECT_BUCKET", storage["oci_bucket"])
 
 
 def get_object_store(force: bool = False) -> ObjectStore:
@@ -533,6 +655,8 @@ def get_object_store(force: bool = False) -> ObjectStore:
             _store = AzureObjectStore()
         elif mode == "gcp":
             _store = GcsObjectStore()
+        elif mode == "oci":
+            _store = OciObjectStore()
         else:
             _store = S3ObjectStore()
             _store.mode = mode

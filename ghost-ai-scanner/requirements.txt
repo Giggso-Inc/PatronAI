@@ -66,6 +66,7 @@ email-validator>=2.0.0,<3.0.0  # MIT — EmailStr validation for FastAPI
 python-dotenv>=1.0.0,<2.0.0    # BSD — load .env for local/dev deploys
 azure-storage-blob>=12.19.0,<13
 google-cloud-storage>=2.14.0,<3
+oci>=2.126.0,<3
 
 # ── Policy & identity DB (Postgres) — ADR_2026-06-29 ──────────
 # CVE-cleared 2026-06-29 via OSV.dev (no CVSS>7 affecting these pins).
