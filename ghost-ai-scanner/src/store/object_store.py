@@ -375,15 +375,19 @@ class OciObjectStore(ObjectStore):
         )
 
     def get(self, bucket: str, key: str) -> bytes:
+        """Download an object's full content."""
         return self.client.get_object(Bucket=bucket, Key=key)["Body"].read()
 
     def put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
+        """Upload (create or overwrite) an object."""
         self.client.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
 
     def delete(self, bucket: str, key: str) -> None:
+        """Delete an object. No-op if it doesn't exist."""
         self.client.delete_object(Bucket=bucket, Key=key)
 
     def exists(self, bucket: str, key: str) -> bool:
+        """True if the object exists (HEAD request)."""
         try:
             self.client.head_object(Bucket=bucket, Key=key)
             return True
@@ -396,6 +400,7 @@ class OciObjectStore(ObjectStore):
         prefix: str = "",
         max_keys: int = 5000,
     ) -> list[dict[str, Any]]:
+        """Return [{"Key", "LastModified", "Size"}, ...] under prefix, paginated."""
         out: list[dict[str, Any]] = []
         paginator = self.client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix or ""):
