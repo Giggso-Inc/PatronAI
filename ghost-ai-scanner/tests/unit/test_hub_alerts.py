@@ -70,3 +70,25 @@ def test_emit_shadow_discovered_payload(monkeypatch):
 
     assert captured["body"]["alert_code"] == "shadow_ai_discovered"
     assert captured["body"]["payload"]["resource_kind"] == "shadow_ai"
+
+
+def test_emit_tamper_payload(monkeypatch):
+    monkeypatch.setenv("RAVEN_HUB_URL", "http://hub.test")
+    captured: dict = {}
+
+    def fake_urlopen(req, timeout=8):
+        captured["body"] = json.loads(req.data.decode())
+        return MagicMock()
+
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        hub_alerts.emit_tamper(
+            "giggso", "patron:tamper:1",
+            detail="DELETED: src/protected.py",
+            user="dev@corp.com", device="DEVHOST",
+            payload={"file_path": "src/protected.py", "event_type": "DELETED"},
+        )
+
+    assert captured["body"]["alert_code"] == "patron_tamper"
+    assert captured["body"]["source_product"] == "patron"
+    assert captured["body"]["payload"]["event_type"] == "DELETED"
+    assert captured["body"]["actor_user"] == "dev@corp.com"

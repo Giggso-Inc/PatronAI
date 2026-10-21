@@ -26,7 +26,9 @@ def _infer_kind(tool: str, outcome: str = "") -> str:
 
 def _emit(org: str, code: str, event_id: str, detail: str = "",
           payload: dict | None = None,
-          user: str = "", device: str = "") -> None:
+          user: str = "", device: str = "",
+          *, skip_open_dedup: bool = False,
+          messaging_event: str = "") -> bool:
     # Prefer raven_be when cut over; fall back to Hub (which may forward).
     be = (os.environ.get("RAVEN_AUTH_URL") or os.environ.get("RAVEN_BE_URL") or "").rstrip("/")
     hub = (os.environ.get("RAVEN_HUB_URL") or "").rstrip("/")
@@ -35,14 +37,14 @@ def _emit(org: str, code: str, event_id: str, detail: str = "",
     elif hub:
         base, path = hub, "/api/v1/alerts/events"
     else:
-        return
+        return False
     key = os.environ.get("RAVEN_AGENT_KEY", "")
     try:
         from .hub_licence_gate import note_error, should_skip
     except ImportError:
         from hub_licence_gate import note_error, should_skip  # type: ignore
     if should_skip(base, key):
-        return
+        return False
     pl = dict(payload or {})
     if user:
         pl.setdefault("user", user)
@@ -58,6 +60,10 @@ def _emit(org: str, code: str, event_id: str, detail: str = "",
         "resource": pl.get("resource") or pl.get("tool") or "",
         "resource_kind": pl.get("resource_kind") or "",
     }
+    if skip_open_dedup:
+        body["skip_open_dedup"] = True
+    if messaging_event:
+        body["messaging_event"] = messaging_event
     try:
         req = urllib.request.Request(
             f"{base}{path}",
@@ -66,10 +72,12 @@ def _emit(org: str, code: str, event_id: str, detail: str = "",
                      **({"X-Raven-Agent": key} if key else {})},
         )
         urllib.request.urlopen(req, timeout=8)
+        return True
     except Exception as e:
         if note_error(e):
-            return
+            return False
         _log.warning("patron hub emit failed: %s", e)
+        return False
 
 
 def emit_shadow_discovered(
@@ -186,3 +194,70 @@ def emit_pending_decisions(
               "threshold_days": days,
               "messaging_event": code,
           })
+
+
+def emit_tamper(
+    org: str, event_id: str, detail: str = "",
+    payload: dict | None = None,
+    user: str = "", device: str = "",
+) -> bool:
+    """Integrity failure on Patron agent files/folders (admins + developer)."""
+    from datetime import datetime, timezone
+
+    pl = dict(payload or {})
+    pl.setdefault("messaging_event", "patron_tamper")
+    # Action-specific product event so matrix picks modified/deleted/added/base_fail.
+    et = str(pl.get("event_type") or "").strip().upper()
+    if et:
+        suffix = {
+            "MODIFIED": "modified",
+            "DELETED": "deleted",
+            "ADDED": "added",
+            "BASE_FAIL": "base_fail",
+            "WATCH_DIE": "watch_die",
+        }.get(et, "modified")
+        pl["messaging_event"] = f"patron_tamper_{suffix}"
+    pl.setdefault("resource", pl.get("file_path") or detail or "tamper")
+    pl.setdefault("resource_kind", "antitamper")
+    if user:
+        pl.setdefault("user", user)
+        pl.setdefault("user_email", user)
+    pl.setdefault(
+        "timestamp",
+        datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+    return _emit(org, "patron_tamper", event_id, detail or "Patron agent tamper",
+                 payload=pl, user=user, device=device)
+
+
+def emit_tamper_digest(
+    org: str, event_id: str, detail: str = "",
+    payload: dict | None = None,
+    user: str = "", device: str = "",
+) -> bool:
+    """30m rollup of continuous local antitamper findings (admins + developer)."""
+    from datetime import datetime, timezone
+
+    pl = dict(payload or {})
+    pl.setdefault("messaging_event", "patron_tamper_digest")
+    pl.setdefault("event_type", "DIGEST")
+    pl.setdefault("resource", pl.get("file_path") or "antitamper_digest")
+    pl.setdefault("resource_kind", "antitamper_digest")
+    if user:
+        pl.setdefault("user", user)
+        pl.setdefault("user_email", user)
+    pl.setdefault(
+        "timestamp",
+        datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+    return _emit(
+        org,
+        "patron_tamper_digest",
+        event_id,
+        detail or "Patron agent continuous tamper digest",
+        payload=pl,
+        user=user,
+        device=device,
+        skip_open_dedup=True,
+        messaging_event="patron_tamper_digest",
+    )

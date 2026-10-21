@@ -96,7 +96,7 @@ def _render_table(users: dict, current_email: str, store) -> None:
                     st.caption("(you)")
                 elif st.button("Remove", key=f"rm_{em}"):
                     old_rec = users[em].copy()
-                    if store.remove(em):
+                    if store.remove(em, removed_by=current_email):
                         write_user_action(current_email, "remove", em,
                                           old_record=old_rec, new_record=None)
                         st.success(f"Removed {em}")

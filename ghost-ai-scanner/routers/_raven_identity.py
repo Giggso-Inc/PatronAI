@@ -55,4 +55,14 @@ def verify_ravenhub_identity(
     email = payload.get("email")
     if not email:
         raise HTTPException(status_code=401, detail="Identity token missing email claim")
-    return str(email).strip().lower()
+    email = str(email).strip().lower()
+    try:
+        from db.object_blob_ledger import set_object_actor
+        set_object_actor(email=email)
+    except Exception as exc:
+        # Ledger is fail-open; never fail auth because actor bind failed.
+        import logging
+        logging.getLogger("marauder-scan.raven_identity").debug(
+            "object_blob actor bind skipped: %s", exc,
+        )
+    return email
