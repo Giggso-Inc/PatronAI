@@ -332,68 +332,63 @@ class GcsObjectStore(ObjectStore):
 
 
 class OciObjectStore(ObjectStore):
-    """OCI Object Storage backend.
+    """OCI Object Storage backend, via OCI's S3-Compatibility API + a
+    Customer Secret Key (access key / secret key pair) — not the native
+    `oci` SDK's API-key auth (user/tenancy OCID, fingerprint, PEM key).
 
-    Auth is API-key based (user/tenancy OCID + fingerprint + PEM key), not an
-    access-key/secret pair, and every call needs the account's namespace.
-    Unlike Azure/GCS here, OCI DOES support presigning (via Pre-Authenticated
-    Requests), so this class also exposes generate_presigned_url() with the
-    same (operation, Params, ExpiresIn) shape boto3's S3 client uses.
+    This means OciObjectStore is just a boto3 S3 client pointed at
+    `https://<namespace>.compat.objectstorage.<region>.oraclecloud.com` —
+    no separate `oci` SDK, no PEM parsing, no fingerprint. Unlike the old
+    PAR-based approach, presigned URLs are pure local SigV4 signing (same
+    mechanism S3ObjectStore already uses) — no server round-trip, nothing
+    stored in the bucket to clean up afterward.
 
-    Note: `boto3_s3_client()` does NOT special-case this class the way it
-    does S3ObjectStore — it returns this wrapped in `ObjectStoreS3Facade`,
-    same as Azure/GCS. That facade's own `generate_presigned_url()` delegates
-    to this class's method when present, so presigning still works end to
-    end; existing call sites (e.g. agent_store.py's
-    `self.s3.generate_presigned_url(...)`) see no difference, but callers
-    should not assume they're holding a raw OciObjectStore instance.
+    `boto3_s3_client()` special-cases this class the same way it does
+    S3ObjectStore and returns `self.client` directly (a real boto3 client,
+    not a facade) — every boto3 S3 operation, including
+    `generate_presigned_url`, works unmodified.
     """
 
     mode = "oci"
 
     def __init__(self) -> None:
-        import oci
+        import boto3
+        from botocore.config import Config
 
-        config = {
-            "user": (os.environ.get("OCI_USER_OCID") or "").strip(),
-            "tenancy": (os.environ.get("OCI_TENANCY_OCID") or "").strip(),
-            "region": (os.environ.get("OCI_REGION") or "").strip(),
-            "fingerprint": (os.environ.get("OCI_FINGERPRINT") or "").strip(),
-            # A PEM pasted into an env var or JSON secret loses its real
-            # newlines (becomes the literal two-char sequence "\n"); .strip()
-            # alone does not restore them, so the SDK would get a single-line
-            # blob it can't parse as a key.
-            "key_content": (os.environ.get("OCI_PRIVATE_KEY") or "").strip().replace("\\n", "\n"),
-        }
+        access_key = (os.environ.get("OCI_ACCESS_KEY_ID") or "").strip()
+        secret_key = (os.environ.get("OCI_SECRET_ACCESS_KEY") or "").strip()
+        region = (os.environ.get("OCI_REGION") or "").strip()
         self.namespace = (os.environ.get("OCI_NAMESPACE") or "").strip()
-        self.compartment_id = (os.environ.get("OCI_COMPARTMENT_ID") or "").strip()
-        if not self.namespace:
-            raise ValueError("OCI storage requires OCI_NAMESPACE")
-        self.client = oci.object_storage.ObjectStorageClient(config)
+        if not (access_key and secret_key and region and self.namespace):
+            raise ValueError(
+                "OCI storage requires OCI_ACCESS_KEY_ID, OCI_SECRET_ACCESS_KEY, "
+                "OCI_REGION, and OCI_NAMESPACE"
+            )
+        endpoint = f"https://{self.namespace}.compat.objectstorage.{region}.oraclecloud.com"
+        self.client = boto3.client(
+            "s3",
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region,
+            endpoint_url=endpoint,
+            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+        )
 
     def get(self, bucket: str, key: str) -> bytes:
-        return self.client.get_object(self.namespace, bucket, key).data.content
+        return self.client.get_object(Bucket=bucket, Key=key)["Body"].read()
 
     def put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
-        self.client.put_object(self.namespace, bucket, key, body, content_type=content_type)
+        self.client.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
 
     def delete(self, bucket: str, key: str) -> None:
-        self.client.delete_object(self.namespace, bucket, key)
+        self.client.delete_object(Bucket=bucket, Key=key)
 
     def exists(self, bucket: str, key: str) -> bool:
-        """True if the object exists. Only a 404 counts as "absent" — an
-        auth/permission failure or network error is re-raised instead of
-        being silently folded into "not found", which would otherwise hide
-        a broken credential behind a confusing "missing object" symptom."""
-        import oci
-
         try:
-            self.client.head_object(self.namespace, bucket, key)
+            self.client.head_object(Bucket=bucket, Key=key)
             return True
-        except oci.exceptions.ServiceError as exc:
-            if exc.status == 404:
-                return False
-            raise
+        except Exception:
+            return False
 
     def list_keys(
         self,
@@ -402,51 +397,17 @@ class OciObjectStore(ObjectStore):
         max_keys: int = 5000,
     ) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
-        start: Optional[str] = None
-        while True:
-            resp = self.client.list_objects(
-                self.namespace, bucket, prefix=prefix or None, start=start,
-                fields="name,size,timeModified",
-            )
-            for obj in resp.data.objects or []:
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix or ""):
+            for obj in page.get("Contents", []) or []:
                 out.append({
-                    "Key": obj.name,
-                    "LastModified": getattr(obj, "time_modified", None),
-                    "Size": getattr(obj, "size", 0) or 0,
+                    "Key": obj["Key"],
+                    "LastModified": obj.get("LastModified"),
+                    "Size": obj.get("Size", 0),
                 })
                 if len(out) >= max_keys:
                     return out
-            start = getattr(resp.data, "next_start_with", None)
-            if not start:
-                break
         return out
-
-    def generate_presigned_url(self, operation: str, Params: dict, ExpiresIn: int = 3600) -> str:
-        """boto3-shaped presign via OCI Pre-Authenticated Request (PAR).
-
-        Each call makes one real OCI API call (unlike SigV4's pure local
-        crypto) — OCI has no client-side URL-signing primitive. No cleanup
-        sweeper deletes expired PARs — accepted tradeoff, OCI charges nothing
-        extra for an unused PAR and the short TTL already bounds its window.
-        """
-        import oci
-
-        bucket = Params["Bucket"]
-        key = Params["Key"]
-        access_type = "ObjectWrite" if operation == "put_object" else "ObjectRead"
-        expires_at = datetime.now(timezone.utc) + timedelta(seconds=ExpiresIn)
-        details = oci.object_storage.models.CreatePreauthenticatedRequestDetails(
-            name=f"patron-presign-{key}",
-            access_type=access_type,
-            time_expires=expires_at,
-            object_name=key,
-        )
-        par = self.client.create_preauthenticated_request(self.namespace, bucket, details)
-        # base_client.endpoint is resolved by the SDK from region + realm at
-        # client construction, so this works in government/sovereign OCI
-        # realms too — a hardcoded "oraclecloud.com" host would not.
-        host = self.client.base_client.endpoint
-        return f"{host}{par.data.access_uri}"
 
 
 # ── boto3-shaped facade (Azure/GCS + shared call sites) ──────────
@@ -669,13 +630,10 @@ def _apply_storage_dict(storage: dict[str, Any], *, force: bool = True) -> None:
     if storage.get("gcp_bucket"):
         _set("MARAUDER_SCAN_BUCKET", storage["gcp_bucket"])
         _set("OBJECT_BUCKET", storage["gcp_bucket"])
-    _set("OCI_USER_OCID", storage.get("oci_user_ocid") or "")
-    _set("OCI_TENANCY_OCID", storage.get("oci_tenancy_ocid") or "")
+    _set("OCI_ACCESS_KEY_ID", storage.get("oci_access_key_id") or "")
+    _set("OCI_SECRET_ACCESS_KEY", storage.get("oci_secret_access_key") or "")
     _set("OCI_REGION", storage.get("oci_region") or "")
-    _set("OCI_FINGERPRINT", storage.get("oci_fingerprint") or "")
-    _set("OCI_PRIVATE_KEY", storage.get("oci_private_key") or "")
     _set("OCI_NAMESPACE", storage.get("oci_namespace") or "")
-    _set("OCI_COMPARTMENT_ID", storage.get("oci_compartment_id") or "")
     if storage.get("oci_bucket"):
         _set("MARAUDER_SCAN_BUCKET", storage["oci_bucket"])
         _set("OBJECT_BUCKET", storage["oci_bucket"])
@@ -700,13 +658,16 @@ def get_object_store(force: bool = False) -> ObjectStore:
 
 
 def boto3_s3_client(region_name: Optional[str] = None):
-    """Return a boto3 S3 client (s3/local) or multi-cloud facade (azure/gcp).
+    """Return a boto3 S3 client (s3/local/oci) or multi-cloud facade (azure/gcp).
 
     Prefer this over bare ``boto3.client("s3")`` so Azure/GCS wizard choice
-    reaches chat, rollups, ingestor, and seed paths.
+    reaches chat, rollups, ingestor, and seed paths. OciObjectStore is also a
+    real boto3 client (OCI's S3-Compatibility API via a Customer Secret Key),
+    so it gets the same direct-return treatment as S3ObjectStore - no facade
+    needed.
     """
     store = get_object_store()
-    if isinstance(store, S3ObjectStore) and getattr(store, "client", None) is not None:
+    if isinstance(store, (S3ObjectStore, OciObjectStore)) and getattr(store, "client", None) is not None:
         return store.client
     return ObjectStoreS3Facade(store)
 
