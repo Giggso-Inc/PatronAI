@@ -66,7 +66,11 @@ email-validator>=2.0.0,<3.0.0  # MIT — EmailStr validation for FastAPI
 python-dotenv>=1.0.0,<2.0.0    # BSD — load .env for local/dev deploys
 azure-storage-blob>=12.19.0,<13
 google-cloud-storage>=2.14.0,<3
-oci>=2.126.0,<3
+# Exact-pinned (not a floor): newer oci releases (e.g. 2.189.0) pull
+# pyOpenSSL>=26.2,<27 / cryptography<51, untested against this image's
+# dependency set. 2.126.0 is the version this backend was built and tested
+# against; CVE review pending before this floor is raised.
+oci==2.126.0
 
 # ── Policy & identity DB (Postgres) — ADR_2026-06-29 ──────────
 # CVE-cleared 2026-06-29 via OSV.dev (no CVSS>7 affecting these pins).

@@ -136,6 +136,20 @@ class ObjectStore:
         return b""
 
 
+def _env_int(name: str, default: int) -> int:
+    """int(os.environ[name]) that falls back to `default` instead of raising
+    on a bad value - a malformed S3_CONNECT_TIMEOUT_SECS/S3_READ_TIMEOUT_SECS
+    env var must not crash store init outright."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        _log.warning("%s=%r is not a valid integer, using default %s", name, raw, default)
+        return default
+
+
 class S3ObjectStore(ObjectStore):
     mode = "s3"
 
@@ -158,8 +172,8 @@ class S3ObjectStore(ObjectStore):
             retries={"max_attempts": 3, "mode": "standard"},
             # Env-tunable: large scan uploads/list pages may need more headroom
             # than the small per-agent meta/status reads this was sized for.
-            connect_timeout=int(os.environ.get("S3_CONNECT_TIMEOUT_SECS", "5")),
-            read_timeout=int(os.environ.get("S3_READ_TIMEOUT_SECS", "10")),
+            connect_timeout=_env_int("S3_CONNECT_TIMEOUT_SECS", 5),
+            read_timeout=_env_int("S3_READ_TIMEOUT_SECS", 10),
         )
         kwargs: dict[str, Any] = {
             "region_name": os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1",
@@ -324,15 +338,20 @@ class OciObjectStore(ObjectStore):
     access-key/secret pair, and every call needs the account's namespace.
     Unlike Azure/GCS here, OCI DOES support presigning (via Pre-Authenticated
     Requests), so this class also exposes generate_presigned_url() with the
-    same (operation, Params, ExpiresIn) shape boto3's S3 client uses —
-    get_object_store()/boto3_s3_client() return this object directly for
-    oci mode, so existing call sites (e.g. agent_store.py's
-    self.s3.generate_presigned_url(...)) work unmodified.
+    same (operation, Params, ExpiresIn) shape boto3's S3 client uses.
+
+    Note: `boto3_s3_client()` does NOT special-case this class the way it
+    does S3ObjectStore — it returns this wrapped in `ObjectStoreS3Facade`,
+    same as Azure/GCS. That facade's own `generate_presigned_url()` delegates
+    to this class's method when present, so presigning still works end to
+    end; existing call sites (e.g. agent_store.py's
+    `self.s3.generate_presigned_url(...)`) see no difference, but callers
+    should not assume they're holding a raw OciObjectStore instance.
     """
 
     mode = "oci"
 
-    def __init__(self):
+    def __init__(self) -> None:
         import oci
 
         config = {
@@ -340,7 +359,11 @@ class OciObjectStore(ObjectStore):
             "tenancy": (os.environ.get("OCI_TENANCY_OCID") or "").strip(),
             "region": (os.environ.get("OCI_REGION") or "").strip(),
             "fingerprint": (os.environ.get("OCI_FINGERPRINT") or "").strip(),
-            "key_content": (os.environ.get("OCI_PRIVATE_KEY") or "").strip(),
+            # A PEM pasted into an env var or JSON secret loses its real
+            # newlines (becomes the literal two-char sequence "\n"); .strip()
+            # alone does not restore them, so the SDK would get a single-line
+            # blob it can't parse as a key.
+            "key_content": (os.environ.get("OCI_PRIVATE_KEY") or "").strip().replace("\\n", "\n"),
         }
         self.namespace = (os.environ.get("OCI_NAMESPACE") or "").strip()
         self.compartment_id = (os.environ.get("OCI_COMPARTMENT_ID") or "").strip()
@@ -358,11 +381,19 @@ class OciObjectStore(ObjectStore):
         self.client.delete_object(self.namespace, bucket, key)
 
     def exists(self, bucket: str, key: str) -> bool:
+        """True if the object exists. Only a 404 counts as "absent" — an
+        auth/permission failure or network error is re-raised instead of
+        being silently folded into "not found", which would otherwise hide
+        a broken credential behind a confusing "missing object" symptom."""
+        import oci
+
         try:
             self.client.head_object(self.namespace, bucket, key)
             return True
-        except Exception:
-            return False
+        except oci.exceptions.ServiceError as exc:
+            if exc.status == 404:
+                return False
+            raise
 
     def list_keys(
         self,
@@ -394,7 +425,9 @@ class OciObjectStore(ObjectStore):
         """boto3-shaped presign via OCI Pre-Authenticated Request (PAR).
 
         Each call makes one real OCI API call (unlike SigV4's pure local
-        crypto) — OCI has no client-side URL-signing primitive.
+        crypto) — OCI has no client-side URL-signing primitive. No cleanup
+        sweeper deletes expired PARs — accepted tradeoff, OCI charges nothing
+        extra for an unused PAR and the short TTL already bounds its window.
         """
         import oci
 
@@ -409,8 +442,10 @@ class OciObjectStore(ObjectStore):
             object_name=key,
         )
         par = self.client.create_preauthenticated_request(self.namespace, bucket, details)
-        region = (os.environ.get("OCI_REGION") or "").strip()
-        host = f"https://objectstorage.{region}.oraclecloud.com"
+        # base_client.endpoint is resolved by the SDK from region + realm at
+        # client construction, so this works in government/sovereign OCI
+        # realms too — a hardcoded "oraclecloud.com" host would not.
+        host = self.client.base_client.endpoint
         return f"{host}{par.data.access_uri}"
 
 
