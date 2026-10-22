@@ -111,13 +111,27 @@ def test_exists_reraises_on_non_404(boto_client):
 def test_boto3_s3_client_returns_raw_client_for_oci(boto_client, monkeypatch):
     """Architecture fix from PR #71 review: OciObjectStore IS a real boto3
     client now (OCI S3-Compat API), so boto3_s3_client() must return it
-    directly, not wrap it in ObjectStoreS3Facade."""
+    directly, not wrap it in ObjectStoreS3Facade. It IS still wrapped in
+    _PutRecordingClient (same as S3ObjectStore) so a direct put_object()
+    call from another module still reaches the object_blobs audit ledger —
+    __getattr__ passes every other boto3 S3 operation straight through."""
     mod = _load_mod()
     monkeypatch.setenv("STORAGE_MODE", "oci")
     with patch("boto3.client", return_value=boto_client):
         mod._store = None
         client = mod.boto3_s3_client()
-    assert client is boto_client
+    assert isinstance(client, mod._PutRecordingClient)
+    assert client._client is boto_client
+
+    boto_client.get_object.return_value = {"Body": MagicMock(read=MagicMock(return_value=b"x"))}
+    assert client.get_object(Bucket="bkt", Key="key")["Body"].read() == b"x"
+
+    with patch.object(mod, "_record_put") as mock_record:
+        client.put_object(Bucket="bkt", Key="key", Body=b"hello", ContentType="application/json")
+    boto_client.put_object.assert_called_once_with(
+        Bucket="bkt", Key="key", Body=b"hello", ContentType="application/json"
+    )
+    mock_record.assert_called_once()
 
 
 def test_presign_is_pure_boto3_sigv4_no_api_call(boto_client):

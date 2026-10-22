@@ -408,9 +408,11 @@ class OciObjectStore(ObjectStore):
     stored in the bucket to clean up afterward.
 
     `boto3_s3_client()` special-cases this class the same way it does
-    S3ObjectStore and returns `self.client` directly (a real boto3 client,
-    not a facade) — every boto3 S3 operation, including
-    `generate_presigned_url`, works unmodified.
+    S3ObjectStore and returns `self.client` directly — a real boto3 client
+    wrapped in `_PutRecordingClient` (same as S3ObjectStore) so a direct
+    `put_object()` call from another module still reaches the object_blobs
+    audit ledger. Every other boto3 S3 operation, including
+    `generate_presigned_url`, passes through unmodified via `__getattr__`.
     """
 
     mode = "oci"
@@ -429,7 +431,7 @@ class OciObjectStore(ObjectStore):
                 "OCI_REGION, and OCI_NAMESPACE"
             )
         endpoint = f"https://{self.namespace}.compat.objectstorage.{region}.oraclecloud.com"
-        self.client = boto3.client(
+        self._client = boto3.client(
             "s3",
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
@@ -442,14 +444,19 @@ class OciObjectStore(ObjectStore):
                 response_checksum_validation="when_required",
             ),
         )
+        # Wrapped the same way S3ObjectStore wraps its client: boto3_s3_client()
+        # returns self.client directly for OCI (no facade), so a direct
+        # put_object() call from another module (bypassing ObjectStore.put())
+        # must still land in the object_blobs audit ledger.
+        self.client = _PutRecordingClient(self._client, mode=self.mode)
 
     def get(self, bucket: str, key: str) -> bytes:
         """Download an object's full content."""
         return self.client.get_object(Bucket=bucket, Key=key)["Body"].read()
 
-    def put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
+    def _put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
         """Upload (create or overwrite) an object."""
-        self.client.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
+        self._client.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
 
     def delete(self, bucket: str, key: str) -> None:
         """Delete an object. No-op if it doesn't exist."""
