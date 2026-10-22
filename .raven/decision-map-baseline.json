@@ -56,6 +56,33 @@
       "outcome": "accepted"
     },
     {
+      "file": "ghost-ai-scanner/alembic/versions/0009_object_blobs.py",
+      "line": 22,
+      "symbol": "upgrade",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/alembic/versions/0010_object_blob_audits.py",
+      "line": 20,
+      "symbol": "upgrade",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/alembic/versions/0011_antitamper_events.py",
+      "line": 21,
+      "symbol": "upgrade",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
       "file": "ghost-ai-scanner/alembic/versions/0b106c6c7a43_initial_policy_schema.py",
       "line": 21,
       "symbol": "upgrade",
@@ -120,38 +147,47 @@
     },
     {
       "file": "ghost-ai-scanner/dashboard/auth.py",
-      "line": 74,
+      "line": 77,
       "symbol": "gate",
       "reason": "",
       "reviewer": "",
-      "timestamp": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
       "outcome": "accepted"
     },
     {
       "file": "ghost-ai-scanner/dashboard/auth.py",
-      "line": 87,
-      "symbol": "gate",
-      "reason": "",
-      "reviewer": "",
-      "timestamp": "",
-      "outcome": "accepted"
-    },
-    {
-      "file": "ghost-ai-scanner/dashboard/auth.py",
-      "line": 92,
-      "symbol": "_render_login",
-      "reason": "",
-      "reviewer": "",
-      "timestamp": "",
-      "outcome": "accepted"
-    },
-    {
-      "file": "ghost-ai-scanner/dashboard/auth.py",
-      "line": 96,
+      "line": 91,
       "symbol": "<try>",
       "reason": "",
       "reviewer": "",
-      "timestamp": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/auth.py",
+      "line": 99,
+      "symbol": "gate",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/auth.py",
+      "line": 104,
+      "symbol": "_render_login",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/dashboard/auth.py",
+      "line": 108,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
       "outcome": "accepted"
     },
     {
@@ -426,29 +462,29 @@
     },
     {
       "file": "ghost-ai-scanner/dashboard/ui/auth_gate.py",
-      "line": 113,
+      "line": 117,
       "symbol": "gate",
       "reason": "",
       "reviewer": "",
-      "timestamp": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
       "outcome": "accepted"
     },
     {
       "file": "ghost-ai-scanner/dashboard/ui/auth_gate.py",
-      "line": 118,
+      "line": 134,
       "symbol": "_render_login",
       "reason": "",
       "reviewer": "",
-      "timestamp": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
       "outcome": "accepted"
     },
     {
       "file": "ghost-ai-scanner/dashboard/ui/auth_gate.py",
-      "line": 145,
+      "line": 161,
       "symbol": "_check",
       "reason": "",
       "reviewer": "",
-      "timestamp": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
       "outcome": "accepted"
     },
     {
@@ -2046,11 +2082,11 @@
     },
     {
       "file": "ghost-ai-scanner/routers/_raven_identity.py",
-      "line": 58,
+      "line": 68,
       "symbol": "verify_ravenhub_identity",
       "reason": "",
       "reviewer": "",
-      "timestamp": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
       "outcome": "accepted"
     },
     {
@@ -2388,11 +2424,11 @@
     },
     {
       "file": "ghost-ai-scanner/scripts/render_agent_package.py",
-      "line": 329,
+      "line": 334,
       "symbol": "render_agent_package",
       "reason": "",
       "reviewer": "",
-      "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
       "outcome": "accepted"
     },
     {
@@ -2501,6 +2537,69 @@
       "reason": "",
       "reviewer": "",
       "timestamp": "",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/antitamper/emit_dedupe.py",
+      "line": 56,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/antitamper/emit_dedupe.py",
+      "line": 65,
+      "symbol": "_state_path",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/antitamper/ledger.py",
+      "line": 24,
+      "symbol": "record_event",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/antitamper/ledger.py",
+      "line": 68,
+      "symbol": "upsert_enrollment",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/antitamper/scanner.py",
+      "line": 254,
+      "symbol": "run_once",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/antitamper/scanner.py",
+      "line": 309,
+      "symbol": "run_once",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/antitamper/scanner.py",
+      "line": 400,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
       "outcome": "accepted"
     },
     {
@@ -2951,6 +3050,42 @@
       "reason": "",
       "reviewer": "",
       "timestamp": "2026-09-29T18:17:15.403411+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/object_blob_ledger.py",
+      "line": 36,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/object_blob_ledger.py",
+      "line": 72,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/object_blob_ledger.py",
+      "line": 76,
+      "symbol": "content_sha256",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/db/object_blob_ledger.py",
+      "line": 154,
+      "symbol": "_upsert_blob",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
       "outcome": "accepted"
     },
     {
@@ -3774,83 +3909,110 @@
     },
     {
       "file": "ghost-ai-scanner/src/store/object_store.py",
-      "line": 107,
-      "symbol": "delete",
-      "reason": "",
-      "reviewer": "",
-      "timestamp": "2026-10-01T14:12:03.942282+00:00",
-      "outcome": "accepted"
-    },
-    {
-      "file": "ghost-ai-scanner/src/store/object_store.py",
-      "line": 137,
-      "symbol": "__init__",
-      "reason": "",
-      "reviewer": "",
-      "timestamp": "2026-10-01T14:12:03.942282+00:00",
-      "outcome": "accepted"
-    },
-    {
-      "file": "ghost-ai-scanner/src/store/object_store.py",
-      "line": 209,
-      "symbol": "__init__",
-      "reason": "",
-      "reviewer": "",
-      "timestamp": "2026-10-01T14:12:03.942282+00:00",
-      "outcome": "accepted"
-    },
-    {
-      "file": "ghost-ai-scanner/src/store/object_store.py",
-      "line": 265,
-      "symbol": "__init__",
-      "reason": "",
-      "reviewer": "",
-      "timestamp": "2026-10-01T14:12:03.942282+00:00",
-      "outcome": "accepted"
-    },
-    {
-      "file": "ghost-ai-scanner/src/store/object_store.py",
-      "line": 385,
-      "symbol": "delete_object",
-      "reason": "",
-      "reviewer": "",
-      "timestamp": "2026-10-01T14:12:03.942282+00:00",
-      "outcome": "accepted"
-    },
-    {
-      "file": "ghost-ai-scanner/src/store/object_store.py",
-      "line": 392,
-      "symbol": "delete_objects",
-      "reason": "",
-      "reviewer": "",
-      "timestamp": "2026-10-01T14:12:03.942282+00:00",
-      "outcome": "accepted"
-    },
-    {
-      "file": "ghost-ai-scanner/src/store/object_store.py",
-      "line": 489,
-      "symbol": "_apply_storage_dict",
-      "reason": "",
-      "reviewer": "",
-      "timestamp": "2026-10-01T14:12:03.942282+00:00",
-      "outcome": "accepted"
-    },
-    {
-      "file": "ghost-ai-scanner/src/store/object_store.py",
-      "line": 530,
+      "line": 125,
       "symbol": "<if>",
       "reason": "",
       "reviewer": "",
-      "timestamp": "2026-10-01T14:12:03.942282+00:00",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
       "outcome": "accepted"
     },
     {
       "file": "ghost-ai-scanner/src/store/object_store.py",
-      "line": 536,
+      "line": 130,
+      "symbol": "<try>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 149,
+      "symbol": "put_object",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 170,
+      "symbol": "delete",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 200,
+      "symbol": "__init__",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 277,
+      "symbol": "__init__",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 333,
+      "symbol": "__init__",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 453,
+      "symbol": "delete_object",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 460,
+      "symbol": "delete_objects",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 557,
+      "symbol": "_apply_storage_dict",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 598,
+      "symbol": "<if>",
+      "reason": "",
+      "reviewer": "",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
+      "outcome": "accepted"
+    },
+    {
+      "file": "ghost-ai-scanner/src/store/object_store.py",
+      "line": 606,
       "symbol": "get_object_store",
       "reason": "",
       "reviewer": "",
-      "timestamp": "2026-10-01T14:12:03.942282+00:00",
+      "timestamp": "2026-10-07T11:46:22.852358+00:00",
       "outcome": "accepted"
     },
     {

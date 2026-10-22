@@ -346,6 +346,14 @@ $ApplyUpdateScript = Join-Path $AgentDir "apply_update.ps1"
 {{INLINE_APPLY_UPDATE_PS1}}
 '@ | Set-Content -Path $ApplyUpdateScript -Encoding UTF8
 
+# ── Write log-rotation script (drops heartbeat entries older than 24 h) ──
+# Pure Python stdlib -- no third-party deps. Source lives at
+# agent/install/log_rotate.py, inlined verbatim at render time.
+$LogRotateScript = Join-Path $AgentDir "log_rotate.py"
+@'
+{{INLINE_LOG_ROTATE_PY}}
+'@ | Set-Content -Path $LogRotateScript -Encoding UTF8
+
 # ── Hidden-launch shim ────────────────────────────────────────
 # Task Scheduler invoking powershell.exe directly still briefly flashes a
 # console window on many Windows builds even with -WindowStyle Hidden — the
@@ -385,9 +393,10 @@ function Register-PatronAITask($TaskName, $ScriptPath, $IntervalMinutes, $Desc) 
     }
 }
 
-Register-PatronAITask "PatronAI-Heartbeat" $HeartbeatScript 5  "PatronAI liveness heartbeat"
-Register-PatronAITask "PatronAI-Scan"      $ScanScript      30 "PatronAI endpoint scan (packages/processes/browser)"
-Register-PatronAITask "PatronAI-Update"    $ApplyUpdateScript 60 "PatronAI agent self-update"
+Register-PatronAITask "PatronAI-Heartbeat"   $HeartbeatScript   5  "PatronAI liveness heartbeat"
+Register-PatronAITask "PatronAI-Scan"        $ScanScript        30 "PatronAI endpoint scan (packages/processes/browser)"
+Register-PatronAITask "PatronAI-LogRotate"   $LogRotateScript   1440 "PatronAI agent log rotation (drops heartbeat entries older than 24h)"
+Register-PatronAITask "PatronAI-Update"      $ApplyUpdateScript 60 "PatronAI agent self-update"
 
 # Run first scan immediately in background
 Start-Process wscript.exe -ArgumentList "//B `"$HiddenLauncher`" `"$ScanScript`""

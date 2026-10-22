@@ -17,8 +17,11 @@
 #                       Backwards-compatible env-var fallback retained.
 # =============================================================
 
+import logging
 import os
 import streamlit as st
+
+_log = logging.getLogger("patronai.dashboard.auth")
 
 # Env-var fallbacks — only used if the S3 users-store is unreachable.
 _FALLBACK_ALLOWED = [e.strip().lower() for e in
@@ -83,6 +86,15 @@ def gate() -> tuple:
     if not st.session_state.authenticated:
         _render_login()
         st.stop()
+
+    # Bind ledger actor for this Streamlit rerun (object_blob audits).
+    try:
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+        from db.object_blob_ledger import set_object_actor
+        set_object_actor(email=st.session_state.email)
+    except Exception as exc:
+        _log.debug("object actor bind skipped: %s", exc)
 
     return (st.session_state.email,
             st.session_state.role,
