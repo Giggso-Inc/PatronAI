@@ -11,7 +11,7 @@
 import os
 import logging
 
-from .object_store import S3ObjectStore, get_object_store, storage_mode
+from .object_store import OciObjectStore, S3ObjectStore, get_object_store, storage_mode
 
 log = logging.getLogger("marauder-scan.store")
 
@@ -37,9 +37,11 @@ class BaseStore:
         self.region = region
         self._store = get_object_store()
         self.local_mode = self._store.mode in ("local",) or is_s3_compatible_local()
-        # Only expose raw boto3 client for S3/MinIO. Azure/GCS use a facade
-        # when callers need put/get via boto3-shaped APIs (never a GCS Client).
-        if isinstance(self._store, S3ObjectStore):
+        # Only expose raw boto3 client for S3/MinIO/OCI (OCI is also a real
+        # boto3 client, via OCI's S3-Compatibility API + Customer Secret
+        # Key). Azure/GCS use a facade when callers need put/get via
+        # boto3-shaped APIs (never a GCS Client).
+        if isinstance(self._store, (S3ObjectStore, OciObjectStore)):
             self.s3 = self._store.client
         else:
             from .object_store import ObjectStoreS3Facade
