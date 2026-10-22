@@ -14,10 +14,8 @@
 #   v1.0.0  2026-04-26  Initial. Phase 1A.
 # =============================================================
 
-import json
 import logging
 from datetime import date, timedelta
-from typing import Optional
 
 log = logging.getLogger("marauder-scan.findings_query")
 

@@ -26,7 +26,7 @@ log = logging.getLogger("marauder-scan.threads")
 
 STREAMLIT_PORT = int(os.environ.get("STREAMLIT_PORT", "8501"))
 DEFAULT_INTERVAL = int(os.environ.get("SCAN_INTERVAL_SECS", "300"))
-INTEGRATION_API_PORT = int(os.environ.get("INTEGRATION_API_PORT", "8002")) 
+INTEGRATION_API_PORT = int(os.environ.get("INTEGRATION_API_PORT", "8002"))
 
 
 def scanner_loop(store, resolver, settings: dict, stop: threading.Event):
@@ -114,8 +114,12 @@ def retina_loop(store, stop: threading.Event):
     Agents without a raven_hub_token_id set in their meta.json are silently
     skipped — they have not yet been linked to the Hub Card system.
     """
-    from retina import RetinaAssembler
-    assembler = RetinaAssembler(store)
+    try:
+        from retina import RetinaAssembler
+        assembler = RetinaAssembler(store)
+    except Exception as exc:
+        log.error("Retina loop failed to initialise — thread will not run: %s", exc, exc_info=True)
+        return
     log.info("Retina loop started (interval=%ss)", RETINA_INTERVAL_SECS)
 
     while not stop.is_set():

@@ -47,6 +47,7 @@ from threads      import scanner_loop, alerter_backlog, url_refresh_loop, stream
 from jobs.hourly_rollup    import scheduler_loop as rollup_scheduler_loop
 from jobs.docs_refresh     import docs_refresh_loop
 from jobs.findings_compact import scheduler_loop as compact_scheduler_loop
+from jobs.shadow_matrix_digest import shadow_matrix_digest_loop
 
 _HF_REPO  = os.environ.get("LLM_MODEL_REPO", "LiquidAI/LFM2.5-1.2B-Thinking-GGUF")
 _LLM_PORT = int(os.environ.get("LLM_SERVER_PORT", "8080"))
@@ -220,6 +221,7 @@ def main():
         threading.Thread(target=rollup_scheduler_loop, args=(stop, _ROLLUP_OFFSET_MIN),      name="rollup_scheduler", daemon=True),
         threading.Thread(target=compact_scheduler_loop, args=(store, stop),                   name="findings_compact", daemon=True),
         threading.Thread(target=docs_refresh_loop,   args=(stop,),                           name="docs_refresh",   daemon=True),
+        threading.Thread(target=shadow_matrix_digest_loop, args=(stop,),                 name="shadow_matrix_digest", daemon=True),
         threading.Thread(target=streamlit_proc,      args=(stop,),                           name="streamlit",      daemon=True),
         # RavenHub Card — retina fingerprint assembler. Runs every 300s,
         # reads each agent's latest scan, computes hash, posts to Hub when changed.

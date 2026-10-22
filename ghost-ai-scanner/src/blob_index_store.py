@@ -46,5 +46,13 @@ class BlobIndexStore:
         self.bucket = bucket
         self.region = region
 
+    def _get(self, key: str) -> bytes:
+        """Delegate raw S3 get to agent store (all sub-stores share the same bucket)."""
+        return self.agent._get(key)
+
+    def _put(self, key: str, body: bytes, content_type: str = "application/json") -> bool:
+        """Delegate raw S3 put to agent store."""
+        return self.agent._put(key, body, content_type)
+
     def __repr__(self) -> str:
         return f"BlobIndexStore(bucket={self.bucket}, region={self.region})"

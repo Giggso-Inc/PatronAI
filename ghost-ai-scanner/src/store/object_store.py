@@ -1,12 +1,12 @@
 # =============================================================
 # Multi-cloud object store backends for PatronAI finds/writes.
-# STORAGE_MODE=local|s3|azure|gcp — Azure/GCS from bootstrap provision
+# STORAGE_MODE=local|s3|azure|gcp|oci — Azure/GCS from bootstrap provision
 # or env (AZURE_*, GCP_*). S3/MinIO via AWS_* + optional endpoint.
+# OCI via OCI_* (Customer Secret Key access-key/secret, S3-Compat API).
 # =============================================================
 
 from __future__ import annotations
 
-import io
 import json
 import logging
 import os
@@ -41,7 +41,7 @@ def _config_path() -> Optional[Path]:
 
 def storage_mode() -> str:
     mode = (os.environ.get("STORAGE_MODE") or "").strip().lower()
-    if mode in ("local", "minio", "s3", "azure", "gcp"):
+    if mode in ("local", "minio", "s3", "azure", "gcp", "oci"):
         return "local" if mode == "minio" else mode
     if (os.environ.get("AWS_ENDPOINT_URL") or os.environ.get("LOCAL_STORAGE_ENDPOINT") or "").strip():
         return "local"
@@ -50,6 +50,9 @@ def storage_mode() -> str:
     if (os.environ.get("GCP_SERVICE_ACCOUNT_JSON") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip():
         if not os.environ.get("AWS_ACCESS_KEY_ID"):
             return "gcp"
+    if (os.environ.get("OCI_NAMESPACE") or "").strip() and (os.environ.get("OCI_ACCESS_KEY_ID") or "").strip():
+        if not os.environ.get("AWS_ACCESS_KEY_ID"):
+            return "oci"
     return "s3"
 
 
@@ -79,6 +82,7 @@ def storage_config_present_on_disk() -> bool:
             storage.get("s3_bucket")
             or storage.get("azure_container_name")
             or storage.get("gcp_bucket")
+            or storage.get("oci_bucket")
             or storage.get("local_path")
         ):
             return True
@@ -95,6 +99,64 @@ def storage_is_configured() -> bool:
     return storage_config_present_on_disk()
 
 
+
+def _record_put(bucket: str, key: str, body: bytes, content_type: str, mode: str) -> None:
+    """Best-effort content-hash ledger write; never blocks storage."""
+    try:
+        from db.object_blob_ledger import record_object_put
+        record_object_put(
+            bucket=bucket,
+            key=key,
+            body=body,
+            content_type=content_type,
+            storage_mode=mode,
+        )
+    except Exception as exc:
+        _log.debug("object_blob ledger unavailable: %s", exc)
+
+
+class _PutRecordingClient:
+    """Wrap a boto3 S3 client so put_object also lands in object_blobs."""
+
+    def __init__(self, client: Any, mode: str = "s3"):
+        self._client = client
+        self._mode = mode
+
+    def put_object(self, *args: Any, **kwargs: Any) -> Any:
+        # Snapshot body before boto3 consumes file-like streams.
+        # Support both keyword and positional Body (Bucket, Key, Body, ...).
+        if "Body" in kwargs:
+            body = kwargs.get("Body", b"")
+        elif len(args) >= 3:
+            body = args[2]
+        else:
+            body = b""
+        if hasattr(body, "read"):
+            try:
+                body = body.read()
+            except Exception:
+                body = b""
+        if isinstance(body, str):
+            body = body.encode("utf-8")
+        raw = body if isinstance(body, (bytes, bytearray)) else bytes(body or b"")
+        if "Body" in kwargs:
+            kwargs = {**kwargs, "Body": raw}
+        elif len(args) >= 3:
+            args = (args[0], args[1], raw, *args[3:])
+        resp = self._client.put_object(*args, **kwargs)
+        try:
+            bucket = kwargs.get("Bucket") or (args[0] if args else "")
+            key = kwargs.get("Key") or (args[1] if len(args) > 1 else "")
+            ctype = kwargs.get("ContentType") or "application/octet-stream"
+            _record_put(str(bucket or ""), str(key or ""), bytes(raw), str(ctype), self._mode)
+        except Exception as exc:
+            _log.debug("put_object ledger skip: %s", exc)
+        return resp
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+
 class ObjectStore:
     mode: str = "s3"
 
@@ -102,6 +164,11 @@ class ObjectStore:
         raise NotImplementedError
 
     def put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
+        data = body if isinstance(body, (bytes, bytearray)) else bytes(body or b"")
+        self._put(bucket, key, data, content_type)
+        _record_put(bucket, key, bytes(data), content_type, getattr(self, "mode", "s3"))
+
+    def _put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
         raise NotImplementedError
 
     def delete(self, bucket: str, key: str) -> None:
@@ -132,6 +199,20 @@ class ObjectStore:
         return b""
 
 
+def _env_int(name: str, default: int) -> int:
+    """int(os.environ[name]) that falls back to `default` instead of raising
+    on a bad value - a malformed S3_CONNECT_TIMEOUT_SECS/S3_READ_TIMEOUT_SECS
+    env var must not crash store init outright."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        _log.warning("%s=%r is not a valid integer, using default %s", name, raw, default)
+        return default
+
+
 class S3ObjectStore(ObjectStore):
     mode = "s3"
 
@@ -152,6 +233,10 @@ class S3ObjectStore(ObjectStore):
             request_checksum_calculation="when_required",
             response_checksum_validation="when_required",
             retries={"max_attempts": 3, "mode": "standard"},
+            # Env-tunable: large scan uploads/list pages may need more headroom
+            # than the small per-agent meta/status reads this was sized for.
+            connect_timeout=int(os.environ.get("S3_CONNECT_TIMEOUT_SECS", "5")),
+            read_timeout=int(os.environ.get("S3_READ_TIMEOUT_SECS", "10")),
         )
         kwargs: dict[str, Any] = {
             "region_name": os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1",
@@ -165,14 +250,15 @@ class S3ObjectStore(ObjectStore):
             kwargs["aws_access_key_id"] = access
         if secret:
             kwargs["aws_secret_access_key"] = secret
-        self.client = boto3.client("s3", **kwargs)
+        self._client = boto3.client("s3", **kwargs)
         self.mode = "local" if path or mode == "local" else "s3"
+        self.client = _PutRecordingClient(self._client, mode=self.mode)
 
     def get(self, bucket: str, key: str) -> bytes:
-        return self.client.get_object(Bucket=bucket, Key=key)["Body"].read()
+        return self._client.get_object(Bucket=bucket, Key=key)["Body"].read()
 
-    def put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
-        self.client.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
+    def _put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
+        self._client.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
 
     def delete(self, bucket: str, key: str) -> None:
         self.client.delete_object(Bucket=bucket, Key=key)
@@ -232,7 +318,7 @@ class AzureObjectStore(ObjectStore):
     def get(self, bucket: str, key: str) -> bytes:
         return self.service.get_blob_client(container=bucket, blob=key).download_blob().readall()
 
-    def put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
+    def _put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
         self.service.get_blob_client(container=bucket, blob=key).upload_blob(body, overwrite=True)
 
     def delete(self, bucket: str, key: str) -> None:
@@ -282,7 +368,7 @@ class GcsObjectStore(ObjectStore):
     def get(self, bucket: str, key: str) -> bytes:
         return self.client.bucket(bucket).blob(key).download_as_bytes()
 
-    def put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
+    def _put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
         self.client.bucket(bucket).blob(key).upload_from_string(body, content_type=content_type)
 
     def delete(self, bucket: str, key: str) -> None:
@@ -306,6 +392,111 @@ class GcsObjectStore(ObjectStore):
             })
             if len(out) >= max_keys:
                 break
+        return out
+
+
+class OciObjectStore(ObjectStore):
+    """OCI Object Storage backend, via OCI's S3-Compatibility API + a
+    Customer Secret Key (access key / secret key pair) — not the native
+    `oci` SDK's API-key auth (user/tenancy OCID, fingerprint, PEM key).
+
+    This means OciObjectStore is just a boto3 S3 client pointed at
+    `https://<namespace>.compat.objectstorage.<region>.oraclecloud.com` —
+    no separate `oci` SDK, no PEM parsing, no fingerprint. Unlike the old
+    PAR-based approach, presigned URLs are pure local SigV4 signing (same
+    mechanism S3ObjectStore already uses) — no server round-trip, nothing
+    stored in the bucket to clean up afterward.
+
+    `boto3_s3_client()` special-cases this class the same way it does
+    S3ObjectStore and returns `self.client` directly — a real boto3 client
+    wrapped in `_PutRecordingClient` (same as S3ObjectStore) so a direct
+    `put_object()` call from another module still reaches the object_blobs
+    audit ledger. Every other boto3 S3 operation, including
+    `generate_presigned_url`, passes through unmodified via `__getattr__`.
+    """
+
+    mode = "oci"
+
+    def __init__(self) -> None:
+        import boto3
+        from botocore.config import Config
+
+        access_key = (os.environ.get("OCI_ACCESS_KEY_ID") or "").strip()
+        secret_key = (os.environ.get("OCI_SECRET_ACCESS_KEY") or "").strip()
+        region = (os.environ.get("OCI_REGION") or "").strip()
+        self.namespace = (os.environ.get("OCI_NAMESPACE") or "").strip()
+        if not (access_key and secret_key and region and self.namespace):
+            raise ValueError(
+                "OCI storage requires OCI_ACCESS_KEY_ID, OCI_SECRET_ACCESS_KEY, "
+                "OCI_REGION, and OCI_NAMESPACE"
+            )
+        endpoint = f"https://{self.namespace}.compat.objectstorage.{region}.oraclecloud.com"
+        self._client = boto3.client(
+            "s3",
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region,
+            endpoint_url=endpoint,
+            config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "path"},
+                request_checksum_calculation="when_required",
+                response_checksum_validation="when_required",
+            ),
+        )
+        # Wrapped the same way S3ObjectStore wraps its client: boto3_s3_client()
+        # returns self.client directly for OCI (no facade), so a direct
+        # put_object() call from another module (bypassing ObjectStore.put())
+        # must still land in the object_blobs audit ledger.
+        self.client = _PutRecordingClient(self._client, mode=self.mode)
+
+    def get(self, bucket: str, key: str) -> bytes:
+        """Download an object's full content."""
+        return self.client.get_object(Bucket=bucket, Key=key)["Body"].read()
+
+    def _put(self, bucket: str, key: str, body: bytes, content_type: str = "application/json") -> None:
+        """Upload (create or overwrite) an object."""
+        self._client.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
+
+    def delete(self, bucket: str, key: str) -> None:
+        """Delete an object. No-op if it doesn't exist."""
+        self.client.delete_object(Bucket=bucket, Key=key)
+
+    def exists(self, bucket: str, key: str) -> bool:
+        """True if the object exists. Only a 404/NoSuchKey/NotFound counts as
+        "absent" — an auth/permission failure or network error is re-raised
+        instead of being silently folded into "not found", which would
+        otherwise hide a broken credential behind a confusing "missing
+        object" symptom."""
+        from botocore.exceptions import ClientError
+
+        try:
+            self.client.head_object(Bucket=bucket, Key=key)
+            return True
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code", ""))
+            if code in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
+
+    def list_keys(
+        self,
+        bucket: str,
+        prefix: str = "",
+        max_keys: int = 5000,
+    ) -> list[dict[str, Any]]:
+        """Return [{"Key", "LastModified", "Size"}, ...] under prefix, paginated."""
+        out: list[dict[str, Any]] = []
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix or ""):
+            for obj in page.get("Contents", []) or []:
+                out.append({
+                    "Key": obj["Key"],
+                    "LastModified": obj.get("LastModified"),
+                    "Size": obj.get("Size", 0),
+                })
+                if len(out) >= max_keys:
+                    return out
         return out
 
 
@@ -405,6 +596,18 @@ class ObjectStoreS3Facade:
         ctype = (ExtraArgs or {}).get("ContentType", "application/octet-stream")
         with open(Filename, "rb") as fh:
             self.put_object(Bucket=Bucket, Key=Key, Body=fh.read(), ContentType=ctype)
+
+    def generate_presigned_url(self, operation_name: str, Params: Optional[dict] = None, ExpiresIn: int = 3600, **kwargs) -> str:
+        """Delegate to the backing store's own presign when it has one.
+        OCI is a real boto3 client now (S3-Compat API via Customer Secret
+        Key) and never reaches this facade — boto3_s3_client() returns it
+        directly. Azure/GCS backends have no presign implementation here,
+        same gap as before this method existed — callers already treat any
+        exception as "presign unavailable"."""
+        impl = getattr(self._store, "generate_presigned_url", None)
+        if impl is None:
+            raise NotImplementedError(f"presign not supported for mode={self._store.mode}")
+        return impl(operation_name, Params or {}, ExpiresIn)
 
     def get_bucket_lifecycle_configuration(self, Bucket: str, **kwargs) -> dict:
         raise _client_error("NoSuchLifecycleConfiguration")
@@ -519,6 +722,13 @@ def _apply_storage_dict(storage: dict[str, Any], *, force: bool = True) -> None:
     if storage.get("gcp_bucket"):
         _set("MARAUDER_SCAN_BUCKET", storage["gcp_bucket"])
         _set("OBJECT_BUCKET", storage["gcp_bucket"])
+    _set("OCI_ACCESS_KEY_ID", storage.get("oci_access_key_id") or "")
+    _set("OCI_SECRET_ACCESS_KEY", storage.get("oci_secret_access_key") or "")
+    _set("OCI_REGION", storage.get("oci_region") or "")
+    _set("OCI_NAMESPACE", storage.get("oci_namespace") or "")
+    if storage.get("oci_bucket"):
+        _set("MARAUDER_SCAN_BUCKET", storage["oci_bucket"])
+        _set("OBJECT_BUCKET", storage["oci_bucket"])
 
 
 def get_object_store(force: bool = False) -> ObjectStore:
@@ -530,21 +740,28 @@ def get_object_store(force: bool = False) -> ObjectStore:
             _store = AzureObjectStore()
         elif mode == "gcp":
             _store = GcsObjectStore()
+        elif mode == "oci":
+            _store = OciObjectStore()
         else:
             _store = S3ObjectStore()
             _store.mode = mode
+            if isinstance(getattr(_store, "client", None), _PutRecordingClient):
+                _store.client._mode = mode
         _log.info("Patron object store mode=%s", _store.mode)
     return _store
 
 
 def boto3_s3_client(region_name: Optional[str] = None):
-    """Return a boto3 S3 client (s3/local) or multi-cloud facade (azure/gcp).
+    """Return a boto3 S3 client (s3/local/oci) or multi-cloud facade (azure/gcp).
 
     Prefer this over bare ``boto3.client("s3")`` so Azure/GCS wizard choice
-    reaches chat, rollups, ingestor, and seed paths.
+    reaches chat, rollups, ingestor, and seed paths. OciObjectStore is also a
+    real boto3 client (OCI's S3-Compatibility API via a Customer Secret Key),
+    so it gets the same direct-return treatment as S3ObjectStore - no facade
+    needed.
     """
     store = get_object_store()
-    if isinstance(store, S3ObjectStore) and getattr(store, "client", None) is not None:
+    if isinstance(store, (S3ObjectStore, OciObjectStore)) and getattr(store, "client", None) is not None:
         return store.client
     return ObjectStoreS3Facade(store)
 

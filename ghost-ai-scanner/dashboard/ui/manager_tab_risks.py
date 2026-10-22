@@ -19,7 +19,6 @@ import sys
 import pandas as pd
 import streamlit as st
 
-from .helpers                 import sev_badge
 from .manager_tab_actions     import mark_resolved, escalate, send_alert_email
 from .time_fmt                import fmt as fmt_time
 from .filtered_table          import filtered_table

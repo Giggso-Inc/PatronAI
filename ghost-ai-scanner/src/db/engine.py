@@ -72,7 +72,6 @@ def run_migrations() -> None:
     try:
         from alembic import command
         from alembic.config import Config
-        from sqlalchemy import text
         from sqlalchemy.pool import NullPool
         # src/db/engine.py -> ghost-ai-scanner/
         root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))

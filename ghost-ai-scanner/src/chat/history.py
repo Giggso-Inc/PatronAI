@@ -97,8 +97,10 @@ def append_history(email: str, view: str, messages: list) -> None:
             existing = ""
         new_lines = "\n".join(json.dumps(m) for m in messages)
         body = (existing.rstrip("\n") + "\n" + new_lines).lstrip("\n")
-        s3.put_object(Bucket=bkt, Key=key, Body=body.encode(),
-                      ContentType="application/x-ndjson")
+        from db.object_blob_ledger import object_actor
+        with object_actor(email=email):
+            s3.put_object(Bucket=bkt, Key=key, Body=body.encode(),
+                          ContentType="application/x-ndjson")
     except Exception as exc:
         log.warning("history append failed: %s", exc)
 

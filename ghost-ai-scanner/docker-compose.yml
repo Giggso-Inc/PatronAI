@@ -59,6 +59,7 @@ services:
       # See the bug write-up in the v1.2.0 audit log entry below.
       #
       # PATRONAI_BUCKET is preferred; MARAUDER_SCAN_BUCKET accepted as legacy alias.
+      - PYTHONUNBUFFERED=1
       - MARAUDER_SCAN_BUCKET=${PATRONAI_BUCKET:-${MARAUDER_SCAN_BUCKET:-}}
       # Multi-cloud object store (Hub bootstrap also persists via PATRON_STORAGE_CONFIG_PATH)
       - STORAGE_MODE=${STORAGE_MODE:-s3}

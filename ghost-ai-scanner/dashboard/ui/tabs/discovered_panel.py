@@ -13,7 +13,6 @@
 #   v1.0.0  2026-04-25  Initial. Group 2 — sustainable curation on-ramp.
 # =============================================================
 
-import io
 import json
 import logging
 import os

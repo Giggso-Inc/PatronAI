@@ -75,8 +75,10 @@ def main() -> None:
     def _with_chat(view_key: str, view_fn, *a, **kw) -> None:
         """Render view_fn in left 75 %, chat panel in right 25 %."""
         cm, cc = st.columns([3, 1])
-        with cm: view_fn(*a, **kw)
-        with cc: render_chat_panel(events, email, view_key)
+        with cm:
+            view_fn(*a, **kw)
+        with cc:
+            render_chat_panel(events, email, view_key)
 
     if view == "home":
         from ui.home_view import render as home_render
@@ -117,14 +119,16 @@ def _render_support(events: list, summary: dict, email: str) -> None:
     """Support view — rules health, code signals, coverage, agent fleet."""
     from ui.support_view import render as support_render
     store, err = _build_store()
-    if err: st.error(err)
+    if err:
+        st.error(err)
     support_render(events, summary, store, email)
 
 def _render_settings(email: str, events: list = None) -> None:
     """Tabbed settings panel — admin only."""
     store, err = _build_store()
     if err:
-        st.error(err); return
+        st.error(err)
+        return
     _tab_names = ["Scanning","Alerting","Identity",
                   "Provider Lists","Provider Governance","Projects",
                   "Users","Deploy Agents","Branding"]
@@ -140,16 +144,25 @@ def _render_settings(email: str, events: list = None) -> None:
     from ui.tabs.users import render as r_users
     from ui.tabs.deploy_agents import render as r_agents
     from ui.tabs.branding import render as r_brand
-    with tabs[0]: r_scan(store, email)
-    with tabs[1]: r_alert(store, email)
-    with tabs[2]: r_ident(store, email)
-    with tabs[3]: r_prov(is_admin=True, email=email)
-    with tabs[4]: r_gov(is_admin=True, events=(events or []),
-                        policy_context=load_org_policy_context(), email=email)
-    with tabs[5]: r_projects(is_admin=True, email=email)
-    with tabs[6]: r_users(email)
-    with tabs[7]: r_agents(email)
-    with tabs[8]: r_brand(email)
+    with tabs[0]:
+        r_scan(store, email)
+    with tabs[1]:
+        r_alert(store, email)
+    with tabs[2]:
+        r_ident(store, email)
+    with tabs[3]:
+        r_prov(is_admin=True, email=email)
+    with tabs[4]:
+        r_gov(is_admin=True, events=(events or []),
+              policy_context=load_org_policy_context(), email=email)
+    with tabs[5]:
+        r_projects(is_admin=True, email=email)
+    with tabs[6]:
+        r_users(email)
+    with tabs[7]:
+        r_agents(email)
+    with tabs[8]:
+        r_brand(email)
 
 
 if __name__ == "__main__":

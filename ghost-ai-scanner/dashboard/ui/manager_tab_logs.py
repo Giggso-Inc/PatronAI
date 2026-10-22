@@ -21,7 +21,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from .helpers        import sev_badge, geo_flag
+from .helpers        import sev_badge
 from .filtered_table import search_box, apply_search_dicts
 from .time_fmt       import fmt as fmt_time
 

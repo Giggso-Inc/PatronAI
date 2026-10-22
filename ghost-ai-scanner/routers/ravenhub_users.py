@@ -209,7 +209,7 @@ def remove_user_endpoint(target_email: str, email: str = Depends(verify_ravenhub
     store = _store(email)
     users = store.read_all()
     old_rec = users.get(target_email.strip().lower())
-    ok = store.remove(target_email)
+    ok = store.remove(target_email, removed_by=email)
     if not ok:
         raise HTTPException(status_code=400, detail="Remove failed.")
 

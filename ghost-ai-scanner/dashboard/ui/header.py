@@ -32,10 +32,10 @@ def render_header(summary: dict) -> None:
     c1, c2, c3 = st.columns([3, 5, 2])
     with c1:
         st.markdown(
-            f'<span class="dot-green"></span>'
-            f'<span style="font-family:JetBrains Mono;font-size:13px;'
-            f'font-weight:600;color:#0D1117;">'
-            f'PATRONAI · USER INTERFACE</span>',
+            '<span class="dot-green"></span>'
+            '<span style="font-family:JetBrains Mono;font-size:13px;'
+            'font-weight:600;color:#0D1117;">'
+            'PATRONAI · USER INTERFACE</span>',
             unsafe_allow_html=True,
         )
     with c2:

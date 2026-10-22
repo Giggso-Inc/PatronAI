@@ -15,7 +15,6 @@
 #   v1.0.0  2026-04-25  Initial. Group 6.5 — bulk-import on-ramp.
 # =============================================================
 
-import io
 import logging
 from typing import Callable
 

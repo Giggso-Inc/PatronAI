@@ -1,0 +1,18 @@
+[lint]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# Pre-existing style debt in dashboard UI — not blocking logic
+"dashboard/ui/sidebar.py"                  = ["E701"]
+"dashboard/ui/support_view.py"             = ["E701"]
+"dashboard/ui/support_tab_coverage.py"     = ["E741"]
+"dashboard/ui/support_tab_rules.py"        = ["E741"]
+"dashboard/ui/support_tab_fleet.py"        = ["F841"]
+"dashboard/ui/tabs/deploy_agents.py"       = ["F841"]
+"dashboard/ui/tabs/projects.py"            = ["E702"]
+"dashboard/ui/tabs/provider_governance.py" = ["E701", "E702"]
+"src/normalizer/agent_explode.py"          = ["E402"]
+"src/reporter/sections_cover.py"           = ["E731"]
+"src/reporter/sections_data.py"            = ["E731"]
+"src/scoring/risk_score.py"                = ["E701"]
+"src/store/findings_store.py"              = ["E741"]

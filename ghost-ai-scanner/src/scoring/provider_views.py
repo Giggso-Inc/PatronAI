@@ -13,7 +13,6 @@
 #          layer just renders these + wires the one-click actions.
 # =============================================================
 
-from collections import defaultdict
 
 from scoring.policy import PolicyContext, policy_tier
 from scoring.scoring_weights import POLICY_MULTIPLIER

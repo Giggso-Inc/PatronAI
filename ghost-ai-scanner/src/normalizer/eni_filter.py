@@ -18,7 +18,6 @@
 
 import json
 import logging
-import os
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional

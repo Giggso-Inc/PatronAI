@@ -110,9 +110,25 @@ def gate() -> tuple:
         _render_login()
         st.stop()
 
+    # Bind ledger actor for this Streamlit rerun so every BaseStore._put
+    # (settings, agents, findings, users, …) inherits actor_email via ContextVar.
+    _bind_object_actor(st.session_state.email)
+
     return (st.session_state.email,
             st.session_state.role,
             st.session_state.is_admin)
+
+
+def _bind_object_actor(email: str) -> None:
+    """Best-effort request actor for object_blob audits (fail-open)."""
+    try:
+        import sys
+        sys.path.insert(0, os.path.join(
+            os.path.dirname(__file__), "..", "..", "src"))
+        from db.object_blob_ledger import set_object_actor
+        set_object_actor(email=email)
+    except Exception as exc:
+        _log.debug("object actor bind skipped: %s", exc)
 
 
 def _render_login() -> None:
