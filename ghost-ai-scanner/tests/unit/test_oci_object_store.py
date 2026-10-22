@@ -95,6 +95,19 @@ def test_exists_false_on_error(boto_client):
     assert store.exists("bkt", "key") is False
 
 
+def test_exists_reraises_on_non_404(boto_client):
+    """An auth/permission failure must not be folded into "not found" —
+    that would hide a broken credential behind a confusing missing-object
+    symptom."""
+    mod = _load_mod()
+    store, _ = _make_store(mod, boto_client)
+    boto_client.head_object.side_effect = ClientError(
+        {"Error": {"Code": "403"}}, "HeadObject"
+    )
+    with pytest.raises(ClientError):
+        store.exists("bkt", "key")
+
+
 def test_boto3_s3_client_returns_raw_client_for_oci(boto_client, monkeypatch):
     """Architecture fix from PR #71 review: OciObjectStore IS a real boto3
     client now (OCI S3-Compat API), so boto3_s3_client() must return it

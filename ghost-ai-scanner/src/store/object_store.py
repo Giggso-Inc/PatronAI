@@ -2,7 +2,7 @@
 # Multi-cloud object store backends for PatronAI finds/writes.
 # STORAGE_MODE=local|s3|azure|gcp|oci — Azure/GCS from bootstrap provision
 # or env (AZURE_*, GCP_*). S3/MinIO via AWS_* + optional endpoint.
-# OCI via OCI_* (API-key auth, not access-key/secret).
+# OCI via OCI_* (Customer Secret Key access-key/secret, S3-Compat API).
 # =============================================================
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -50,7 +50,7 @@ def storage_mode() -> str:
     if (os.environ.get("GCP_SERVICE_ACCOUNT_JSON") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip():
         if not os.environ.get("AWS_ACCESS_KEY_ID"):
             return "gcp"
-    if (os.environ.get("OCI_NAMESPACE") or "").strip():
+    if (os.environ.get("OCI_NAMESPACE") or "").strip() and (os.environ.get("OCI_ACCESS_KEY_ID") or "").strip():
         if not os.environ.get("AWS_ACCESS_KEY_ID"):
             return "oci"
     return "s3"
@@ -371,7 +371,12 @@ class OciObjectStore(ObjectStore):
             aws_secret_access_key=secret_key,
             region_name=region,
             endpoint_url=endpoint,
-            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+            config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "path"},
+                request_checksum_calculation="when_required",
+                response_checksum_validation="when_required",
+            ),
         )
 
     def get(self, bucket: str, key: str) -> bytes:
@@ -387,12 +392,21 @@ class OciObjectStore(ObjectStore):
         self.client.delete_object(Bucket=bucket, Key=key)
 
     def exists(self, bucket: str, key: str) -> bool:
-        """True if the object exists (HEAD request)."""
+        """True if the object exists. Only a 404/NoSuchKey/NotFound counts as
+        "absent" — an auth/permission failure or network error is re-raised
+        instead of being silently folded into "not found", which would
+        otherwise hide a broken credential behind a confusing "missing
+        object" symptom."""
+        from botocore.exceptions import ClientError
+
         try:
             self.client.head_object(Bucket=bucket, Key=key)
             return True
-        except Exception:
-            return False
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code", ""))
+            if code in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
 
     def list_keys(
         self,
@@ -513,10 +527,12 @@ class ObjectStoreS3Facade:
             self.put_object(Bucket=Bucket, Key=Key, Body=fh.read(), ContentType=ctype)
 
     def generate_presigned_url(self, operation_name: str, Params: Optional[dict] = None, ExpiresIn: int = 3600, **kwargs) -> str:
-        """Delegate to the backing store's own presign when it has one (OCI,
-        via Pre-Authenticated Requests). Azure/GCS backends have no presign
-        implementation here, same gap as before this method existed —
-        callers already treat any exception as "presign unavailable"."""
+        """Delegate to the backing store's own presign when it has one.
+        OCI is a real boto3 client now (S3-Compat API via Customer Secret
+        Key) and never reaches this facade — boto3_s3_client() returns it
+        directly. Azure/GCS backends have no presign implementation here,
+        same gap as before this method existed — callers already treat any
+        exception as "presign unavailable"."""
         impl = getattr(self._store, "generate_presigned_url", None)
         if impl is None:
             raise NotImplementedError(f"presign not supported for mode={self._store.mode}")

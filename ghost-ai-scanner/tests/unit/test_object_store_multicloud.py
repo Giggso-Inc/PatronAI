@@ -30,6 +30,9 @@ def _clean_env(monkeypatch, tmp_path):
         "PATRON_STORAGE_CONFIG_PATH",
         "MARAUDER_SCAN_BUCKET",
         "OBJECT_BUCKET",
+        "OCI_NAMESPACE",
+        "OCI_ACCESS_KEY_ID",
+        "AWS_ACCESS_KEY_ID",
     ):
         monkeypatch.delenv(key, raising=False)
     path = tmp_path / "patron_storage.json"
@@ -41,6 +44,19 @@ def test_storage_mode_explicit_azure(monkeypatch):
     monkeypatch.setenv("STORAGE_MODE", "azure")
     m = _load_mod()
     assert m.storage_mode() == "azure"
+
+
+def test_storage_mode_oci_requires_both_namespace_and_access_key(monkeypatch):
+    """OCI_NAMESPACE alone must not auto-switch storage mode — a generic env
+    var set for an unrelated reason (e.g. an OCI CLI config loaded into the
+    shell) shouldn't silently flip the store to a mode missing its
+    credentials, which would otherwise crash OciObjectStore.__init__."""
+    m = _load_mod()
+    monkeypatch.setenv("OCI_NAMESPACE", "mynamespace")
+    assert m.storage_mode() == "s3"
+
+    monkeypatch.setenv("OCI_ACCESS_KEY_ID", "AKIAEXAMPLE")
+    assert m.storage_mode() == "oci"
 
 
 def test_apply_and_persist_reload(monkeypatch):
