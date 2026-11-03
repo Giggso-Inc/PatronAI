@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -377,6 +377,20 @@ class GcsObjectStore(ObjectStore):
     def exists(self, bucket: str, key: str) -> bool:
         return self.client.bucket(bucket).blob(key).exists()
 
+    def generate_presigned_url(self, operation_name: str, Params: dict, ExpiresIn: int = 3600) -> str:
+        """boto3-shaped V4 signed URL, reached through ObjectStoreS3Facade.
+        PUT signs Content-Type (as S3 does), so uploaders must send it exactly."""
+        method = {"get_object": "GET", "put_object": "PUT"}.get(operation_name)
+        if method is None:
+            raise NotImplementedError(f"GCS presign does not support {operation_name}")
+        blob = self.client.bucket(Params["Bucket"]).blob(Params["Key"])
+        return blob.generate_signed_url(
+            version="v4",
+            expiration=timedelta(seconds=ExpiresIn),
+            method=method,
+            content_type=Params.get("ContentType") if method == "PUT" else None,
+        )
+
     def list_keys(
         self,
         bucket: str,
@@ -601,9 +615,9 @@ class ObjectStoreS3Facade:
         """Delegate to the backing store's own presign when it has one.
         OCI is a real boto3 client now (S3-Compat API via Customer Secret
         Key) and never reaches this facade — boto3_s3_client() returns it
-        directly. Azure/GCS backends have no presign implementation here,
-        same gap as before this method existed — callers already treat any
-        exception as "presign unavailable"."""
+        directly. GcsObjectStore implements it; AzureObjectStore does not
+        yet, and callers already treat any exception as "presign
+        unavailable"."""
         impl = getattr(self._store, "generate_presigned_url", None)
         if impl is None:
             raise NotImplementedError(f"presign not supported for mode={self._store.mode}")
