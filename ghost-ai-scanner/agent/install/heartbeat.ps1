@@ -98,7 +98,7 @@ if ((Test-Path $HookScript) -and (Test-Path $ChainLib)) {
     . $ChainLib
     $Added  = 0
     $Marker = "PatronAI managed pre-commit chain"
-    Get-ChildItem -Path $env:USERPROFILE -Recurse -Depth 4 -Filter ".git" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+    Get-ChildItem -Path $env:USERPROFILE -Recurse -Depth 4 -Force -Filter ".git" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
         $HD = Join-Path $_.FullName "hooks"
         $HP = Join-Path $HD "pre-commit"
         # Skip the common case (chain already present) without paying

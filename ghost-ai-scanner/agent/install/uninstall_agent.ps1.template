@@ -40,15 +40,18 @@ foreach ($task in @("PatronAI-Heartbeat", "PatronAI-Scan", "PatronAI-Update", "P
 
 # ── 2. Remove git pre-commit hooks ───────────────────────────
 $removed = 0
-Get-ChildItem -Path $env:USERPROFILE -Recurse -Depth 6 `
+Get-ChildItem -Path $env:USERPROFILE -Recurse -Depth 6 -Force `
     -Filter ".git" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
     $hook = Join-Path $_.FullName "hooks\pre-commit"
     if (Test-Path $hook) {
         $content = Get-Content $hook -Raw -ErrorAction SilentlyContinue
         if ($content -match "patronai") {
             Remove-Item $hook -Force
-            $backup = "${hook}.backup"
-            if (Test-Path $backup) { Move-Item $backup $hook }
+            # Restore the hook the chain installer preserved (Raven /
+            # husky / user), falling back to the older .backup name.
+            foreach ($backup in @("${hook}.pre-patronai", "${hook}.backup")) {
+                if (Test-Path $backup) { Move-Item $backup $hook -Force; break }
+            }
             $removed++
         }
     }
