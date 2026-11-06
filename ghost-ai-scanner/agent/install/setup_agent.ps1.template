@@ -262,7 +262,8 @@ $InstallCount = 0
 try {
     $gitScanJob = Start-Job -ScriptBlock {
         param($ProfilePath)
-        Get-ChildItem -Path $ProfilePath -Recurse -Depth 4 -Filter ".git" -Directory -ErrorAction SilentlyContinue |
+        # -Force: git marks .git hidden on Windows; without it nothing is found.
+        Get-ChildItem -Path $ProfilePath -Recurse -Depth 4 -Force -Filter ".git" -Directory -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -notmatch '(?i)\\OneDrive' } |
             Select-Object -ExpandProperty FullName
     } -ArgumentList $env:USERPROFILE
@@ -285,15 +286,14 @@ $ExistingTpl   = (& git config --global --get init.templateDir 2>$null)
 if ($ExistingTpl -and $ExistingTpl -ne $TemplateDir) {
     $Expanded = $ExistingTpl -replace '^~', $env:USERPROFILE
     $TgtHooks = Join-Path $Expanded "hooks"
-    New-Item -ItemType Directory -Force -Path $TgtHooks | Out-Null
-    # Copy the already-written hook file directly rather than an undefined
-    # $HookBody variable (pre-existing bug: this branch used to write an
-    # EMPTY pre-commit hook into an existing init.templateDir).
-    Copy-Item -Path $HookScript -Destination (Join-Path $TgtHooks "pre-commit") -Force
-    Write-Info "init.templateDir preserved ($ExistingTpl); hook copied alongside."
+    # Install the sh chain shim (never the raw .ps1: Git for Windows runs
+    # hooks through sh.exe, so a PowerShell body breaks every commit in
+    # every repo cloned from this template). Chain-aware: a hook already
+    # in the user's template is preserved and still runs first.
+    [void](Install-PatronAIChainHook -HooksDir $TgtHooks)
+    Write-Info "init.templateDir preserved ($ExistingTpl); hook chained alongside."
 } else {
-    New-Item -ItemType Directory -Force -Path $TemplateHooks | Out-Null
-    Copy-Item -Path $HookScript -Destination (Join-Path $TemplateHooks "pre-commit") -Force
+    [void](Install-PatronAIChainHook -HooksDir $TemplateHooks)
     & git config --global init.templateDir $TemplateDir | Out-Null
     Write-Info "init.templateDir set - every new git init/clone gets the hook."
 }
