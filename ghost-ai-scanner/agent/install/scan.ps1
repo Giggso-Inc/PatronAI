@@ -31,13 +31,30 @@ $env:PATRONAI_COMPANY = $Cfg.company
 # inlined scan code (~53 KB) exceeds Windows' 32,767-char CreateProcess
 # command-line limit — the process never starts and $Result stays empty.
 # Writing to a file has no such limit and mirrors the Linux heredoc approach.
-$PyTmp = Join-Path $env:TEMP "patronai_scan.py"
+#
+# [System.IO.Path]::GetTempPath() always returns a valid directory; $env:TEMP
+# can be unset on locked-down server/service-account environments where
+# Join-Path with an empty first segment silently resolves to cwd instead.
+$TempDir = [System.IO.Path]::GetTempPath()
+# PID-based name prevents a concurrent Task Scheduler run (scan fires every
+# 30 min; a hung prior run would otherwise overwrite the file mid-execution,
+# truncating the Python and corrupting the scan result silently).
+$PyPid  = [System.Diagnostics.Process]::GetCurrentProcess().Id
+$PyTmp  = Join-Path $TempDir "patronai_scan_$PyPid.py"
+$LogPath = Join-Path $AgentDir "agent.log"
 $Result = ""
 try {
     @'
 {{INLINE_SCAN_PYTHON}}
 '@ | Set-Content -Path $PyTmp -Encoding UTF8
-    $Result = python $PyTmp 2>$null
+    # Redirect stderr to agent.log instead of $null so Python import errors,
+    # SyntaxErrors, and crash tracebacks are diagnosable by operators.
+    $Result = python $PyTmp 2>>$LogPath
+    # Log non-zero exit so a crash is distinguishable from "scan found nothing".
+    if ($LASTEXITCODE -ne 0) {
+        $Ts = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+        Add-Content -Path $LogPath -Value "{`"ts`":`"$Ts`",`"type`":`"scan_error`",`"exit_code`":$LASTEXITCODE}"
+    }
 } finally {
     Remove-Item -Path $PyTmp -Force -ErrorAction SilentlyContinue
 }

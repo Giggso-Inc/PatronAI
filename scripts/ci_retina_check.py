@@ -29,6 +29,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import NoReturn
 
 HUB_URL       = (os.environ.get("RAVEN_HUB_URL") or "").rstrip("/")
 API_KEY       = os.environ.get("RAVEN_AGENT_KEY") or ""
@@ -48,12 +49,12 @@ GITHUB_API    = (os.environ.get("GITHUB_API_URL") or "https://api.github.com").r
 _BLOCKING_STATUSES = {"mismatched", "stale", "rejected", "access_revoked", "pending_enroll"}
 
 
-def _fail(msg: str) -> None:
+def _fail(msg: str) -> NoReturn:
     print(f"::error::Raven Retina Check FAILED — {msg}")
     sys.exit(1)
 
 
-def _pass(msg: str) -> None:
+def _pass(msg: str) -> NoReturn:
     print(f"Raven Retina Check PASSED — {msg}")
     sys.exit(0)
 
@@ -74,7 +75,9 @@ def _resolve_author_email() -> str:
 
     # Try commit email — most reliable for users with private GitHub emails.
     if GITHUB_TOKEN and GITHUB_REPO and PR_NUMBER:
-        url = f"{GITHUB_API}/repos/{GITHUB_REPO}/pulls/{PR_NUMBER}/commits"
+        repo_q = urllib.parse.quote(GITHUB_REPO, safe="/")
+        pr_q   = urllib.parse.quote(str(PR_NUMBER), safe="")
+        url = f"{GITHUB_API}/repos/{repo_q}/pulls/{pr_q}/commits"
         try:
             req = urllib.request.Request(url, headers={
                 "Accept": "application/vnd.github+json",
@@ -96,7 +99,7 @@ def _resolve_author_email() -> str:
         return ""
     try:
         req = urllib.request.Request(
-            f"{GITHUB_API}/users/{AUTHOR_LOGIN}",
+            f"{GITHUB_API}/users/{urllib.parse.quote(AUTHOR_LOGIN, safe='')}",
             headers={"Accept": "application/vnd.github+json"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:

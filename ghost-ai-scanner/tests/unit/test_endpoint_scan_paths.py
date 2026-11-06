@@ -118,13 +118,15 @@ def test_scan_ps1_does_not_use_python_c_for_large_script():
     code_size = len(load_scan_fragments(FRAGS))
     # The dangerous pattern is an assignment like '$Result = python -c @"'.
     # Comments that MENTION the bad pattern for documentation are fine.
+    # Guard is unconditional: if fragments shrink below 32 767 chars in the
+    # future the temp-file approach is still required, since the limit could
+    # be hit again when fragments grow back.
     scan_ps1 = (FRAGS / "scan.ps1").read_text()
-    if code_size > _WINDOWS_CMD_LIMIT:
-        assert "= python -c @" not in scan_ps1, (
-            f"Inlined Python is {code_size:,} chars (Windows limit: "
-            f"{_WINDOWS_CMD_LIMIT:,}). scan.ps1 must use a temp file, "
-            "not '= python -c @\"...\"@'."
-        )
+    assert "= python -c @" not in scan_ps1, (
+        f"Inlined Python is {code_size:,} chars (Windows limit: "
+        f"{_WINDOWS_CMD_LIMIT:,}). scan.ps1 must use a temp file, "
+        "not '= python -c @\"...\"@'."
+    )
 
 
 def test_scan_ps1_uses_temp_file_for_python():
