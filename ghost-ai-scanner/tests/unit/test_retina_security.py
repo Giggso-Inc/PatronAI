@@ -12,9 +12,9 @@ sys.path.insert(0, str(_ROOT))
 
 os.environ.setdefault("API_KEY", "test-key")
 
-from retina import hub_client
-from retina.normaliser import compute_hash, normalise
-from routers.ravenhub_retina import (
+from retina import hub_client  # noqa: E402
+from retina.normaliser import compute_hash, normalise  # noqa: E402
+from routers.ravenhub_retina import (  # noqa: E402
     LinkPayload,
     get_hub_token_link,
     link_hub_token,
