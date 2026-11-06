@@ -104,3 +104,59 @@ def test_every_fragment_under_loc_cap():
     for name in FRAGMENT_ORDER:
         loc = len((FRAGS / name).read_text().splitlines())
         assert loc <= 150, f"{name} = {loc} LOC > 150"
+
+
+_WINDOWS_CMD_LIMIT = 32_767
+
+
+def test_scan_ps1_does_not_use_python_c_for_large_script():
+    """Regression guard: the inlined Python code exceeds Windows' 32,767-char
+    CreateProcess command-line limit.  Invoking python -c with a here-string
+    silently produces empty output on Windows — Python never starts and
+    $Result stays null, so Windows agents upload zero findings.  scan.ps1
+    must write the code to a temp file and invoke 'python <file>' instead
+    (no length limit), matching the Linux heredoc approach."""
+    code_size = len(load_scan_fragments(FRAGS))
+    # The dangerous pattern is an assignment like '$Result = python -c @"'.
+    # Comments that MENTION the bad pattern for documentation are fine.
+    scan_ps1 = (FRAGS / "scan.ps1").read_text()
+    if code_size > _WINDOWS_CMD_LIMIT:
+        assert "= python -c @" not in scan_ps1, (
+            f"Inlined Python is {code_size:,} chars (Windows limit: "
+            f"{_WINDOWS_CMD_LIMIT:,}). scan.ps1 must use a temp file, "
+            "not '= python -c @\"...\"@'."
+        )
+
+
+def test_scan_ps1_uses_temp_file_for_python():
+    """scan.ps1 must write the inlined Python to a temp file ($PyTmp) and
+    execute it as a script file — the only approach that works on Windows
+    regardless of how large the inlined code grows."""
+    scan_ps1 = (FRAGS / "scan.ps1").read_text()
+    assert "$PyTmp" in scan_ps1, (
+        "scan.ps1 is missing the $PyTmp temp-file approach; Windows agents "
+        "will produce no scan data if this reverts to 'python -c'."
+    )
+
+
+def test_authorized_domains_filename_consistent_across_platforms():
+    """scan_header.py.frag reads 'authorized_domains' (no extension).
+    Both setup_agent.ps1.template and scan.ps1 must write the same filename
+    so the Python auth list is populated on Windows."""
+    header = (FRAGS / "scan_header.py.frag").read_text()
+    assert '"authorized_domains"' in header or "'authorized_domains'" in header, \
+        "scan_header no longer reads 'authorized_domains' — check sync with installer"
+    # Windows installer must NOT save with a .txt suffix that the Python code can't find.
+    ps1_template = REPO / "agent" / "install" / "setup_agent.ps1.template"
+    if ps1_template.exists():
+        body = ps1_template.read_text()
+        assert "authorized_domains.txt" not in body, (
+            "setup_agent.ps1.template saves 'authorized_domains.txt' but "
+            "scan_header.py.frag reads 'authorized_domains' — AUTH_LIST is "
+            "always empty on Windows."
+        )
+    scan_ps1 = (FRAGS / "scan.ps1").read_text()
+    assert "authorized_domains.txt" not in scan_ps1, (
+        "scan.ps1 refreshes 'authorized_domains.txt' but scan_header.py.frag "
+        "reads 'authorized_domains' — AUTH_LIST stays empty on Windows."
+    )

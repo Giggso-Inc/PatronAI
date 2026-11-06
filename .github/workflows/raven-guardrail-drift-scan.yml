@@ -1,0 +1,70 @@
+# Auto Log & Guardrail Plugin — task T30 (DRAFT — not scheduled/active yet).
+#
+# Same full-repo scan as raven-guardrail-post-merge-rescan.yml (task T29), triggered
+# on a schedule instead of push — catching drift from edits made outside any hook
+# entirely (a direct push bypassing PR review, a manual server-side change, a force-
+# push that skips the post-merge trigger) per Section A's TRIGGERS list: "(future)
+# Scheduled drift scan — catches manual edits outside hooks."
+#
+# The cron schedule below (03:00 UTC daily) is a placeholder, not a ratified cadence
+# — nobody has decided how often this should actually run in production. Treat the
+# schedule value itself as part of the draft, same posture as this project's other
+# not-yet-ratified thresholds (see design.md's own severity-band caveat for the same
+# stance elsewhere in this codebase).
+#
+# GitHub Actions schedules do not fire on repos with no activity in the last 60 days
+# and are best-effort on timing (can be delayed under platform load) — both standard
+# platform caveats, not something this workflow can control, noted here so a future
+# reader isn't surprised if a run is late or silently skipped on a stale repo.
+
+name: Raven Guardrail Scheduled Drift Scan (Draft)
+
+on:
+  schedule:
+    - cron: "0 3 * * *"  # placeholder cadence — not yet ratified, see header note
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  drift-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Scan every tracked Python file (loop — see T29's workflow for the same note)
+        run: |
+          echo "[]" > all-findings.json
+          for f in $(git ls-files '*.py'); do
+            python3 skills/raven-decision-map/scripts/ast_decision_scanner.py --file "$f" \
+              > this-file.json 2>/dev/null || echo "[]" > this-file.json
+            python3 - "all-findings.json" "this-file.json" <<'PYEOF'
+import json, sys
+merged = json.load(open(sys.argv[1]))
+merged.extend(json.load(open(sys.argv[2])))
+json.dump(merged, open(sys.argv[1], "w"))
+PYEOF
+          done
+        continue-on-error: true  # fail-open (T01)
+
+      - name: Build the Control Register (task T26)
+        run: |
+          cat all-findings.json | python3 raven-core/control-register-generator.py \
+            --format yaml --out control-register.yaml || true
+        continue-on-error: true
+
+      - name: Upload findings + register as build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: raven-guardrail-drift-scan
+          path: |
+            all-findings.json
+            control-register.yaml
+          retention-days: 30

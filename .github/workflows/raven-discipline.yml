@@ -1,0 +1,71 @@
+name: Raven Discipline
+
+# The discipline engine applied to itself: these checks enforce the same
+# anti-drift rules Raven enforces on user projects. Added by the fix chain
+# (Prompt 1); later prompts append further jobs (docs-reality, config-canon).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  raven-engine-drift-check:
+    name: raven-engine-drift-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Engine drift check (scripts/ vs raven-core/ vs .claude/scripts/)
+        run: python3 .claude/scripts/check-engine-drift.py
+
+  raven-docs-reality-check:
+    name: raven-docs-reality-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Docs-vs-reality check (CLAUDE.md hook claims vs settings.json)
+        run: python3 .claude/scripts/check-docs-vs-reality.py
+
+  raven-config-canon-check:
+    name: raven-config-canon-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Config canon check (distribution configs generated from .claude/settings.json)
+        run: python3 .claude/scripts/export-hook-configs.py --check
+
+  raven-skill-manifest-check:
+    name: raven-skill-manifest-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Skill manifest lint (registry, overlap resolutions, core/skills drift)
+        run: python3 .claude/scripts/build-skill-manifest.py --check
+
+  raven-version-consistency-check:
+    name: raven-version-consistency-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Version consistency (raven-core/VERSION vs every current-version claim)
+        run: python3 .claude/scripts/check-version-consistency.py
