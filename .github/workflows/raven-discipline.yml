@@ -1,0 +1,96 @@
+name: Raven Discipline
+
+# The discipline engine applied to itself: these checks enforce the same
+# anti-drift rules Raven enforces on user projects. Added by the fix chain
+# (Prompt 1); later prompts append further jobs (docs-reality, config-canon).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  raven-engine-drift-check:
+    name: raven-engine-drift-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Engine drift check (scripts/ vs raven-core/ vs .claude/scripts/)
+        run: |
+          if [ -f .claude/scripts/check-engine-drift.py ]; then
+            python3 .claude/scripts/check-engine-drift.py
+          else
+            echo "SKIP: check-engine-drift.py not installed in this repo"
+          fi
+
+  raven-docs-reality-check:
+    name: raven-docs-reality-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Docs-vs-reality check (CLAUDE.md hook claims vs settings.json)
+        run: |
+          if [ -f .claude/scripts/check-docs-vs-reality.py ]; then
+            python3 .claude/scripts/check-docs-vs-reality.py
+          else
+            echo "SKIP: check-docs-vs-reality.py not installed in this repo"
+          fi
+
+  raven-config-canon-check:
+    name: raven-config-canon-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Config canon check (distribution configs generated from .claude/settings.json)
+        run: |
+          if [ -f .claude/scripts/export-hook-configs.py ]; then
+            python3 .claude/scripts/export-hook-configs.py --check
+          else
+            echo "SKIP: export-hook-configs.py not installed in this repo"
+          fi
+
+  raven-skill-manifest-check:
+    name: raven-skill-manifest-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Skill manifest lint (registry, overlap resolutions, core/skills drift)
+        run: |
+          if [ -f .claude/scripts/build-skill-manifest.py ]; then
+            python3 .claude/scripts/build-skill-manifest.py --check
+          else
+            echo "SKIP: build-skill-manifest.py not installed in this repo"
+          fi
+
+  raven-version-consistency-check:
+    name: raven-version-consistency-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Version consistency (raven-core/VERSION vs every current-version claim)
+        run: |
+          if [ -f .claude/scripts/check-version-consistency.py ]; then
+            python3 .claude/scripts/check-version-consistency.py
+          else
+            echo "SKIP: check-version-consistency.py not installed in this repo"
+          fi

@@ -214,7 +214,7 @@ $AgentVersion      | Set-Content -Path (Join-Path $AgentDir "agent_version.txt")
 
 # Local action log (one JSON-line per PUT). Replaces silent failure.
 New-Item -ItemType File -Force -Path (Join-Path $AgentDir "agent.log") | Out-Null
-$AuthorizedDomains | Set-Content -Path (Join-Path $AgentDir "authorized_domains.txt")  -Encoding UTF8
+$AuthorizedDomains | Set-Content -Path (Join-Path $AgentDir "authorized_domains")      -Encoding UTF8
 
 # Phase 1A — first-run flag. scan_first_run.py.frag reads it (IS_FIRST_RUN);
 # the footer clears it after a successful payload print so subsequent scans

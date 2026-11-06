@@ -1,0 +1,35 @@
+name: Hub Jira Tests
+
+# PR #303 review (KATHIJA-AFROSE-A, finding M1): no CI job actually ran
+# pytest, so a PR description's "N passed" claim was author-attested only.
+# This gate makes that machine-verified for the Jira integration slice.
+#
+# Deliberately scoped to `-k jira`, not the full `hub/tests` suite: the full
+# suite carries ~40 pre-existing, env-dependent failures (missing AWS creds,
+# flaky GitHub-API calls — see PR #295's own body) that would make a
+# full-suite gate red from day one for reasons unrelated to whatever a given
+# PR actually changed. Widening this to the full suite is a separate,
+# larger piece of work (fixing or explicitly skipping those ~40 first).
+#
+# hub/tests/conftest.py pins DATABASE_URL to a file-backed SQLite before any
+# app module imports, so no Postgres service container is needed here.
+
+on:
+  pull_request:
+    paths:
+      - "hub/**"
+
+jobs:
+  hub-jira-tests:
+    name: hub-jira-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install hub dependencies
+        run: pip install -r hub/requirements-dev.txt
+      - name: Run Jira-scoped test suite
+        run: PYTHONPATH=hub python -m pytest hub/tests -k jira
