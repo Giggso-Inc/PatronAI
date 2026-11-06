@@ -25,9 +25,24 @@ if (Test-Path $AuthUrlFile) {
 # placeholders in scan_header.py.frag bind to the live values.
 $env:PATRONAI_TOKEN   = $Cfg.token
 $env:PATRONAI_COMPANY = $Cfg.company
-$Result = python -c @"
+
+# `python -c "<script>"` passes the ENTIRE script as one command-line
+# argument. The combined scan_*.py.frag payload is 50+ KB and grows with
+# every new emitter added - Windows' CreateProcess command-line length
+# limit is exceeded long before that, failing with "Program 'python.exe'
+# failed to run: The filename or extension is too long" and silently
+# producing no scan output at all (caught here, but scan.ps1 has no
+# logging of its own, so this failed completely invisibly - confirmed
+# live: heartbeats were landing in S3 every 5 min while scans/ stayed
+# empty). Writing to a temp .py file and invoking `python <path>` instead
+# keeps the command line to just a short file path, with no size limit on
+# the script itself.
+$PyScript = Join-Path $env:TEMP ("patronai_scan_" + [guid]::NewGuid().ToString("N") + ".py")
+@"
 {{INLINE_SCAN_PYTHON}}
-"@
+"@ | Set-Content -Path $PyScript -Encoding UTF8
+$Result = python $PyScript
+Remove-Item $PyScript -Force -ErrorAction SilentlyContinue
 
 if ($Result) {
     try {
