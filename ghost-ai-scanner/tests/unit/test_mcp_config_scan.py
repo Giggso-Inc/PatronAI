@@ -1,8 +1,8 @@
 # =============================================================
 # FILE: tests/unit/test_mcp_config_scan.py
 # PROJECT: PatronAI — Phase 1A
-# VERSION: 1.0.1
-# UPDATED: 2026-04-26
+# VERSION: 1.1.0
+# UPDATED: 2026-11-10
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: Lock the MCP-config scanner's contract:
 #          - parses JSON shaped like Claude Desktop's config
@@ -15,11 +15,17 @@
 #   v1.0.0  2026-04-26  Initial. Phase 1A.
 #   v1.0.1  2026-04-26  Helper now runs the scanner inside the patched
 #                       Path.home() scope (was being undone too early).
+#   v1.1.0  2026-11-10  Load scan_mcp_enumerate.py.frag before
+#                       scan_mcp_configs.py.frag so _enumerate_mcp_tools
+#                       is defined in the exec namespace (extracted in
+#                       commit 10dc588 to satisfy the 150-LOC cap).
 # =============================================================
 
 import json
 import os
 import re
+import subprocess
+import urllib.request
 from pathlib import Path
 
 REPO  = Path(__file__).resolve().parents[2]
@@ -27,20 +33,25 @@ FRAGS = REPO / "agent" / "install"
 
 
 def _run_mcp_scan(home: Path) -> list:
-    """Exec redactor + mcp scanner under fake $HOME and return findings.
+    """Exec redactor + enumerate + mcp scanner under fake $HOME; return findings.
     Path.home() patch persists for the entire scanner call so the
     fragment's module-level _HOME_RE and per-OS path table both
-    resolve relative to the test home, not the real home."""
+    resolve relative to the test home, not the real home.
+    scan_mcp_enumerate.py.frag must be exec-ed first so that
+    _enumerate_mcp_tools is defined before scan_mcp_configs uses it."""
     ns: dict = {
         "re": re, "Path": Path, "os": os, "json": json,
-        "subprocess": None,
+        "subprocess": subprocess,
+        "urllib": urllib, "_urllib_req": urllib.request,
         "OS_NAME": "darwin",
         "AGENT_DIR": home / ".patronai",
     }
     real_home = Path.home
     Path.home = staticmethod(lambda: home)                       # type: ignore
     try:
-        for frag in ("scan_redactor.py.frag", "scan_mcp_configs.py.frag"):
+        for frag in ("scan_redactor.py.frag",
+                     "scan_mcp_enumerate.py.frag",
+                     "scan_mcp_configs.py.frag"):
             exec(compile((FRAGS / frag).read_text(), frag, "exec"), ns)
         return ns["scan_mcp_configs"]()
     finally:
@@ -99,14 +110,14 @@ def test_env_values_are_dropped_keys_kept(tmp_path):
     _write_claude_desktop(tmp_path, {
         "mcpServers": {
             "x": {"command": "node", "args": [],
-                  "env": {"OPENAI_API_KEY": "sk-1234567890abcdefghijABCDEFGHIJ"}}
+                  "env": {"OPENAI_API_KEY": "test-value-not-a-real-secret"}}
         }
     })
     out = _run_mcp_scan(tmp_path)
     assert out, "expected one finding"
     f = out[0]
     assert "OPENAI_API_KEY" in f["env_keys_present"]
-    assert "sk-1234567890abcdefghij" not in str(f)
+    assert "test-value-not-a-real-secret" not in str(f)
 
 
 def test_hash_changes_when_config_edits(tmp_path):

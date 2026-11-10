@@ -1,19 +1,23 @@
 # =============================================================
 # FRAGMENT: scan_ide_plugins.py.frag
-# VERSION: 1.0.0
-# UPDATED: 2026-04-25
+# VERSION: 1.1.0
+# UPDATED: 2026-11-10
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: Walk IDE extension/plugin directories and match against
 #          AI plugin IDs (Copilot, Codeium, Tabnine, Continue, etc).
-#          VS Code, Cursor, JetBrains (all subdirs).
-#          macOS + Linux paths. (Windows handled by .ps1.frag.)
+#          VS Code, Cursor, Windsurf, JetBrains (all subdirs).
+#          macOS + Linux + Windows paths.
 # AUDIT LOG:
 #   v1.0.0  2026-04-25  Initial. Group 2.C — IDE plugin enumeration.
+#   v1.1.0  2026-11-10  Add Windsurf IDE extension dir. Add
+#                       sourcegraph.cody-ai and supermaven.supermaven
+#                       to the detection regex.
 # =============================================================
 
 _AI_IDE_PLUGINS_RE = re.compile(
     r"\b(github\.copilot|github\.copilot-chat|codeium\.codeium|"
     r"tabnine\.tabnine-vscode|continue\.continue|aws\.amazon-q-vscode|"
+    r"sourcegraph\.cody-ai|supermaven\.supermaven|"
     r"com\.github\.copilot|com\.codeium\.intellij|com\.tabnine\.intellij)\b",
     re.IGNORECASE,
 )
@@ -26,12 +30,16 @@ def _vscode_dirs() -> list:
         h / ".vscode/extensions",
         h / ".vscode-insiders/extensions",
         h / ".cursor/extensions",
+        h / ".windsurf/extensions",      # Windsurf (Codeium's VS Code fork)
         h / ".vscode-server/extensions",
     ]
     if OS_NAME == "windows":
         userprofile = Path(os.environ.get("USERPROFILE", h))
-        base += [userprofile / ".vscode/extensions",
-                 userprofile / ".cursor/extensions"]
+        base += [
+            userprofile / ".vscode/extensions",
+            userprofile / ".cursor/extensions",
+            userprofile / ".windsurf/extensions",
+        ]
     return base
 
 

@@ -37,6 +37,7 @@ FRAGMENT_ORDER = (
     "scan_containers.py.frag",
     "scan_shell_history.py.frag",
     # --- Phase 1A new emitters ---
+    "scan_mcp_enumerate.py.frag",   # _enumerate_mcp_tools — must precede scan_mcp_configs
     "scan_mcp_configs.py.frag",
     "scan_agents_workflows.py.frag",
     "scan_tools_code.py.frag",
