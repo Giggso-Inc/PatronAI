@@ -1,0 +1,71 @@
+name: Raven Retina Check
+
+# Verifies that the PR author has at least one device with status=matched on
+# RavenHub before allowing a merge. Scan age is not checked here — the Hub's
+# own staleness job transitions the device to status=stale when PatronAI stops
+# reporting, and that status change is what blocks CI. Calls the estate API.
+#
+# Required secrets (set in repo or org settings):
+#   RAVEN_HUB_URL   — e.g. https://gsd.giggso.com
+#   RAVEN_AGENT_KEY — same value as the Hub's RAVEN_AGENT_KEY env var
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  retina-check:
+    name: Device trust gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+
+      # Fetch the CI check script from the base branch so a PR cannot disarm
+      # its own gate by modifying scripts/ci_retina_check.py. The PR content
+      # is still checked out for all other files; only this one script is
+      # overridden with the base-branch (trusted) copy.
+      #
+      # Exception: if this PR itself modifies ci_retina_check.py, skip the pin.
+      # A PR that changes the script is updating the gate, not disarming it —
+      # the reviewer provides oversight in that case. Without this exception,
+      # a PR that fixes ci_retina_check.py would always be run against the old
+      # (broken) version it is trying to replace (bootstrap deadlock).
+      - name: Pin CI check script to base branch
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          # Compare the file on the base branch vs the PR checkout by content hash.
+          # Avoids relying on git history depth (shallow clones break `git diff ...HEAD`).
+          BASE_HASH=$(git show origin/${{ github.base_ref }}:scripts/ci_retina_check.py 2>/dev/null | sha256sum | cut -d' ' -f1 || echo "absent")
+          PR_HASH=$(sha256sum scripts/ci_retina_check.py 2>/dev/null | cut -d' ' -f1 || echo "missing")
+          if [ "$BASE_HASH" = "absent" ]; then
+            echo "ci_retina_check.py is new in this PR — using PR version (reviewer must verify)"
+          elif [ "$BASE_HASH" != "$PR_HASH" ]; then
+            echo "This PR modifies ci_retina_check.py — skipping pin. Reviewer must verify the script change."
+          else
+            git checkout origin/${{ github.base_ref }} -- scripts/ci_retina_check.py
+            echo "Pinned ci_retina_check.py to base branch ($(git rev-parse --short origin/${{ github.base_ref }}))"
+          fi
+
+      - name: Check author device trust
+        env:
+          RAVEN_HUB_URL: ${{ secrets.RAVEN_HUB_URL }}
+          RAVEN_AGENT_KEY: ${{ secrets.RAVEN_AGENT_KEY }}
+          # PR_AUTHOR_EMAIL: only set for users with a public GitHub email (rare).
+          # PR_AUTHOR_LOGIN: always set — used as fallback to resolve email.
+          # GITHUB_TOKEN + PR_NUMBER + GITHUB_REPOSITORY: used to look up the
+          # commit author email from the PR's commits via the GitHub API — this
+          # is the user's git-configured email, which typically matches their
+          # Hub/Giggso email even when their GitHub profile email is private.
+          PR_AUTHOR_EMAIL: ${{ github.event.pull_request.user.email }}
+          PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RAVEN_ORG: ${{ vars.RAVEN_ORG || 'giggso' }}
+        run: |
+          python3 scripts/ci_retina_check.py

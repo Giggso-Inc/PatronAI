@@ -1,0 +1,77 @@
+# Auto Log & Guardrail Plugin — task T29 (DRAFT — not wired to real CI yet).
+#
+# Full-repo re-scan on post-merge, catching drift T15's PR-scoped scan can't see
+# (a PR only ever diffs against its own base — this instead re-scans everything
+# currently on `main`, the way Section A's TRIGGERS list anticipates for
+# "CI/CD post-merge — full repo re-scan").
+#
+# Honest gap, stated per this project's own convention rather than silently
+# assumed away: neither ast_decision_scanner.py nor log-coverage-check.py has a
+# native "scan the whole repo" mode — both only support --pr/--staged/--file.
+# This workflow synthesizes a full-repo scan by looping --file over every
+# tracked Python file. A native --all/--repo flag on the scanner itself would be
+# a cleaner follow-up; this loop is the honest stopgap, not a claim that one
+# already exists.
+#
+# Never blocks anything on its own (T01: this is additive/reporting, matching
+# T15's own posture) — no job step here fails the workflow/PR check; findings
+# are written as a build artifact for a human to pull down and review, since no
+# notification channel (Slack, issue, etc.) has been decided yet (see this
+# task's own progress-report note about undecided policy).
+#
+# Has NOT fired against a real push to `main` as of this draft — same caveat
+# T15's workflow carries: syntax-valid and locally dry-run-able, not yet
+# observed running for real.
+
+name: Raven Guardrail Post-Merge Re-Scan (Draft)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  full-repo-rescan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Scan every tracked Python file (loop — see header note)
+        run: |
+          echo "[]" > all-findings.json
+          for f in $(git ls-files '*.py'); do
+            python3 skills/raven-decision-map/scripts/ast_decision_scanner.py --file "$f" \
+              > this-file.json 2>/dev/null || echo "[]" > this-file.json
+            python3 - "all-findings.json" "this-file.json" <<'PYEOF'
+import json, sys
+merged = json.load(open(sys.argv[1]))
+merged.extend(json.load(open(sys.argv[2])))
+json.dump(merged, open(sys.argv[1], "w"))
+PYEOF
+          done
+          echo "total findings: $(python3 -c 'import json; print(len(json.load(open("all-findings.json"))))')"
+        continue-on-error: true  # fail-open (T01) — a scan-loop error never blocks the push
+
+      - name: Build the Control Register (task T26)
+        run: |
+          cat all-findings.json | python3 raven-core/control-register-generator.py \
+            --format yaml --out control-register.yaml || true
+        continue-on-error: true
+
+      - name: Upload findings + register as build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: raven-guardrail-post-merge-rescan
+          path: |
+            all-findings.json
+            control-register.yaml
+          retention-days: 30

@@ -1,0 +1,62 @@
+# Auto Log & Guardrail Plugin — task T15.
+#
+# Runs raven-decision-map's scanner against the PR diff and posts findings as
+# inline review comments (task T13's format), via raven-core/post-scan-comments.py
+# (task T15). This workflow is additive/reporting only — per task T01's fail-open
+# vs fail-closed decision, log-coverage-check.py's own pass/fail gate (raven-applog)
+# is the thing that can block the PR; this workflow never fails the PR check on
+# its own scan/post errors (see post-scan-comments.py's own fail-open exit code).
+#
+# Requires no secrets beyond the default GITHUB_TOKEN, which needs
+# pull-requests: write to post/update/delete review and issue comments.
+
+name: Raven Decision-Map PR Comments
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Fetch base branch ref
+        run: git fetch origin "${{ github.event.pull_request.base.ref }}" --depth=1
+
+      - name: Run raven-decision-map scanner
+        id: scan
+        run: |
+          python3 skills/raven-decision-map/scripts/ast_decision_scanner.py \
+            --pr --base-ref "${{ github.event.pull_request.base.ref }}" \
+            > findings.json
+          echo "finding_count=$(python3 -c 'import json,sys; print(len(json.load(open("findings.json"))))')" >> "$GITHUB_OUTPUT"
+        continue-on-error: true  # fail-open on scanner error (T01) — comment step below handles an empty/missing file gracefully
+
+      - name: Post findings as PR comments
+        if: always() && steps.scan.outcome != 'skipped'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -s findings.json ]; then
+            echo "[]" > findings.json
+          fi
+          python3 raven-core/post-scan-comments.py \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --findings findings.json \
+            --base-ref "${{ github.event.pull_request.base.ref }}" \
+            --commit-sha "${{ github.event.pull_request.head.sha }}"
+        continue-on-error: true  # posting failures never block the PR (T15's own fail-open exit code)
