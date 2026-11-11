@@ -295,6 +295,16 @@ chmod +x "$LOG_ROTATE_SCRIPT"
 
 # ── Schedule heartbeat (5 min) + scan (30 min) ────────────────
 if [ "$(uname -s)" = "Darwin" ]; then
+  # [2026-11-11] ~/Library/LaunchAgents does NOT exist by default on macOS -
+  # it is created by the first thing that installs a LaunchAgent, so it is
+  # present on machines that have run one before and absent on a clean
+  # account. All four `cat > "$PLIST_*"` writes below assumed it existed, so
+  # on a fresh Mac the very first one failed with
+  #   .../com.patronai.heartbeat.plist: No such file or directory
+  # and the whole installer exited non-zero. Confirmed live on a clean
+  # Apple-silicon Mac. Create it once, here, before any plist is written.
+  mkdir -p "$HOME/Library/LaunchAgents"
+
   # Heartbeat — launchd, every 5 min
   PLIST_HB="$HOME/Library/LaunchAgents/com.patronai.heartbeat.plist"
   cat > "$PLIST_HB" << PLIST_EOF
