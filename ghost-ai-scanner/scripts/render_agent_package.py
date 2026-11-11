@@ -32,12 +32,46 @@
 
 import logging
 import os
+import re
 from pathlib import Path
 
 from build_agent_artifacts import _build_macos_dmg, _build_windows_exe
 from scan_fragment_loader  import load_scan_fragments
 
 log = logging.getLogger("marauder-scan.render_agent")
+
+_NESTED_HERESTRING_TERMINATOR = re.compile(r"(?m)^('@)")
+
+
+def _guard_nested_herestring(text: str) -> str:
+    """Defuse an inlined script's own here-string terminator before it is
+    spliced into setup_agent.ps1.template's OUTER @' ... '@ block.
+
+    PowerShell's single-quoted here-string has no concept of nesting: ANY
+    line starting with the two characters '@ closes whichever here-string
+    is currently open, even when that line is only literal data inside the
+    text being substituted in. scan.ps1 writes its own INLINE_SCAN_PYTHON
+    payload to a temp file via exactly this pattern (`@' ... '@ |
+    Set-Content ...`) so it can also run standalone (apply_update.*'s
+    update bundle ships it as a real file on disk) -- when scan.ps1's
+    content is embedded here as {{INLINE_SCAN_PS1}}, that inner closing
+    '@ prematurely ends the OUTER here-string, and everything rendered
+    after it (the rest of scan.ps1, the remainder of this template, every
+    later INLINE_* section including log_rotate.py) is then parsed as
+    literal top-level PowerShell statements instead of string data.
+    Confirmed live: reproduces the exact "Unexpected token '}'" /
+    "'from' keyword is not supported" cascade of parser errors from an
+    installer that looked corrupted but was byte-for-byte what the server
+    rendered (GSD install failure, 2026-11-11).
+
+    A single leading space defeats the "must be the first character on
+    the line" rule without changing anything observable about the
+    embedded script's own behavior when read as a file. Applied ONLY to
+    the in-memory copy spliced into the outer template -- never to the
+    source file on disk, which still needs a real column-0 '@ to close
+    its own here-string when it runs standalone.
+    """
+    return _NESTED_HERESTRING_TERMINATOR.sub(r" \1", text)
 
 HOOK_AGENTS_PREFIX       = "config/HOOK_AGENTS"
 TEMPLATE_DIR             = Path(__file__).parent.parent / "agent" / "install"
@@ -120,7 +154,8 @@ def render_agent_package(
         diag_sh_path  = TEMPLATE_DIR / "diagnose.sh"
         diag_ps1_path = TEMPLATE_DIR / "diagnose.ps1"
         inline_diagnose_sh  = diag_sh_path.read_text(encoding="utf-8")  if diag_sh_path.exists()  else ""
-        inline_diagnose_ps1 = diag_ps1_path.read_text(encoding="utf-8") if diag_ps1_path.exists() else ""
+        inline_diagnose_ps1 = _guard_nested_herestring(
+            diag_ps1_path.read_text(encoding="utf-8")) if diag_ps1_path.exists() else ""
 
         # Self-update — same inline-at-render-time pattern as diagnose.*
         # above. apply_update.* is generic (reads pending_update.json /
@@ -130,7 +165,8 @@ def render_agent_package(
         apply_update_sh_path  = TEMPLATE_DIR / "apply_update.sh"
         apply_update_ps1_path = TEMPLATE_DIR / "apply_update.ps1"
         inline_apply_update_sh  = apply_update_sh_path.read_text(encoding="utf-8")  if apply_update_sh_path.exists()  else ""
-        inline_apply_update_ps1 = apply_update_ps1_path.read_text(encoding="utf-8") if apply_update_ps1_path.exists() else ""
+        inline_apply_update_ps1 = _guard_nested_herestring(
+            apply_update_ps1_path.read_text(encoding="utf-8")) if apply_update_ps1_path.exists() else ""
 
         # The remaining per-device scripts (heartbeat/scan/hook_chain/
         # pre_commit_hook) are ALSO extracted to standalone files under
@@ -149,11 +185,14 @@ def render_agent_package(
         scan_ps1_path       = TEMPLATE_DIR / "scan.ps1"
 
         inline_heartbeat_sh   = heartbeat_sh_path.read_text(encoding="utf-8")   if heartbeat_sh_path.exists()   else ""
-        inline_heartbeat_ps1  = heartbeat_ps1_path.read_text(encoding="utf-8")  if heartbeat_ps1_path.exists()  else ""
+        inline_heartbeat_ps1  = _guard_nested_herestring(
+            heartbeat_ps1_path.read_text(encoding="utf-8"))  if heartbeat_ps1_path.exists()  else ""
         inline_hook_chain_sh  = hook_chain_sh_path.read_text(encoding="utf-8")  if hook_chain_sh_path.exists()  else ""
-        inline_hook_chain_ps1 = hook_chain_ps1_path.read_text(encoding="utf-8") if hook_chain_ps1_path.exists() else ""
+        inline_hook_chain_ps1 = _guard_nested_herestring(
+            hook_chain_ps1_path.read_text(encoding="utf-8")) if hook_chain_ps1_path.exists() else ""
         inline_pre_commit_sh  = pre_commit_sh_path.read_text(encoding="utf-8")  if pre_commit_sh_path.exists()  else ""
-        inline_pre_commit_ps1 = pre_commit_ps1_path.read_text(encoding="utf-8") if pre_commit_ps1_path.exists() else ""
+        inline_pre_commit_ps1 = _guard_nested_herestring(
+            pre_commit_ps1_path.read_text(encoding="utf-8")) if pre_commit_ps1_path.exists() else ""
 
         # scan.ps1/scan.sh each carry their OWN {{INLINE_SCAN_PYTHON}}
         # placeholder (see agent/install/scan_*.py.frag). renderer.render()
@@ -166,11 +205,13 @@ def render_agent_package(
         # that trap.
         inline_scan_sh  = scan_sh_path.read_text(encoding="utf-8").replace(
             "{{INLINE_SCAN_PYTHON}}", inline_scan_python) if scan_sh_path.exists() else ""
-        inline_scan_ps1 = scan_ps1_path.read_text(encoding="utf-8").replace(
-            "{{INLINE_SCAN_PYTHON}}", inline_scan_python) if scan_ps1_path.exists() else ""
+        inline_scan_ps1 = _guard_nested_herestring(
+            scan_ps1_path.read_text(encoding="utf-8").replace(
+                "{{INLINE_SCAN_PYTHON}}", inline_scan_python)) if scan_ps1_path.exists() else ""
 
         log_rotate_py_path = TEMPLATE_DIR / "log_rotate.py"
-        inline_log_rotate_py = log_rotate_py_path.read_text(encoding="utf-8") if log_rotate_py_path.exists() else ""
+        inline_log_rotate_py = _guard_nested_herestring(
+            log_rotate_py_path.read_text(encoding="utf-8")) if log_rotate_py_path.exists() else ""
 
         # agent_version is baked in ONLY as the value written to
         # agent_version.txt at install time — heartbeat.* reads that file at
