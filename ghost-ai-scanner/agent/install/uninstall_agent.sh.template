@@ -53,11 +53,47 @@ fi
 # ── 3. Remove git pre-commit hooks ───────────────────────────
 HOOK_SCRIPT="$AGENT_DIR/pre_commit_hook.sh"
 REMOVED=0
+# [2026-11-11] This only ever handled the OLD symlink-based hook: it required
+# the hook to be a SYMLINK pointing at $AGENT_DIR/pre_commit_hook.sh, and
+# restored a sibling named "pre-commit.backup". The installer has since moved
+# to the chain form (lib hook_chain.sh): it writes pre-commit as a REGULAR
+# FILE carrying the marker below, and preserves any pre-existing hook as
+# "pre-commit.pre-patronai". All three assumptions are now wrong, so the
+# uninstaller matched nothing and left the hook in place - pointing at a
+# pre_commit_hook script it had just deleted.
+#
+# Confirmed live: after uninstalling, EVERY git commit in EVERY repo PatronAI
+# had instrumented failed with
+#   The argument '<home>/.patronai/pre_commit_hook.ps1' to the -File parameter
+#   does not exist.
+# which names neither PatronAI nor the uninstall as the cause. Reproduced in
+# two separate repositories on the same machine; one install reported
+# instrumenting 8 repositories.
+#
+# Handle BOTH forms: the legacy symlink, and the chain file (restoring
+# pre-commit.pre-patronai when it exists, otherwise removing outright).
+HOOK_MARKER="PatronAI managed pre-commit chain"
 while IFS= read -r -d '' GIT_DIR; do
   HOOK_PATH="$GIT_DIR/hooks/pre-commit"
+  PRESERVED="$GIT_DIR/hooks/pre-commit.pre-patronai"
+  IS_OURS=0
+
+  # Legacy: symlink -> $AGENT_DIR/pre_commit_hook.sh
   if [ -L "$HOOK_PATH" ] && [ "$(readlink "$HOOK_PATH")" = "$HOOK_SCRIPT" ]; then
-    rm "$HOOK_PATH"
-    if [ -f "${HOOK_PATH}.backup" ]; then
+    IS_OURS=1
+  # Current: regular chain file, identified by its own marker. Match on the
+  # marker rather than on the interpreter path, so this stays correct for the
+  # .sh and .ps1 variants alike.
+  elif [ -f "$HOOK_PATH" ] && grep -qs "$HOOK_MARKER" "$HOOK_PATH"; then
+    IS_OURS=1
+  fi
+
+  if [ "$IS_OURS" -eq 1 ]; then
+    rm -f "$HOOK_PATH"
+    if [ -f "$PRESERVED" ]; then
+      mv "$PRESERVED" "$HOOK_PATH"
+      _ok "Restored pre-existing hook in: $(dirname "$GIT_DIR")"
+    elif [ -f "${HOOK_PATH}.backup" ]; then
       mv "${HOOK_PATH}.backup" "$HOOK_PATH"
       _ok "Restored original hook in: $(dirname "$GIT_DIR")"
     else
