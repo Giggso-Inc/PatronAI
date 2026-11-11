@@ -1,7 +1,7 @@
 # =============================================================
 # FILE: src/retina/collector.py
-# VERSION: 1.1.0
-# UPDATED: 2026-09-02
+# VERSION: 1.2.0
+# UPDATED: 2026-11-10
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: Extract the seven retina dimensions (D1-D7) from a raw
 #          endpoint scan payload already stored in S3. Maps the
@@ -21,11 +21,12 @@
 # servers with the same name but different transports produce distinct
 # entries, as required by the spec.
 #
-# D2 note: PatronAI's current agent scripts parse MCP config files but do
-# not call tools/list on each server (that requires an active MCP connection,
-# not just config parsing). The `tools` field will be absent from most
-# mcp_server findings, so D2 will typically be empty until the agent adds
-# tool enumeration. The hash will still detect D1/D7 drifts correctly.
+# D2 note: scan_mcp_configs.py.frag v2.0.0+ actively enumerates tools via
+# the MCP tools/list call (stdio: subprocess with 4s timeout; HTTP: POST
+# with 3s timeout). The `tools` field is now populated on most findings.
+# Servers that fail to start or time out produce an empty tools list —
+# D2 will be partial but never causes scan failure. When `tools` is absent
+# on older findings the collector falls back to [] gracefully.
 #
 # All extraction is best-effort — missing fields produce empty lists,
 # never exceptions.
@@ -35,6 +36,8 @@
 #   v1.0.0  2026-09-02  Initial. RavenHub Card — Patron side.
 #   v1.1.0  2026-09-02  D1 now includes transport type per spec.
 #                       D2 limitation documented.
+#   v1.2.0  2026-11-10  Update D2 comment: tool enumeration now active
+#                       in scan_mcp_configs.py.frag v2.0.0.
 # =============================================================
 
 from __future__ import annotations
@@ -81,10 +84,10 @@ def extract_dimensions(scan: dict) -> dict[str, list[str]]:
                 transport = _safe(f.get("transport", ""))
                 if server:
                     d1.append(f"{server}:{transport}" if transport else server)
-                # D2: tool entries — only populated when the agent has enumerated tools
-                # via the MCP protocol (tools/list). Most mcp_server findings from
-                # config parsing will not have a `tools` field, so D2 is typically
-                # empty until active tool enumeration is added to the agent scripts.
+                # D2: tool names — populated by scan_mcp_configs v2.0.0+ which
+                # calls tools/list on each server (stdio: 4s timeout, HTTP: 3s).
+                # Servers that time out or fail to start produce an empty list;
+                # older scan payloads without the field also fall back to [].
                 for tool in (f.get("tools") or []):
                     t = _safe(tool)
                     if t:

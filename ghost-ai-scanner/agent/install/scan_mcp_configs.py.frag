@@ -1,19 +1,25 @@
 # =============================================================
 # FRAGMENT: scan_mcp_configs.py.frag
 # PROJECT: PatronAI — Phase 1A
-# VERSION: 1.0.0
-# UPDATED: 2026-04-26
+# VERSION: 2.0.0
+# UPDATED: 2026-11-10
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: Real MCP-server inventory. Reads the MCP config JSONs that
-#          AI clients (Claude Desktop, Cursor, Continue, Cline) keep
-#          on disk. Emits one `mcp_server` finding per server defined,
-#          with redacted metadata (server name + command basename + arg
-#          FLAGS only — no values) and a SHA-256 of the parent file for
-#          change detection. Privacy: every finding passes through the
-#          shared redactor; any finding still carrying a secret after
-#          redaction is dropped entirely.
+#          AI clients (Claude Desktop, Claude Code, Cursor, Continue,
+#          Cline) keep on disk. Emits one `mcp_server` finding per
+#          server defined, with redacted metadata (server name + command
+#          basename + arg FLAGS only — no values) and a SHA-256 of the
+#          parent file for change detection. Tool enumeration is
+#          delegated to scan_mcp_enumerate.py.frag (_enumerate_mcp_tools)
+#          which must precede this fragment in FRAGMENT_ORDER.
+#          Privacy: every finding passes through the shared redactor;
+#          any finding still carrying a secret after redaction is
+#          dropped entirely. Tool names are plain identifiers and do
+#          not trigger the secret redactor.
 # AUDIT LOG:
 #   v1.0.0  2026-04-26  Initial. Phase 1A.
+#   v2.0.0  2026-11-10  D1: add ~/.claude/settings.json (Claude Code).
+#                       D2: delegates to scan_mcp_enumerate.py.frag.
 # =============================================================
 
 import hashlib
@@ -23,13 +29,19 @@ import hashlib
 def _mcp_config_paths() -> list:
     """Per-OS list of (host_label, config_path) candidates."""
     h = Path.home()
+    # ~/.claude/settings.json is cross-platform — Claude Code uses the
+    # same path on macOS, Linux, and Windows (rooted at $HOME).
+    claude_code_paths = [
+        ("claude_code",       h / ".claude/settings.json"),
+        ("claude_code_local", h / ".claude/settings.local.json"),
+    ]
     if OS_NAME == "darwin":
         return [
             ("claude_desktop", h / "Library/Application Support/Claude/claude_desktop_config.json"),
             ("cursor",         h / ".cursor/mcp.json"),
             ("continue",       h / ".continue/config.json"),
             ("cline",          h / ".config/Cline/mcp_settings.json"),
-        ]
+        ] + claude_code_paths
     if OS_NAME == "windows":
         appdata = Path(os.environ.get("APPDATA", h / "AppData/Roaming"))
         return [
@@ -37,14 +49,14 @@ def _mcp_config_paths() -> list:
             ("cursor",         h / ".cursor/mcp.json"),
             ("continue",       h / ".continue/config.json"),
             ("cline",          h / ".config/Cline/mcp_settings.json"),
-        ]
+        ] + claude_code_paths
     # linux + other unix
     return [
         ("claude_desktop", h / ".config/Claude/claude_desktop_config.json"),
         ("cursor",         h / ".cursor/mcp.json"),
         ("continue",       h / ".continue/config.json"),
         ("cline",          h / ".config/Cline/mcp_settings.json"),
-    ]
+    ] + claude_code_paths
 
 
 def _hash_file_bytes(p: Path) -> str:
@@ -96,6 +108,10 @@ def _parse_one_config(host: str, path: Path) -> list:
     for name, spec in servers.items():
         if not isinstance(spec, dict):
             continue
+        # Enumerate tools before redacting the spec — needs full
+        # command/args/env. Tool names are plain identifiers (e.g.
+        # "read_file") and do not trigger the secret redactor.
+        tools = _enumerate_mcp_tools(spec)
         finding = {
             "type":             "mcp_server",
             "mcp_host":         host,
@@ -106,6 +122,7 @@ def _parse_one_config(host: str, path: Path) -> list:
             "arg_flags":        _arg_flags_only(spec.get("args")),
             "env_keys_present": _env_keys_only(spec.get("env")),
             "transport":        str(spec.get("transport", "stdio"))[:24],
+            "tools":            tools,
         }
         safe = _safe_finding(finding)
         if _has_unredacted_secret(safe):

@@ -1,15 +1,28 @@
 # =============================================================
 # FRAGMENT: scan_browsers.py.frag
-# VERSION: 1.0.0
-# UPDATED: 2026-04-25
+# VERSION: 1.1.0
+# UPDATED: 2026-11-10
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: Multi-browser × multi-OS history scan.
 #          macOS: Safari, Chrome, Firefox, Edge, Brave, Arc, Opera, Vivaldi.
 #          Linux: Chrome, Chromium, Firefox, Edge, Brave.
 #          (Windows handled by scan_browsers.ps1.frag.)
 #          7-day window. Matches the ENDPOINT_SCAN unauthorised-domain regex.
+#
+# Timestamp epoch reference (critical for correct 7-day window):
+#   Firefox  — microseconds since Unix epoch (1970-01-01). Query correct as-is.
+#   Chrome   — microseconds since WebKit epoch (1601-01-01).
+#              Offset: +11,644,473,600 seconds vs Unix epoch.
+#              Fix: WHERE last_visit_time > (strftime('%s','now')-604800+11644473600)*1000000
+#   Safari   — seconds since Core Data epoch (2001-01-01).
+#              Offset: -978,307,200 seconds vs Unix epoch.
+#              Fix: WHERE v.visit_time > (strftime('%s','now')-978307200-604800)
 # AUDIT LOG:
 #   v1.0.0  2026-04-25  Initial. Group 2.B — multi-browser path expansion.
+#   v1.1.0  2026-11-10  Fix Chrome WebKit epoch (+11644473600 s offset) and
+#                       Safari Core Data epoch (-978307200 s offset). Both
+#                       bugs caused D6 to be incorrect: Chrome returned ALL
+#                       history; Safari returned zero results.
 # =============================================================
 
 _UNAUTH_DOMAIN_RE = re.compile(
@@ -44,8 +57,15 @@ def _scan_sqlite(db_path: Path, query: str) -> list:
 def _browser_paths() -> dict:
     """OS-aware map of browser → (history_db, query). Covers macOS / Linux / Windows."""
     h = Path.home()
-    chrome_q = "SELECT url FROM urls WHERE last_visit_time > (strftime('%s','now')-604800)*1000000"
-    safari_q = "SELECT url FROM history_visits v JOIN history_items i ON v.history_item=i.id WHERE v.visit_time > (strftime('%s','now')-604800)"
+    # Chrome/Edge/Brave/Arc/Opera/Vivaldi store last_visit_time in WebKit epoch
+    # (microseconds since 1601-01-01). Add 11,644,473,600 s to convert the
+    # Unix-epoch threshold to WebKit epoch before multiplying to microseconds.
+    chrome_q = "SELECT url FROM urls WHERE last_visit_time > (strftime('%s','now')-604800+11644473600)*1000000"
+    # Safari stores visit_time in Core Data epoch (seconds since 2001-01-01).
+    # Subtract 978,307,200 s (gap from Unix to Core Data epoch) from the
+    # Unix-epoch threshold to arrive at a Core Data epoch threshold.
+    safari_q = "SELECT url FROM history_visits v JOIN history_items i ON v.history_item=i.id WHERE v.visit_time > (strftime('%s','now')-978307200-604800)"
+    # Firefox stores last_visit_date in microseconds since Unix epoch — correct.
     ff_q     = "SELECT url FROM moz_places WHERE last_visit_date > (strftime('%s','now')-604800)*1000000"
 
     def _ff_first(root: Path) -> Path:
