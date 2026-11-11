@@ -222,14 +222,23 @@ $AuthorizedDomains | Set-Content -Path (Join-Path $AgentDir "authorized_domains"
 New-Item -ItemType File -Force -Path (Join-Path $AgentDir "first_run.flag") | Out-Null
 
 # ── Write pre-commit hook script ──────────────────────────────
-# Source lives at agent/install/pre_commit_hook.ps1 and is inlined verbatim
-# at render time (same INLINE_* pattern as diagnose.ps1 below) - extracted
-# out of this file so build_agent_update_bundle.py can ship it as part of a
-# self-update bundle without parsing this template's own here-strings.
+# Source lives at agent/install/pre_commit_hook.ps1 and is inlined as
+# base64 at render time (same INLINE_*_PS1 pattern as diagnose.ps1 below) -
+# extracted out of this file so build_agent_update_bundle.py can ship it as
+# part of a self-update bundle without parsing this template's own
+# here-strings. Base64 (not a literal @' ... '@ here-string): a per-device
+# script may itself need to write its own here-string to disk at runtime
+# (scan.ps1 does, for INLINE_SCAN_PYTHON) - PowerShell here-strings cannot
+# nest (ANY line starting with '@ closes whichever is currently open, with
+# no escape), so splicing such a script's raw text into an outer here-string
+# would prematurely close it and corrupt everything rendered after.
+# Base64 has no such landmine: it's pure [A-Za-z0-9+/=], safe inside a plain
+# double-quoted string with zero interpolation risk, and decodes back to the
+# exact original bytes (confirmed live: a corrupted install, GSD 2026-11-11,
+# traced to exactly this nesting hazard in scan.ps1 - see PatronAI#80).
 $HookScript = Join-Path $AgentDir "pre_commit_hook.ps1"
-@'
-{{INLINE_PRE_COMMIT_HOOK_PS1}}
-'@ | Set-Content -Path $HookScript -Encoding UTF8
+[System.IO.File]::WriteAllBytes($HookScript,
+    [System.Convert]::FromBase64String("{{INLINE_PRE_COMMIT_HOOK_PS1}}"))
 
 # ── Hook-chain library (chain-aware pre-commit install) ──────
 # Never clobber a pre-existing hook. Preserve it as
@@ -239,12 +248,10 @@ $HookScript = Join-Path $AgentDir "pre_commit_hook.ps1"
 # on Windows — same content as the Linux/macOS chain. Idempotent:
 # safe to re-run from the heartbeat backstop.
 $ChainLib = Join-Path $AgentDir "hook_chain.ps1"
-# Source lives at agent/install/hook_chain.ps1, inlined verbatim at render
+# Source lives at agent/install/hook_chain.ps1, inlined as base64 at render
 # time - extracted for the same reason as pre_commit_hook.ps1 above.
-$ChainLibBody = @'
-{{INLINE_HOOK_CHAIN_PS1}}
-'@
-$ChainLibBody | Set-Content -Path $ChainLib -Encoding UTF8
+[System.IO.File]::WriteAllBytes($ChainLib,
+    [System.Convert]::FromBase64String("{{INLINE_HOOK_CHAIN_PS1}}"))
 
 # ── Auto-install into git repos under user profile (chain-aware) ─
 # Confirmed customer-reported hang: on a profile with a OneDrive/cloud-sync
@@ -307,11 +314,14 @@ if ($ExistingTpl -and $ExistingTpl -ne $TemplateDir) {
 # outer substitution pass, since a nested {{...}} inside a substituted
 # value is not re-scanned by the same pass — see that file's comment).
 # scan.ps1 is extracted to its own file for the same reason
-# pre_commit_hook.ps1/hook_chain.ps1 are above.
+# pre_commit_hook.ps1/hook_chain.ps1 are above. Base64, not a here-string:
+# scan.ps1 writes INLINE_SCAN_PYTHON to disk via its OWN @' ... '@ block at
+# runtime, and that inner closing '@ would prematurely end an outer
+# here-string wrapping this whole section verbatim (see pre_commit_hook.ps1
+# above for the full explanation).
 $ScanScript = Join-Path $AgentDir "scan.ps1"
-@'
-{{INLINE_SCAN_PS1}}
-'@ | Set-Content -Path $ScanScript -Encoding UTF8
+[System.IO.File]::WriteAllBytes($ScanScript,
+    [System.Convert]::FromBase64String("{{INLINE_SCAN_PS1}}"))
 
 # ── Report install status ─────────────────────────────────────
 $StatusPayload = @{
@@ -327,32 +337,29 @@ try {
 } catch { <# non-fatal #> }
 
 # ── Write heartbeat script (URL refresh + identity + structured log) ──
-# Source lives at agent/install/heartbeat.ps1, inlined verbatim at render
+# Source lives at agent/install/heartbeat.ps1, inlined as base64 at render
 # time - extracted for the same reason as the scripts above.
 $HeartbeatScript = Join-Path $AgentDir "heartbeat.ps1"
-@'
-{{INLINE_HEARTBEAT_PS1}}
-'@ | Set-Content -Path $HeartbeatScript -Encoding UTF8
+[System.IO.File]::WriteAllBytes($HeartbeatScript,
+    [System.Convert]::FromBase64String("{{INLINE_HEARTBEAT_PS1}}"))
 
 # ── Write self-update script ──────────────────────────────────
 # Runs hourly, separate from the 5-min heartbeat above that only NOTICES an
 # update (writes pending_update.json) - applying it is a separate, lower-
 # frequency task so a scheduled heartbeat run can never read this same
 # heartbeat.ps1 file half-replaced out from under itself. Source lives at
-# agent/install/apply_update.ps1 and is inlined verbatim at render time -
-# same INLINE_* pattern as diagnose.ps1 below.
+# agent/install/apply_update.ps1 and is inlined as base64 at render time -
+# same INLINE_*_PS1 pattern as diagnose.ps1 below.
 $ApplyUpdateScript = Join-Path $AgentDir "apply_update.ps1"
-@'
-{{INLINE_APPLY_UPDATE_PS1}}
-'@ | Set-Content -Path $ApplyUpdateScript -Encoding UTF8
+[System.IO.File]::WriteAllBytes($ApplyUpdateScript,
+    [System.Convert]::FromBase64String("{{INLINE_APPLY_UPDATE_PS1}}"))
 
 # ── Write log-rotation script (drops heartbeat entries older than 24 h) ──
 # Pure Python stdlib -- no third-party deps. Source lives at
-# agent/install/log_rotate.py, inlined verbatim at render time.
+# agent/install/log_rotate.py, inlined as base64 at render time.
 $LogRotateScript = Join-Path $AgentDir "log_rotate.py"
-@'
-{{INLINE_LOG_ROTATE_PY}}
-'@ | Set-Content -Path $LogRotateScript -Encoding UTF8
+[System.IO.File]::WriteAllBytes($LogRotateScript,
+    [System.Convert]::FromBase64String("{{INLINE_LOG_ROTATE_PY}}"))
 
 # ── Hidden-launch shim ────────────────────────────────────────
 # Task Scheduler invoking powershell.exe directly still briefly flashes a
@@ -405,9 +412,8 @@ Remove-Item -Path $TmpMeta -ErrorAction SilentlyContinue
 
 # ── Drop the recipient-side diagnose script ──────────────────
 $Diag = Join-Path $AgentDir "diagnose.ps1"
-@'
-{{INLINE_DIAGNOSE_PS1}}
-'@ | Set-Content -Path $Diag -Encoding UTF8
+[System.IO.File]::WriteAllBytes($Diag,
+    [System.Convert]::FromBase64String("{{INLINE_DIAGNOSE_PS1}}"))
 
 Write-Host ""
 Write-Info "Installation complete."
