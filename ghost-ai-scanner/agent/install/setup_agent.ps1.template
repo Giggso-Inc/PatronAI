@@ -65,7 +65,13 @@ function Test-PythonAvailable {
     # return exit code 0 with no real version string, which a bare
     # try/catch around `python --version` would misread as "available".
     try {
-        $versionOutput = (python --version 2>&1 | Out-String).Trim()
+        # Same NativeCommandError trap as the bcrypt probe below: under
+        # -ErrorAction Stop, `2>&1` on a native command throws on any stderr
+        # output. Scope the preference for the call instead of redirecting.
+        $prevEapPy = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try { $versionOutput = (python --version | Out-String).Trim() }
+        finally { $ErrorActionPreference = $prevEapPy }
         return ($LASTEXITCODE -eq 0 -and $versionOutput -match '^Python \d+\.\d+\.\d+')
     } catch {
         return $false
@@ -104,7 +110,33 @@ if (-not (Test-PythonAvailable)) {
         Write-Fail "Python 3 is required and winget is not available on this machine. Install manually from python.org and re-run."
     }
 }
-$bcryptOk = python -c "import bcrypt; print('ok')" 2>$null
+# [2026-11-12] Do NOT redirect this probe's stderr. With
+# $ErrorActionPreference = "Stop" (set at the top of this script),
+# `2>$null` / `2>&1` on a NATIVE command is precisely what makes PowerShell
+# 5.1 wrap each stderr line in an ErrorRecord and throw NativeCommandError --
+# the redirect manufactures the failure it looks like it is suppressing.
+# Confirmed live: a machine without bcrypt died here with exit 1 instead of
+# falling through to the install below, taking the whole PatronAI agent with
+# it while Raven installed fine.
+#
+# Answer the question inside Python instead, so no stderr is ever produced:
+# a missing module is an expected, handled state here, not an error worth
+# printing a traceback for.
+$bcryptProbe = @'
+import sys
+try:
+    import bcrypt  # noqa: F401
+    sys.stdout.write("ok")
+except Exception:
+    sys.stdout.write("missing")
+'@
+$bcryptOk = $null
+try {
+    $bcryptOk = ($bcryptProbe | & python - | Select-Object -Last 1)
+    if ($bcryptOk) { $bcryptOk = $bcryptOk.ToString().Trim() }
+} catch {
+    $bcryptOk = $null
+}
 if ($bcryptOk -ne "ok") {
     Write-Info "Installing bcrypt..."
     pip install --quiet "bcrypt>=4.0.0" | Out-Null
@@ -289,7 +321,13 @@ try {
 # Honours an existing init.templateDir if one is already set (additive).
 $TemplateDir   = Join-Path $AgentDir "git-template"
 $TemplateHooks = Join-Path $TemplateDir "hooks"
-$ExistingTpl   = (& git config --global --get init.templateDir 2>$null)
+# `git config --get` exits 1 when the key is simply unset, which is the
+# normal case here. Scope the preference rather than redirecting stderr --
+# see the NativeCommandError note on the bcrypt probe.
+$prevEapGit = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try { $ExistingTpl = (& git config --global --get init.templateDir) }
+finally { $ErrorActionPreference = $prevEapGit }
 if ($ExistingTpl -and $ExistingTpl -ne $TemplateDir) {
     $Expanded = $ExistingTpl -replace '^~', $env:USERPROFILE
     $TgtHooks = Join-Path $Expanded "hooks"
