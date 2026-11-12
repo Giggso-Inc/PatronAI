@@ -200,6 +200,28 @@ Write-Info "OTP validated."
 # ── Install agent files (identity baked at install) ──────────
 New-Item -ItemType Directory -Force -Path $AgentDir | Out-Null
 
+# [2026-11-12] Stop a PREVIOUSLY INSTALLED agent before writing into its
+# directory. On a re-install the old PatronAI-Heartbeat (5 min) and
+# PatronAI-Scan (30 min) tasks are still live and holding agent.log open, and
+# truncating a file another process holds throws IOException -- which killed
+# the whole install on a developer machine while Raven succeeded.
+#
+# The existing Unregister-ScheduledTask calls live in Register-AgentTask, far
+# below the file writes, so they cannot help here. Best-effort: a machine with
+# no prior install, or no task scheduler access, simply has nothing to stop.
+foreach ($__oldTask in @("PatronAI-Heartbeat", "PatronAI-Scan", "PatronAI-LogRotate", "PatronAI-Update")) {
+    try {
+        $__t = Get-ScheduledTask -TaskName $__oldTask -ErrorAction SilentlyContinue
+        if ($__t) {
+            Stop-ScheduledTask -TaskName $__oldTask -ErrorAction SilentlyContinue
+            Unregister-ScheduledTask -TaskName $__oldTask -Confirm:$false -ErrorAction SilentlyContinue
+            Write-Info "Stopped previously-installed $__oldTask before reinstalling."
+        }
+    } catch { }
+}
+# Give a task that was mid-run a moment to release its file handles.
+Start-Sleep -Seconds 2
+
 # Compute MAC + device_uuid once, then persist alongside token/email.
 # Get-NetAdapter has no built-in timeout and is known to hang on some
 # machines (WMI provider issues, VPN/virtual adapters) - bounded via a
@@ -245,13 +267,24 @@ $UrlsRefreshUrl    | Set-Content -Path (Join-Path $AgentDir "urls_refresh_url.tx
 $AgentVersion      | Set-Content -Path (Join-Path $AgentDir "agent_version.txt")       -Encoding UTF8
 
 # Local action log (one JSON-line per PUT). Replaces silent failure.
-New-Item -ItemType File -Force -Path (Join-Path $AgentDir "agent.log") | Out-Null
+# [2026-11-12] Do NOT -Force this. -Force truncates an existing file, and
+# truncation throws IOException when something still holds it open (see the
+# task shutdown above). An existing log is also worth keeping across a
+# reinstall. Creation is best-effort: a log file can never be the reason an
+# install fails.
+$__agentLog = Join-Path $AgentDir "agent.log"
+if (-not (Test-Path $__agentLog)) {
+    try { New-Item -ItemType File -Path $__agentLog -ErrorAction Stop | Out-Null }
+    catch { Write-Info "Could not create agent.log ($_) -- continuing; the agent recreates it on first write." }
+}
 $AuthorizedDomains | Set-Content -Path (Join-Path $AgentDir "authorized_domains")      -Encoding UTF8
 
 # Phase 1A — first-run flag. scan_first_run.py.frag reads it (IS_FIRST_RUN);
 # the footer clears it after a successful payload print so subsequent scans
 # run in lighter recurring mode.
-New-Item -ItemType File -Force -Path (Join-Path $AgentDir "first_run.flag") | Out-Null
+$__firstRun = Join-Path $AgentDir "first_run.flag"
+try { New-Item -ItemType File -Force -Path $__firstRun -ErrorAction Stop | Out-Null }
+catch { Write-Info "Could not write first_run.flag ($_) -- the next scan runs in recurring mode." }
 
 # ── Write pre-commit hook script ──────────────────────────────
 # Source lives at agent/install/pre_commit_hook.ps1 and is inlined as
