@@ -72,7 +72,7 @@ try {
     # --- Fetch ------------------------------------------------------------
     $TmpZip = Join-Path $env:TEMP "patronai-update-$TargetVersion.zip"
     try {
-        Invoke-WebRequest -Uri $BundleUrl -OutFile $TmpZip -TimeoutSec 60
+        Invoke-WebRequest -Uri $BundleUrl -OutFile $TmpZip -TimeoutSec 60 -UseBasicParsing
     } catch {
         Write-UpdateLog "update_failed" @{ reason = "download_failed"; target = $TargetVersion }
         return
