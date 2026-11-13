@@ -171,7 +171,7 @@ if ($OtpInput -notmatch '^\d{6}$') {
 Write-Info "Validating OTP..."
 $TmpMeta = Join-Path $env:TEMP "patronai-meta-$Token.json"
 try {
-    Invoke-WebRequest -Uri $MetaUrl -OutFile $TmpMeta -TimeoutSec 30
+    Invoke-WebRequest -Uri $MetaUrl -OutFile $TmpMeta -TimeoutSec 30 -UseBasicParsing
 } catch {
     Write-Fail "Cannot reach installation server. URL may have expired."
 }
@@ -404,7 +404,7 @@ $StatusPayload = @{
 
 try {
     Invoke-WebRequest -Uri $StatusPutUrl -Method Put -Body $StatusPayload `
-        -ContentType "application/json" -TimeoutSec 15 | Out-Null
+        -ContentType "application/json" -TimeoutSec 15 -UseBasicParsing | Out-Null
 } catch { <# non-fatal #> }
 
 # ── Write heartbeat script (URL refresh + identity + structured log) ──
