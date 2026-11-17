@@ -24,6 +24,19 @@
 # =============================================================
 $ErrorActionPreference = "Stop"
 
+# [2026-11-17, Phase 1 of the installer-architecture proposal] PatronAI has
+# no VC++ dependency (no native Python deps like Cowork's torch/spaCy), so
+# the WOW64 hazard here is narrower than Raven/CoworkDLP's -- but a 32-bit
+# PowerShell host still reads $env:ProgramFiles / PROCESSOR_ARCHITECTURE
+# wrong for Python discovery (see setup_agent's own winget-based Python
+# auto-install below), so the same relaunch is applied for consistency and
+# to close that class before it's ever hit here. This template ships as a
+# single standalone file -- no sibling files on the user's machine -- so
+# the shared module is INLINED at build time, not imported at runtime; see
+# raven-enterprise's tools/inline_install_common.py (same build step,
+# pointed at this repo's copy of RavenInstallCommon.psm1).
+Assert-RavenRelaunched64Bit -ScriptPath $PSCommandPath -ScriptArgs $args
+
 $MetaUrl           = "{{META_URL}}"
 $StatusPutUrl      = "{{STATUS_PUT_URL}}"
 $HeartbeatPutUrl   = "{{HEARTBEAT_PUT_URL}}"
@@ -405,8 +418,12 @@ Register-PatronAITask "PatronAI-Scan"        $ScanScript        30 "PatronAI end
 Register-PatronAITask "PatronAI-LogRotate"   $LogRotateScript   1440 "PatronAI agent log rotation (drops heartbeat entries older than 24h)"
 Register-PatronAITask "PatronAI-Update"      $ApplyUpdateScript 60 "PatronAI agent self-update"
 
-# Run first scan immediately in background
-Start-Process wscript.exe -ArgumentList "//B `"$HiddenLauncher`" `"$ScanScript`""
+# Run first scan immediately in background. Fire-and-forget by design (no
+# -Wait -- the scan's own result surfaces later via its scheduled task), but
+# -PassThru (via the shared wrapper) still confirms the process actually
+# started rather than silently discarding that signal, consistent with
+# every other process launch in this codebase after the WOW64 postmortem.
+Start-RavenProcess -FilePath wscript.exe -ArgumentList @("//B", "`"$HiddenLauncher`"", "`"$ScanScript`"") | Out-Null
 
 Remove-Item -Path $TmpMeta -ErrorAction SilentlyContinue
 
