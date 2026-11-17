@@ -36,6 +36,17 @@ jobs:
           PYTHONPATH: src
         run: pytest tests/unit/ -q --tb=short
 
+  agent-version-bump:
+    name: Agent version bump check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Installer changes must bump AGENT_VERSION
+        run: python scripts/check_agent_version_bump.py origin/${{ github.base_ref }}
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

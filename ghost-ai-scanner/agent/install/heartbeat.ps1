@@ -108,6 +108,17 @@ if ((Test-Path $HookScript) -and (Test-Path $ChainLib)) {
         }
         if (Install-PatronAIChainHook -HooksDir $HD) { $Added++ }
     }
+    # The git template (init.templateDir) is not under a .git folder, so the
+    # sweep above never reaches it; repos created from an old template would
+    # inherit the broken hook. Repair it too.
+    try {
+        $TplDirs = @((Join-Path $AgentDir "git-template\hooks"))
+        $Cfg = (& git config --global --get init.templateDir 2>$null)
+        if ($Cfg) { $TplDirs += (Join-Path ($Cfg -replace '^~', $env:USERPROFILE) "hooks") }
+        foreach ($TD in ($TplDirs | Select-Object -Unique)) {
+            if (Test-Path $TD) { if (Install-PatronAIChainHook -HooksDir $TD) { $Added++ } }
+        }
+    } catch { }
     if ($Added -gt 0) {
         "{`"ts`":`"$Ts`",`"type`":`"hook_backstop`",`"added`":$Added}" | Add-Content -Path $Log
     }

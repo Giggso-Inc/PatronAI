@@ -92,6 +92,36 @@ def test_raven_block_kept_and_powershell_stripped(env):
     assert "$ConfigPath" not in preserved
 
 
+def test_raven_block_inside_powershell_span_survives(env):
+    """Raven's installer inserts its block BEFORE the PowerShell script's final
+    `exit 0` (wrapped in a status-keeping pair of lines). Stripping the
+    PowerShell span must not take that block with it."""
+    profile, hooks = env
+    raw = _RAW_HOOK.read_text(encoding="utf-8").replace("\r\n", "\n").rstrip("\n")
+    head, _, tail = raw.rpartition("\nexit 0")
+    assert tail.strip() == "", "pre_commit_hook.ps1 no longer ends with a bare exit 0"
+    (hooks / "pre-commit").write_text(
+        "#!/usr/bin/env bash\n" + head + "\n\n"
+        "__raven_rc=$?  # raven: keep the status the final exit reports\n"
+        + _RAVEN_BLOCK
+        + '(exit "$__raven_rc")  # raven: restore it\n\nexit 0\n',
+        encoding="utf-8", newline="\n",
+    )
+    _install(profile, hooks)
+    _assert_clean_chain(hooks / "pre-commit")
+    preserved = (hooks / "pre-commit.pre-patronai").read_text(encoding="utf-8")
+    assert preserved.startswith("#!/usr/bin/env bash\n")
+    assert "raven-asset-inventory-pre-commit" in preserved
+    assert "echo raven-ran" in preserved
+    assert "PatronAI pre-commit hook" not in preserved
+    assert "$ConfigPath" not in preserved
+    sh = shutil.which("sh") or shutil.which("bash")
+    if sh:
+        res = subprocess.run([sh, "-n", str(hooks / "pre-commit.pre-patronai")],
+                             capture_output=True, text=True)
+        assert res.returncode == 0, res.stderr
+
+
 def test_chain_runs_under_git_sh(env, tmp_path):
     """The installed chain must parse under sh (what Git for Windows uses)."""
     profile, hooks = env

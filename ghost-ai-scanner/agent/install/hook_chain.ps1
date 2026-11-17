@@ -37,14 +37,51 @@ function Write-PatronAIHookFile {
     [System.IO.File]::WriteAllText($Path, $Body, (New-Object System.Text.UTF8Encoding($false)))
 }
 
+function Get-PatronAIEmbeddedForeignBlock {
+    # Another tool's bash block (Raven's asset-inventory / guardrail /
+    # contribute blocks) can end up INSIDE the legacy PowerShell span, because
+    # that tool inserted itself before the PowerShell script's final "exit 0".
+    # Returns the lines of that block (Raven's status-keeping wrapper lines
+    # dropped), or an empty array when there is none.
+    param([string[]]$Lines)
+    $Sig = $script:PatronAIRawHookSignature
+    $s = -1; $e = -1
+    for ($i = 0; $i -lt $Lines.Count; $i++) {
+        if ($s -lt 0) { if ($Lines[$i].StartsWith($Sig)) { $s = $i }; continue }
+        if ($Lines[$i] -match '^exit 0[ \t]*$') { $e = $i; break }
+    }
+    if ($s -lt 0 -or $e -lt 0) { return @() }
+    $from = -1
+    for ($i = $s + 1; $i -lt $e; $i++) {
+        if ($Lines[$i] -match '^(__raven_rc=|# raven-(asset-inventory|guardrail|contribute))') { $from = $i; break }
+    }
+    if ($from -lt 0) { return @() }
+    $to = $e - 1
+    for ($i = $from; $i -lt $e; $i++) {
+        if ($Lines[$i] -match '# raven: restore it') { $to = $i; break }
+    }
+    $kept = @()
+    for ($i = $from; $i -le $to; $i++) {
+        if ($Lines[$i] -match '# raven: (keep the status|restore it)') { continue }
+        $kept += $Lines[$i]
+    }
+    return $kept
+}
+
 function Remove-PatronAIRawHook {
     # Returns $Content with any inlined legacy pre_commit_hook.ps1 block
     # removed: from the signature line through its final standalone
-    # "exit 0" line. Returns "" if nothing but a shebang/blank lines is left.
+    # "exit 0" line. A Raven block that sits inside that span is kept (it is
+    # bash, and is the commit-time check Raven relies on). Returns "" if
+    # nothing but a shebang/blank lines is left.
     param([AllowEmptyString()][string]$Content)
     $Text = ($Content -replace "`r`n", "`n").TrimStart([char]0xFEFF)
+    $Foreign = @(Get-PatronAIEmbeddedForeignBlock -Lines ($Text -split "`n"))
     $Pattern = '(?ms)^' + [regex]::Escape($script:PatronAIRawHookSignature) + '[^\n]*\n.*?^exit 0[ \t]*(\n|\z)'
-    $Text = [regex]::Replace($Text, $Pattern, '')
+    $Keep = ''
+    if ($Foreign.Count) { $Keep = ($Foreign -join "`n") + "`n" }
+    $M = [regex]::Match($Text, $Pattern)
+    if ($M.Success) { $Text = $Text.Substring(0, $M.Index) + $Keep + $Text.Substring($M.Index + $M.Length) }
     $Meaningful = ($Text -split "`n") | Where-Object { $_.Trim() -and $_ -notmatch '^#!' }
     if (-not $Meaningful) { return "" }
     return $Text
