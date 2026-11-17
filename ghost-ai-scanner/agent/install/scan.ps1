@@ -62,6 +62,6 @@ try {
 if ($Result) {
     try {
         Invoke-WebRequest -Uri $ScanUrl -Method Put -Body $Result `
-            -ContentType "application/json" -TimeoutSec 30 | Out-Null
+            -ContentType "application/json" -TimeoutSec 30 -UseBasicParsing | Out-Null
     } catch { <# non-fatal #> }
 }
