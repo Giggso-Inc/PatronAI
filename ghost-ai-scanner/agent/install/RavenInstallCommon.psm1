@@ -179,6 +179,16 @@ function Write-RavenFileNoBom {
 # Start-Process wrapper that always captures -PassThru and returns a real
 # exit code -- the exact mechanism the WOW64 incident's own postmortem
 # named as the reason the real failure produced no diagnostic at all.
+#
+# -Wait is OPTIONAL, not defaulted to $true, because at least one real
+# caller needs fire-and-forget launch semantics (PatronAI's background
+# first-scan trigger) -- defaulting it here would silently turn that into
+# a blocking call. Caller contract: if -Wait is omitted, the returned
+# process object's .ExitCode is NOT meaningful (the process has not
+# necessarily terminated yet) -- it still proves the launch itself
+# succeeded (PassThru always set), which is the signal fire-and-forget
+# callers actually want. Callers that need the real exit code MUST pass
+# -Wait.
 # ------------------------------------------------------------------------
 function Start-RavenProcess {
     param(
