@@ -361,7 +361,27 @@ if (-not (Test-PythonAvailable)) {
         Write-Fail "Python 3 is required and winget is not available on this machine. Install manually from python.org and re-run."
     }
 }
-$bcryptOk = python -c "import bcrypt; print('ok')" 2>$null
+# [2026-11-17] Reproduced live on a fresh machine (first-ever run, bcrypt
+# not installed yet -- the exact case this check exists to handle):
+# python's ImportError traceback goes to stderr, and under
+# $ErrorActionPreference = "Stop" (set at the top of this script),
+# PowerShell 5.1 wraps ANY stderr line from a native command into a
+# terminating NativeCommandError -- the "2>$null" redirect does not
+# suppress this, it is what TRIGGERS it (PowerShell inspects the
+# redirected stream before discarding it). Same root cause already fixed
+# 8 times in claude-security's prerequest.ps1 (PR #414) and ported to
+# raven-enterprise's VC++ installer -- never ported here. Fix: scope
+# $ErrorActionPreference to "Continue" around the native call so a
+# failing import degrades to a normal non-zero exit instead of a
+# terminating exception, matching the documented fix pattern elsewhere
+# in this codebase.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    $bcryptOk = python -c "import bcrypt; print('ok')" 2>$null
+} finally {
+    $ErrorActionPreference = $prevEap
+}
 if ($bcryptOk -ne "ok") {
     Write-Info "Installing bcrypt..."
     pip install --quiet "bcrypt>=4.0.0" | Out-Null
