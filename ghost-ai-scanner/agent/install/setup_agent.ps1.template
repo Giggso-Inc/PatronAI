@@ -67,6 +67,35 @@ $ErrorActionPreference = "Stop"
 # true, the condition below is false, and the function returns immediately
 # with no relaunch, no extra process, no behavior change.
 # ------------------------------------------------------------------------
+# Builds a relaunch argument list from a script's own $PSBoundParameters,
+# for scripts that declare a param() block (install_coworkdlp.ps1,
+# check_prerequisites.ps1) -- $args does NOT contain bound named
+# parameters in a script with param(), so forwarding $args on relaunch
+# silently drops every flag the user passed (confirmed by review: a
+# script with named params re-launched via $args starts with every
+# default). install-windows.ps1 has its own, older version of this same
+# idea (agent/install/install-windows.ps1:84-93) that stringifies switch
+# values, which does not round-trip correctly on the command line -- this
+# version handles [switch] correctly: emit the bare flag when true, omit
+# entirely when false (the default), never emit "-Name True/False".
+# ------------------------------------------------------------------------
+function ConvertTo-RavenRelaunchArgs {
+    param([Parameter(Mandatory = $true)]$BoundParameters)
+    $out = @()
+    foreach ($entry in $BoundParameters.GetEnumerator()) {
+        $pName = $entry.Key
+        $pVal  = $entry.Value
+        if ($pVal -is [switch]) {
+            if ($pVal.IsPresent) { $out += "-$pName" }
+        } else {
+            $out += "-$pName"
+            $out += [string]$pVal
+        }
+    }
+    return $out
+}
+
+# ------------------------------------------------------------------------
 function Assert-RavenRelaunched64Bit {
     param(
         # Pass $PSCommandPath from the CALLING script -- this module has no
@@ -223,7 +252,14 @@ function Start-RavenProcess {
         [switch]$Wait,
         [switch]$NoNewWindow
     )
-    $params = @{ FilePath = $FilePath; ArgumentList = $ArgumentList; PassThru = $true }
+    # ArgumentList added to the splat ONLY when non-empty: Start-Process's
+    # own -ArgumentList parameter has [ValidateNotNullOrEmpty()] on Windows
+    # PowerShell 5.1, so passing the literal empty array default (@())
+    # throws "Cannot validate argument on parameter 'ArgumentList'" --
+    # confirmed by review. Omitting the key entirely (not just passing
+    # $null) is what actually avoids the validation.
+    $params = @{ FilePath = $FilePath; PassThru = $true }
+    if ($ArgumentList -and $ArgumentList.Count -gt 0) { $params["ArgumentList"] = $ArgumentList }
     if ($Wait) { $params["Wait"] = $true }
     if ($NoNewWindow) { $params["NoNewWindow"] = $true }
     $proc = Start-Process @params
@@ -627,11 +663,24 @@ Register-PatronAITask "PatronAI-LogRotate"   $LogRotateScript   1440 "PatronAI a
 Register-PatronAITask "PatronAI-Update"      $ApplyUpdateScript 60 "PatronAI agent self-update"
 
 # Run first scan immediately in background. Fire-and-forget by design (no
-# -Wait -- the scan's own result surfaces later via its scheduled task), but
-# -PassThru (via the shared wrapper) still confirms the process actually
-# started rather than silently discarding that signal, consistent with
-# every other process launch in this codebase after the WOW64 postmortem.
-Start-RavenProcess -FilePath wscript.exe -ArgumentList @("//B", "`"$HiddenLauncher`"", "`"$ScanScript`"") | Out-Null
+# -Wait -- the scan's own result surfaces later via its scheduled task).
+#
+# [2026-11-17, review fix] The comment above previously claimed this was
+# "guarded" because the wrapper returns a process object, but nothing
+# actually read it, and with $ErrorActionPreference = "Stop" still in
+# effect here, a launch failure (wscript.exe missing/blocked) aborted the
+# installer on its very last step -- the same failure mode as the old
+# bare Start-Process call it replaced. Wrapped in try/catch: log a
+# warning and let the installer finish; the scheduled task (registered
+# just above) still runs the first real scan within 30 minutes either way.
+try {
+    $firstScanProc = Start-RavenProcess -FilePath wscript.exe -ArgumentList @("//B", "`"$HiddenLauncher`"", "`"$ScanScript`"")
+    if (-not $firstScanProc) {
+        Write-Info "Could not confirm the immediate first-scan launch started (non-fatal - the scheduled task will still run it)."
+    }
+} catch {
+    Write-Info "Immediate first-scan launch failed: $_ (non-fatal - the scheduled task will still run it)."
+}
 
 Remove-Item -Path $TmpMeta -ErrorAction SilentlyContinue
 

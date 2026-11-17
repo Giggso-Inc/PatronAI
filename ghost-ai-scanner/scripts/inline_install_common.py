@@ -56,6 +56,12 @@ def inline(target_text: str, functions_text: str) -> str:
         # Re-run: replace the previously inlined block in place, so repeated
         # builds never duplicate it and always carry the CURRENT module
         # source, not a stale copy from the first build.
+        #
+        # re.sub(block, ...) (passing `block` directly as the replacement)
+        # treats it as a regex REPLACEMENT TEMPLATE, where a literal
+        # backslash sequence in the module source (e.g. a Windows path in a
+        # comment) can raise "bad escape" or be silently misinterpreted.
+        # The lambda makes `block` a literal string substitution instead.
         return pattern.sub(lambda _m: block, target_text)
 
     # First run: insert right after the first $ErrorActionPreference line
@@ -81,14 +87,39 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--module", required=True, type=Path)
     ap.add_argument("--target", required=True, type=Path)
-    ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--out", type=Path)
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "Don't write anything -- regenerate from --module and --target "
+            "in memory and exit non-zero if the result differs from what's "
+            "currently on disk at --target (i.e. the committed inlined copy "
+            "has drifted from the .psm1 source). Addresses review feedback "
+            "(M2, PR #702): nothing previously guarded the committed inlined "
+            "copies against drifting out of sync with the module."
+        ),
+    )
     args = ap.parse_args()
+
+    if not args.check and args.out is None:
+        ap.error("--out is required unless --check is given")
 
     module_text = args.module.read_text(encoding="utf-8")
     target_text = args.target.read_text(encoding="utf-8")
 
     functions_text = extract_functions(module_text)
     result = inline(target_text, functions_text)
+
+    if args.check:
+        if result == target_text:
+            print(f"OK: {args.target} already matches {args.module}")
+            return
+        print(
+            f"DRIFT: {args.target} does NOT match what {args.module} would "
+            f"produce -- re-run without --check and commit the result."
+        )
+        sys.exit(1)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(result, encoding="utf-8", newline="\n")

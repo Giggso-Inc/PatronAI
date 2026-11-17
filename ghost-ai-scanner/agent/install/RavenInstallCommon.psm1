@@ -41,6 +41,35 @@ $ErrorActionPreference = "Stop"
 # true, the condition below is false, and the function returns immediately
 # with no relaunch, no extra process, no behavior change.
 # ------------------------------------------------------------------------
+# Builds a relaunch argument list from a script's own $PSBoundParameters,
+# for scripts that declare a param() block (install_coworkdlp.ps1,
+# check_prerequisites.ps1) -- $args does NOT contain bound named
+# parameters in a script with param(), so forwarding $args on relaunch
+# silently drops every flag the user passed (confirmed by review: a
+# script with named params re-launched via $args starts with every
+# default). install-windows.ps1 has its own, older version of this same
+# idea (agent/install/install-windows.ps1:84-93) that stringifies switch
+# values, which does not round-trip correctly on the command line -- this
+# version handles [switch] correctly: emit the bare flag when true, omit
+# entirely when false (the default), never emit "-Name True/False".
+# ------------------------------------------------------------------------
+function ConvertTo-RavenRelaunchArgs {
+    param([Parameter(Mandatory = $true)]$BoundParameters)
+    $out = @()
+    foreach ($entry in $BoundParameters.GetEnumerator()) {
+        $pName = $entry.Key
+        $pVal  = $entry.Value
+        if ($pVal -is [switch]) {
+            if ($pVal.IsPresent) { $out += "-$pName" }
+        } else {
+            $out += "-$pName"
+            $out += [string]$pVal
+        }
+    }
+    return $out
+}
+
+# ------------------------------------------------------------------------
 function Assert-RavenRelaunched64Bit {
     param(
         # Pass $PSCommandPath from the CALLING script -- this module has no
@@ -197,7 +226,14 @@ function Start-RavenProcess {
         [switch]$Wait,
         [switch]$NoNewWindow
     )
-    $params = @{ FilePath = $FilePath; ArgumentList = $ArgumentList; PassThru = $true }
+    # ArgumentList added to the splat ONLY when non-empty: Start-Process's
+    # own -ArgumentList parameter has [ValidateNotNullOrEmpty()] on Windows
+    # PowerShell 5.1, so passing the literal empty array default (@())
+    # throws "Cannot validate argument on parameter 'ArgumentList'" --
+    # confirmed by review. Omitting the key entirely (not just passing
+    # $null) is what actually avoids the validation.
+    $params = @{ FilePath = $FilePath; PassThru = $true }
+    if ($ArgumentList -and $ArgumentList.Count -gt 0) { $params["ArgumentList"] = $ArgumentList }
     if ($Wait) { $params["Wait"] = $true }
     if ($NoNewWindow) { $params["NoNewWindow"] = $true }
     $proc = Start-Process @params
@@ -206,6 +242,7 @@ function Start-RavenProcess {
 
 Export-ModuleMember -Function `
     Assert-RavenRelaunched64Bit, `
+    ConvertTo-RavenRelaunchArgs, `
     Get-VCRedistState, `
     Test-VCRedistPresent, `
     Invoke-RavenWebRequest, `
