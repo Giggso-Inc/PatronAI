@@ -103,7 +103,7 @@ function Assert-RavenRelaunched64Bit {
     # to get wrong in a way nobody has seen yet.
     if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess `
             -and -not $env:RAVEN_ORG_ARCH_RELAUNCHED -and $ScriptPath) {
-        $sysNativePwsh = Join-Path $env:WINDIR "sysnative\WindowsPowerShell\v1.0\powershell.exe"
+        $sysNativePwsh = Join-Path $env:SystemRoot "Sysnative\WindowsPowerShell\v1.0\powershell.exe"
         if (Test-Path $sysNativePwsh) {
             Write-Host "  32-bit PowerShell on 64-bit Windows -- restarting this installer in 64-bit PowerShell..." -ForegroundColor DarkCyan
             $env:RAVEN_ORG_ARCH_RELAUNCHED = "1"

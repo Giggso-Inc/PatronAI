@@ -56,7 +56,7 @@ def inline(target_text: str, functions_text: str) -> str:
         # Re-run: replace the previously inlined block in place, so repeated
         # builds never duplicate it and always carry the CURRENT module
         # source, not a stale copy from the first build.
-        return pattern.sub(block, target_text)
+        return pattern.sub(lambda _m: block, target_text)
 
     # First run: insert right after the first $ErrorActionPreference line
     # (every entry point sets this as its first real statement, after the
