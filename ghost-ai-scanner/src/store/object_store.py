@@ -719,8 +719,19 @@ def _apply_storage_dict(storage: dict[str, Any], *, force: bool = True) -> None:
     _set("AWS_ACCESS_KEY_ID", storage.get("s3_access_key_id") or "")
     _set("AWS_SECRET_ACCESS_KEY", storage.get("s3_secret_access_key") or "")
     if storage.get("s3_region"):
-        _set("AWS_DEFAULT_REGION", storage["s3_region"])
-        _set("AWS_REGION", storage["s3_region"])
+        # Always force these two, regardless of the caller's `force`: EC2
+        # instances commonly already have AWS_REGION/AWS_DEFAULT_REGION set
+        # ambiently (for IMDS/other AWS SDK calls, matching the INSTANCE's
+        # own region) before Bootstrap ever runs. That value has nothing to
+        # do with which region the configured bucket lives in, but with
+        # force=False it silently won the gap-fill check below, so boto3
+        # kept signing presigned URLs for the wrong region — S3 answers a
+        # cross-region-signed request with 301 PermanentRedirect, which the
+        # installer's client surfaces as "Cannot reach installation server.
+        # URL may have expired." Reproduced live: bucket is us-east-1,
+        # ambient AWS_REGION was ap-south-1.
+        os.environ["AWS_DEFAULT_REGION"] = storage["s3_region"]
+        os.environ["AWS_REGION"] = storage["s3_region"]
     if storage.get("s3_bucket"):
         _set("MARAUDER_SCAN_BUCKET", storage["s3_bucket"])
         _set("OBJECT_BUCKET", storage["s3_bucket"])
