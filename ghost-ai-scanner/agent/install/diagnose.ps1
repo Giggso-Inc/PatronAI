@@ -1,13 +1,20 @@
-﻿# =============================================================
+# =============================================================
 # FILE: ~/.patronai/diagnose.ps1  (after install -- installer copies this here)
-# VERSION: 1.0.0
-# UPDATED: 2026-04-25
+# VERSION: 1.0.1
+# UPDATED: 2026-11-21
 # OWNER: Giggso Inc (Ravi Venugopal)
 # PURPOSE: One-command self-test for Windows hook-agent recipients.
 #          Mirrors agent/install/diagnose.sh.
 # USAGE:   powershell -ExecutionPolicy Bypass -File ~/.patronai/diagnose.ps1
 # AUDIT LOG:
 #   v1.0.0  2026-04-25  Initial. Step 0 -- local diagnostics.
+#   v1.0.1  2026-11-21  Replaced non-ASCII check-mark/cross-mark/dash
+#                       characters with ASCII -- PowerShell 5.1's parser
+#                       misreads this BOM-less file under a non-UTF-8
+#                       system codepage, corrupting a string literal and
+#                       failing apply_update.ps1's syntax-check gate for
+#                       every one of the 5 updatable scripts, not just
+#                       this one.
 # =============================================================
 $ErrorActionPreference = "Continue"
 
